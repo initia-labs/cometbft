@@ -358,6 +358,11 @@ FOR_LOOP:
 			if err == nil {
 				// validate the block before we persist it
 				err = bcR.blockExec.ValidateBlock(state, first)
+
+				// INITIA CUSTOM
+				if err != nil {
+					bcR.store.SaveInvalidBlock(err.Error(), first.Height)
+				}
 			}
 
 			if err != nil {

@@ -23,8 +23,10 @@ type BlockStore interface {
 	LoadBaseMeta() *types.BlockMeta
 	LoadBlockMeta(height int64) *types.BlockMeta
 	LoadBlock(height int64) *types.Block
+	LoadInvalidBlock() (string, int64)
 
 	SaveBlock(block *types.Block, blockParts *types.PartSet, seenCommit *types.Commit)
+	SaveInvalidBlock(reason string, height int64)
 
 	PruneBlocks(height int64) (uint64, error)
 

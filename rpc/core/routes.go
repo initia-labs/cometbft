@@ -48,6 +48,9 @@ var Routes = map[string]*rpc.RPCFunc{
 
 	// evidence API
 	"broadcast_evidence": rpc.NewRPCFunc(BroadcastEvidence, "evidence"),
+
+	// invalid block API
+	"invalid_block": rpc.NewRPCFunc(InvalidBlock, ""),
 }
 
 // AddUnsafeRoutes adds unsafe routes.

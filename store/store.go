@@ -41,6 +41,10 @@ type BlockStore struct {
 	mtx    cmtsync.RWMutex
 	base   int64
 	height int64
+
+	// invalid block
+	invalidBlockReason string
+	invalidBlockHeight int64
 }
 
 // NewBlockStore returns a new BlockStore with the given DB,
@@ -440,6 +444,15 @@ func (bs *BlockStore) SaveSeenCommit(height int64, seenCommit *types.Commit) err
 		return fmt.Errorf("unable to marshal commit: %w", err)
 	}
 	return bs.db.Set(calcSeenCommitKey(height), seenCommitBytes)
+}
+
+func (bs *BlockStore) SaveInvalidBlock(reason string, height int64) {
+	bs.invalidBlockHeight = height
+	bs.invalidBlockReason = reason
+}
+
+func (bs *BlockStore) LoadInvalidBlock() (string, int64) {
+	return bs.invalidBlockReason, bs.invalidBlockHeight
 }
 
 func (bs *BlockStore) Close() error {

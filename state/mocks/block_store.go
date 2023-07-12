@@ -223,6 +223,14 @@ func (_m *BlockStore) Size() int64 {
 	return r0
 }
 
+func (bs *BlockStore) SaveInvalidBlock(_ string, _ int64) {
+}
+
+func (bs *BlockStore) LoadInvalidBlock() (string, int64) {
+	return "", 0
+}
+
+
 type mockConstructorTestingTNewBlockStore interface {
 	mock.TestingT
 	Cleanup(func())
