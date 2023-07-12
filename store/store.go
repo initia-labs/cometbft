@@ -126,6 +126,28 @@ func (bs *BlockStore) LoadBlock(height int64) *types.Block {
 	return block
 }
 
+// LoadBlockBytes returns the block bytes with the given height.
+// If no block is found for that height, it returns nil.
+func (bs *BlockStore) LoadBlockBytes(height int64) []byte {
+	blockMeta := bs.LoadBlockMeta(height)
+	if blockMeta == nil {
+		return nil
+	}
+
+	buf := []byte{}
+	for i := 0; i < int(blockMeta.BlockID.PartSetHeader.Total); i++ {
+		part := bs.LoadBlockPart(height, i)
+		// If the part is missing (e.g. since it has been deleted after we
+		// loaded the block meta) we consider the whole block to be missing.
+		if part == nil {
+			return nil
+		}
+		buf = append(buf, part.Bytes...)
+	}
+
+	return buf
+}
+
 // LoadBlockByHash returns the block with the given hash.
 // If no block is found for that hash, it returns nil.
 // Panics if it fails to parse height associated with the given hash.

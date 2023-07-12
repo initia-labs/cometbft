@@ -260,3 +260,8 @@ type ResultInvalidBlock struct {
 	Reason string `json:"reason"`
 	Height int64  `json:"height"`
 }
+
+// Result of block bulk
+type ResultBlockBulk struct {
+	Blocks [][]byte `json:"blocks"`
+}

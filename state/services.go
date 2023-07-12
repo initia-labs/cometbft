@@ -24,6 +24,7 @@ type BlockStore interface {
 	LoadBlockMeta(height int64) *types.BlockMeta
 	LoadBlock(height int64) *types.Block
 	LoadInvalidBlock() (string, int64)
+	LoadBlockBytes(height int64) []byte
 
 	SaveBlock(block *types.Block, blockParts *types.PartSet, seenCommit *types.Commit)
 	SaveInvalidBlock(reason string, height int64)

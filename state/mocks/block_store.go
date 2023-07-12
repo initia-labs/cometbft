@@ -230,6 +230,9 @@ func (bs *BlockStore) LoadInvalidBlock() (string, int64) {
 	return "", 0
 }
 
+func (bs *BlockStore) LoadBlockBytes(height int64) []byte {
+	return nil
+}
 
 type mockConstructorTestingTNewBlockStore interface {
 	mock.TestingT

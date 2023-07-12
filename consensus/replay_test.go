@@ -1213,6 +1213,10 @@ func (bs *mockBlockStore) LoadInvalidBlock() (string, int64) {
 	return "", 0
 }
 
+func (bs *mockBlockStore) LoadBlockBytes(height int64) []byte {
+	return nil
+}
+
 //---------------------------------------
 // Test handshake/init chain
 

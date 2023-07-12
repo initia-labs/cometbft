@@ -51,6 +51,9 @@ var Routes = map[string]*rpc.RPCFunc{
 
 	// invalid block API
 	"invalid_block": rpc.NewRPCFunc(InvalidBlock, ""),
+
+	// block bulk API
+	"block_bulk": rpc.NewRPCFunc(BlockBulk, "start,end"),
 }
 
 // AddUnsafeRoutes adds unsafe routes.
