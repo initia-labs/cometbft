@@ -665,6 +665,12 @@ func (cs *State) updateToState(state sm.State) {
 		cs.StartTime = cs.config.Commit(cs.CommitTime)
 	}
 
+	if cs.ValidBlock != nil {
+		cs.LastNumTxs = len(cs.ValidBlock.Txs)
+	} else {
+		cs.LastNumTxs = 0
+	}
+
 	cs.Validators = validators
 	cs.Proposal = nil
 	cs.ProposalBlock = nil
@@ -1055,7 +1061,7 @@ func (cs *State) needProofBlock(height int64) bool {
 		return true
 	}
 
-	return !bytes.Equal(cs.state.AppHash, lastBlockMeta.Header.AppHash)
+	return cs.LastNumTxs > 1
 }
 
 // Enter (CreateEmptyBlocks): from enterNewRound(height,round)
