@@ -665,12 +665,6 @@ func (cs *State) updateToState(state sm.State) {
 		cs.StartTime = cs.config.Commit(cs.CommitTime)
 	}
 
-	if cs.ValidBlock != nil {
-		cs.LastNumTxs = len(cs.ValidBlock.Txs)
-	} else {
-		cs.LastNumTxs = 0
-	}
-
 	cs.Validators = validators
 	cs.Proposal = nil
 	cs.ProposalBlock = nil
@@ -1036,7 +1030,7 @@ func (cs *State) enterNewRound(height int64, round int32) {
 	// Wait for txs to be available in the mempool
 	// before we enterPropose in round 0. If the last block changed the app hash,
 	// we may need an empty "proof" block, and enterPropose immediately.
-	waitForTxs := cs.config.WaitForTxs() && round == 0 && !cs.needProofBlock(height)
+	waitForTxs := cs.config.WaitForTxs() && round == 0 && height != cs.state.InitialHeight
 	if waitForTxs {
 		if cs.config.CreateEmptyBlocksInterval > 0 {
 			cs.scheduleTimeout(cs.config.CreateEmptyBlocksInterval, height, round,
@@ -1061,7 +1055,7 @@ func (cs *State) needProofBlock(height int64) bool {
 		return true
 	}
 
-	return cs.LastNumTxs > 1
+	return !bytes.Equal(cs.state.AppHash, lastBlockMeta.Header.AppHash)
 }
 
 // Enter (CreateEmptyBlocks): from enterNewRound(height,round)
