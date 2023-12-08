@@ -665,6 +665,12 @@ func (cs *State) updateToState(state sm.State) {
 		cs.StartTime = cs.config.Commit(cs.CommitTime)
 	}
 
+	if cs.ValidBlock != nil {
+		cs.LastNumTxs = len(cs.ValidBlock.Txs)
+	} else {
+		cs.LastNumTxs = 0
+	}
+
 	cs.Validators = validators
 	cs.Proposal = nil
 	cs.ProposalBlock = nil
@@ -1028,9 +1034,13 @@ func (cs *State) enterNewRound(height int64, round int32) {
 		cs.Logger.Error("failed publishing new round", "err", err)
 	}
 	// Wait for txs to be available in the mempool
-	// before we enterPropose in round 0. If the last block changed the app hash,
+	// before we enterPropose in round 0. If the last block had non-zero num txs,
 	// we may need an empty "proof" block, and enterPropose immediately.
-	waitForTxs := cs.config.WaitForTxs() && round == 0 && height != cs.state.InitialHeight
+	waitForTxs := cs.config.WaitForTxs() &&
+		round == 0 &&
+		height != cs.state.InitialHeight &&
+		cs.LastNumTxs == 0
+
 	if waitForTxs {
 		if cs.config.CreateEmptyBlocksInterval > 0 {
 			cs.scheduleTimeout(cs.config.CreateEmptyBlocksInterval, height, round,
