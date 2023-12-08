@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"math/big"
 	"time"
 
 	"github.com/cometbft/cometbft/libs/pubsub/query"
@@ -44,6 +45,9 @@ func (qr QueryRange) LowerBoundValue() interface{} {
 	switch t := qr.LowerBound.(type) {
 	case int64:
 		return t + 1
+	case *big.Int:
+		tmp := new(big.Int)
+		return tmp.Add(t, big.NewInt(1))
 
 	case time.Time:
 		return t.Unix() + 1
@@ -67,7 +71,9 @@ func (qr QueryRange) UpperBoundValue() interface{} {
 	switch t := qr.UpperBound.(type) {
 	case int64:
 		return t - 1
-
+	case *big.Int:
+		tmp := new(big.Int)
+		return tmp.Sub(t, big.NewInt(1))
 	case time.Time:
 		return t.Unix() - 1
 
@@ -81,14 +87,13 @@ func (qr QueryRange) UpperBoundValue() interface{} {
 func LookForRangesWithHeight(conditions []query.Condition) (queryRange QueryRanges, indexes []int, heightRange QueryRange) {
 	queryRange = make(QueryRanges)
 	for i, c := range conditions {
-		heightKey := false
 		if IsRangeOperation(c.Op) {
+			heightKey := c.CompositeKey == types.BlockHeightKey || c.CompositeKey == types.TxHeightKey
 			r, ok := queryRange[c.CompositeKey]
 			if !ok {
 				r = QueryRange{Key: c.CompositeKey}
 				if c.CompositeKey == types.BlockHeightKey || c.CompositeKey == types.TxHeightKey {
 					heightRange = QueryRange{Key: c.CompositeKey}
-					heightKey = true
 				}
 			}
 
