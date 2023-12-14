@@ -689,6 +689,7 @@ func (cs *State) updateToState(state sm.State) {
 	cs.CommitRound = -1
 	cs.LastValidators = state.LastValidators
 	cs.TriggeredTimeoutPrecommit = false
+	cs.TxsAvailable = false
 
 	cs.state = state
 
@@ -965,6 +966,9 @@ func (cs *State) handleTxsAvailable() {
 
 	switch cs.Step {
 	case cstypes.RoundStepNewHeight: // timeoutCommit phase
+		// available txs found in mempool
+		cs.TxsAvailable = true
+
 		if cs.needProofBlock(cs.Height) {
 			// enterPropose will be called by enterNewRound
 			return
@@ -1049,7 +1053,8 @@ func (cs *State) enterNewRound(height int64, round int32) {
 	waitForTxs := cs.config.WaitForTxs() &&
 		round == 0 &&
 		height != cs.state.InitialHeight &&
-		cs.LastNumTxs == 0
+		cs.LastNumTxs == 0 &&
+		!cs.TxsAvailable
 
 	if waitForTxs {
 		if cs.config.CreateEmptyBlocksInterval > 0 {

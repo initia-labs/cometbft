@@ -100,6 +100,7 @@ type RoundState struct {
 	LastCommit                *types.VoteSet      `json:"last_commit"`  // Last precommits at Height-1
 	LastValidators            *types.ValidatorSet `json:"last_validators"`
 	LastNumTxs                int                 `json:"last_num_txs"`
+	TxsAvailable              bool                `json:"txs_available"`
 	TriggeredTimeoutPrecommit bool                `json:"triggered_timeout_precommit"`
 }
 
