@@ -672,7 +672,7 @@ func (cs *State) updateToState(state sm.State) {
 	if cs.ValidBlock != nil {
 		cs.LastNumTxs = len(cs.ValidBlock.Txs)
 	} else {
-		cs.LastNumTxs = 0
+		cs.LastNumTxs = -1
 	}
 
 	cs.Validators = validators
