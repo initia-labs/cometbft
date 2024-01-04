@@ -1231,6 +1231,10 @@ func (bs *mockBlockStore) PruneBlocks(height int64, _ sm.State) (uint64, int64, 
 func (bs *mockBlockStore) DeleteLatestBlock() error { return nil }
 func (bs *mockBlockStore) Close() error             { return nil }
 
+func (bs *mockBlockStore) LoadBlockBytes(height int64) []byte {
+	return nil
+}
+
 //---------------------------------------
 // Test handshake/init chain
 

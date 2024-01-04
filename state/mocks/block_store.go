@@ -329,6 +329,10 @@ func (_m *BlockStore) Size() int64 {
 	return r0
 }
 
+func (bs *BlockStore) LoadBlockBytes(height int64) []byte {
+	return nil
+}
+
 // NewBlockStore creates a new instance of BlockStore. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewBlockStore(t interface {

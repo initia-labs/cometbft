@@ -23,6 +23,7 @@ type BlockStore interface {
 	LoadBaseMeta() *types.BlockMeta
 	LoadBlockMeta(height int64) *types.BlockMeta
 	LoadBlock(height int64) *types.Block
+	LoadBlockBytes(height int64) []byte
 
 	SaveBlock(block *types.Block, blockParts *types.PartSet, seenCommit *types.Commit)
 	SaveBlockWithExtendedCommit(block *types.Block, blockParts *types.PartSet, seenCommit *types.ExtendedCommit)

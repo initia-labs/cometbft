@@ -1024,6 +1024,7 @@ func (cs *State) handleTxsAvailable() {
 
 	switch cs.Step {
 	case cstypes.RoundStepNewHeight: // timeoutCommit phase
+
 		if cs.needProofBlock(cs.Height) {
 			// enterPropose will be called by enterNewRound
 			return

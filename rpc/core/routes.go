@@ -51,6 +51,9 @@ func (env *Environment) GetRoutes() RoutesMap {
 
 		// evidence API
 		"broadcast_evidence": rpc.NewRPCFunc(env.BroadcastEvidence, "evidence"),
+
+		// block bulk API
+		"block_bulk": rpc.NewRPCFunc(env.BlockBulk, "start,end"),
 	}
 }
 

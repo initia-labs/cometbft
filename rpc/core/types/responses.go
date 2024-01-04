@@ -254,3 +254,8 @@ type ResultEvent struct {
 	Data   types.TMEventData   `json:"data"`
 	Events map[string][]string `json:"events"`
 }
+
+// Result of block bulk
+type ResultBlockBulk struct {
+	Blocks [][]byte `json:"blocks"`
+}
