@@ -729,6 +729,12 @@ func (cs *State) updateToState(state sm.State) {
 		cs.StartTime = cs.config.Commit(cs.CommitTime)
 	}
 
+	if cs.ValidBlock != nil {
+		cs.LastNumTxs = len(cs.ValidBlock.Txs)
+	} else {
+		cs.LastNumTxs = -1
+	}
+
 	cs.Validators = validators
 	cs.Proposal = nil
 	cs.ProposalBlock = nil
@@ -747,6 +753,7 @@ func (cs *State) updateToState(state sm.State) {
 	cs.CommitRound = -1
 	cs.LastValidators = state.LastValidators
 	cs.TriggeredTimeoutPrecommit = false
+	cs.TxsAvailable = false
 
 	cs.state = state
 
@@ -1022,6 +1029,9 @@ func (cs *State) handleTxsAvailable() {
 
 	switch cs.Step {
 	case cstypes.RoundStepNewHeight: // timeoutCommit phase
+		// available txs found in mempool
+		cs.TxsAvailable = true
+
 		if cs.needProofBlock(cs.Height) {
 			// enterPropose will be called by enterNewRound
 			return
@@ -1098,10 +1108,16 @@ func (cs *State) enterNewRound(height int64, round int32) {
 	if err := cs.eventBus.PublishEventNewRound(cs.NewRoundEvent()); err != nil {
 		cs.Logger.Error("failed publishing new round", "err", err)
 	}
+
 	// Wait for txs to be available in the mempool
-	// before we enterPropose in round 0. If the last block changed the app hash,
+	// before we enterPropose in round 0. If the last block had non-zero num txs,
 	// we may need an empty "proof" block, and enterPropose immediately.
-	waitForTxs := cs.config.WaitForTxs() && round == 0 && !cs.needProofBlock(height)
+	waitForTxs := cs.config.WaitForTxs() &&
+		round == 0 &&
+		height != cs.state.InitialHeight &&
+		cs.LastNumTxs == 0 &&
+		!cs.TxsAvailable
+
 	if waitForTxs {
 		if cs.config.CreateEmptyBlocksInterval > 0 {
 			cs.scheduleTimeout(cs.config.CreateEmptyBlocksInterval, height, round,
@@ -1709,7 +1725,10 @@ func (cs *State) finalizeCommit(height int64) {
 	}
 
 	if err := cs.blockExec.ValidateBlock(cs.state, block); err != nil {
-		panic(fmt.Errorf("+2/3 committed an invalid block: %w", err))
+		// INITIA CUSTOM
+		err = fmt.Errorf("+2/3 committed an invalid block: %w", err)
+		cs.blockStore.SaveInvalidBlock(err.Error(), block.Height)
+		panic(err)
 	}
 
 	logger.Info(

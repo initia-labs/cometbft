@@ -254,3 +254,14 @@ type ResultEvent struct {
 	Data   types.TMEventData   `json:"data"`
 	Events map[string][]string `json:"events"`
 }
+
+// Result of invalid block
+type ResultInvalidBlock struct {
+	Reason string `json:"reason"`
+	Height int64  `json:"height"`
+}
+
+// Result of block bulk
+type ResultBlockBulk struct {
+	Blocks [][]byte `json:"blocks"`
+}

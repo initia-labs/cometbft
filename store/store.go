@@ -45,6 +45,10 @@ type BlockStore struct {
 	mtx    cmtsync.RWMutex
 	base   int64
 	height int64
+
+	// invalid block
+	invalidBlockReason string
+	invalidBlockHeight int64
 }
 
 // NewBlockStore returns a new BlockStore with the given DB,
@@ -130,6 +134,28 @@ func (bs *BlockStore) LoadBlock(height int64) *types.Block {
 	}
 
 	return block
+}
+
+// LoadBlockBytes returns the block bytes with the given height.
+// If no block is found for that height, it returns nil.
+func (bs *BlockStore) LoadBlockBytes(height int64) []byte {
+	blockMeta := bs.LoadBlockMeta(height)
+	if blockMeta == nil {
+		return nil
+	}
+
+	buf := []byte{}
+	for i := 0; i < int(blockMeta.BlockID.PartSetHeader.Total); i++ {
+		part := bs.LoadBlockPart(height, i)
+		// If the part is missing (e.g. since it has been deleted after we
+		// loaded the block meta) we consider the whole block to be missing.
+		if part == nil {
+			return nil
+		}
+		buf = append(buf, part.Bytes...)
+	}
+
+	return buf
 }
 
 // LoadBlockByHash returns the block with the given hash.
@@ -530,6 +556,15 @@ func (bs *BlockStore) SaveSeenCommit(height int64, seenCommit *types.Commit) err
 		return fmt.Errorf("unable to marshal commit: %w", err)
 	}
 	return bs.db.Set(calcSeenCommitKey(height), seenCommitBytes)
+}
+
+func (bs *BlockStore) SaveInvalidBlock(reason string, height int64) {
+	bs.invalidBlockHeight = height
+	bs.invalidBlockReason = reason
+}
+
+func (bs *BlockStore) LoadInvalidBlock() (string, int64) {
+	return bs.invalidBlockReason, bs.invalidBlockHeight
 }
 
 func (bs *BlockStore) Close() error {
