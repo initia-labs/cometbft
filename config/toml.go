@@ -454,6 +454,19 @@ chunk_fetchers = "{{ .StateSync.ChunkFetchers }}"
 version = "{{ .BlockSync.Version }}"
 
 #######################################################
+###         Rollup Sync Configuration Options       ###
+#######################################################
+[rollupsync]
+enable = {{ .RollupSync.Enable }}
+
+# supported batch chain: l1, celestia
+batch_chain = "{{ .RollupSync.BatchChain }}"
+batch_submitter = "{{ .RollupSync.BatchSubmitter }}"
+
+batch_rpc = "{{ .RollupSync.BatchRPC }}"
+l1_rpc = "{{ .RollupSync.L1RPC }}"
+
+#######################################################
 ###         Consensus Configuration Options         ###
 #######################################################
 [consensus]

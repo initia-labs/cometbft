@@ -77,6 +77,7 @@ type Config struct {
 	Mempool         *MempoolConfig         `mapstructure:"mempool"`
 	StateSync       *StateSyncConfig       `mapstructure:"statesync"`
 	BlockSync       *BlockSyncConfig       `mapstructure:"blocksync"`
+	RollupSync      *RollupSyncConfig      `mapstructure:"rollupsync"`
 	Consensus       *ConsensusConfig       `mapstructure:"consensus"`
 	Storage         *StorageConfig         `mapstructure:"storage"`
 	TxIndex         *TxIndexConfig         `mapstructure:"tx_index"`
@@ -92,6 +93,7 @@ func DefaultConfig() *Config {
 		Mempool:         DefaultMempoolConfig(),
 		StateSync:       DefaultStateSyncConfig(),
 		BlockSync:       DefaultBlockSyncConfig(),
+		RollupSync:      DefaultRollupSyncConfig(),
 		Consensus:       DefaultConsensusConfig(),
 		Storage:         DefaultStorageConfig(),
 		TxIndex:         DefaultTxIndexConfig(),
@@ -950,6 +952,48 @@ func (cfg *BlockSyncConfig) ValidateBasic() error {
 	default:
 		return fmt.Errorf("unknown blocksync version %s", cfg.Version)
 	}
+}
+
+//-----------------------------------------------------------------------------
+// RollupSyncConfig
+
+type RollupSyncConfig struct {
+	Enable         bool   `mapstructure:"enable"`
+	BatchChain     string `mapstructure:"batch_chain"`
+	BatchSubmitter string `mapstructure:"batch_submitter"`
+	BatchRPC       string `mapstructure:"batch_rpc"`
+	L1RPC          string `mapstructure:"l1_rpc"`
+}
+
+// DefaultBlockSyncConfig returns a default configuration for the block sync service
+func DefaultRollupSyncConfig() *RollupSyncConfig {
+	return &RollupSyncConfig{
+		BatchChain: "l1",
+		L1RPC:      "tcp://0.0.0.0:26657",
+	}
+}
+
+// TestBlockSyncConfig returns a default configuration for the block sync.
+func TestRollupSyncConfig() *RollupSyncConfig {
+	return DefaultRollupSyncConfig()
+}
+
+// ValidateBasic performs basic validation.
+func (cfg *RollupSyncConfig) ValidateBasic() error {
+	if cfg.Enable {
+		if cfg.BatchChain == "l1" || cfg.BatchChain == "celestia" {
+			return errors.New("supported batch chains: l1 | celestia")
+		}
+
+		if cfg.BatchRPC == "" && cfg.BatchChain != "l1" {
+			return errors.New("rpc address of the batch chain is required")
+		}
+
+		if cfg.BatchSubmitter == "" {
+			return errors.New("batch account address is required")
+		}
+	}
+	return nil
 }
 
 //-----------------------------------------------------------------------------

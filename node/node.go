@@ -18,6 +18,7 @@ import (
 	cs "github.com/cometbft/cometbft/consensus"
 	"github.com/cometbft/cometbft/evidence"
 	"github.com/cometbft/cometbft/light"
+	"github.com/cometbft/cometbft/rollupsync"
 
 	"github.com/cometbft/cometbft/libs/log"
 	cmtpubsub "github.com/cometbft/cometbft/libs/pubsub"
@@ -336,8 +337,11 @@ func NewNodeWithContext(ctx context.Context,
 		return nil, fmt.Errorf("can't get pubkey: %w", err)
 	}
 
+	rollupSync := config.RollupSync.Enable
+
 	// Determine whether we should attempt state sync.
-	stateSync := config.StateSync.Enable && !onlyValidatorIsUs(state, pubKey)
+	// don't start statesync if rollup sync is enabled evenif state sync is on
+	stateSync := config.StateSync.Enable && !onlyValidatorIsUs(state, pubKey) && !rollupSync
 	if stateSync && state.LastBlockHeight > 0 {
 		logger.Info("Found local state with non-zero height, skipping state sync")
 		stateSync = false
@@ -362,7 +366,8 @@ func NewNodeWithContext(ctx context.Context,
 
 	// Determine whether we should do block sync. This must happen after the handshake, since the
 	// app may modify the validator set, specifying ourself as the only validator.
-	blockSync := !onlyValidatorIsUs(state, pubKey)
+	// don't start blocksync also if rollup sync is enabled
+	blockSync := !onlyValidatorIsUs(state, pubKey) && !rollupSync
 
 	logNodeStartupInfo(state, pubKey, logger, consensusLogger)
 
@@ -391,6 +396,21 @@ func NewNodeWithContext(ctx context.Context,
 			panic(fmt.Sprintf("failed to retrieve statesynced height from store %s; expected state store height to be %v", err, state.LastBlockHeight))
 		}
 	}
+
+	// start rollup sync first during offline
+	// rollup sync doesn't need p2p
+	if rollupSync && state.LastBlockHeight == 0 {
+		rollupSyncer, err := rollupsync.NewRollupSyncer(*config.RollupSync, logger.With("module", "rollupsync"), state, blockExec, blockStore)
+		if err != nil {
+			return nil, err
+		}
+
+		state, err = rollupSyncer.Start(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Don't start block sync if we're doing a state sync first.
 	bcReactor, err := createBlocksyncReactor(config, state, blockExec, blockStore, blockSync && !stateSync, logger, bsMetrics, offlineStateSyncHeight)
 	if err != nil {
