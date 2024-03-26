@@ -277,7 +277,6 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		return state, fmt.Errorf("commit failed for application: %v", err)
 	}
 	if isExecutorChanged {
-		blockExec.logger.Info("executed block", "executor changed!")
 		// force update validator set to be available that new validator make next block
 		state.LastHeightValidatorsChanged--
 		state.Validators = state.NextValidators.Copy()
