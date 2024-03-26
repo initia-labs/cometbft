@@ -118,6 +118,22 @@ func (_m *BlockStore) LoadBlockByHash(hash []byte) *types.Block {
 	return r0
 }
 
+// LoadBlockBytes provides a mock function with given fields: height
+func (_m *BlockStore) LoadBlockBytes(height int64) []byte {
+	ret := _m.Called(height)
+
+	var r0 []byte
+	if rf, ok := ret.Get(0).(func(int64) []byte); ok {
+		r0 = rf(height)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	return r0
+}
+
 // LoadBlockCommit provides a mock function with given fields: height
 func (_m *BlockStore) LoadBlockCommit(height int64) *types.Commit {
 	ret := _m.Called(height)
@@ -198,6 +214,56 @@ func (_m *BlockStore) LoadBlockPart(height int64, index int) *types.Part {
 	return r0
 }
 
+// LoadInvalidBlock provides a mock function with given fields:
+func (_m *BlockStore) LoadInvalidBlock() (string, int64) {
+	ret := _m.Called()
+
+	var r0 string
+	var r1 int64
+	if rf, ok := ret.Get(0).(func() (string, int64)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func() string); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func() int64); ok {
+		r1 = rf()
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+
+	return r0, r1
+}
+
+// LoadRawCommit provides a mock function with given fields: height
+func (_m *BlockStore) LoadRawCommit(height int64) ([]byte, error) {
+	ret := _m.Called(height)
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(int64) ([]byte, error)); ok {
+		return rf(height)
+	}
+	if rf, ok := ret.Get(0).(func(int64) []byte); ok {
+		r0 = rf(height)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(int64) error); ok {
+		r1 = rf(height)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // LoadSeenCommit provides a mock function with given fields: height
 func (_m *BlockStore) LoadSeenCommit(height int64) *types.Commit {
 	ret := _m.Called(height)
@@ -255,6 +321,11 @@ func (_m *BlockStore) SaveBlockWithExtendedCommit(block *types.Block, blockParts
 	_m.Called(block, blockParts, seenCommit)
 }
 
+// SaveInvalidBlock provides a mock function with given fields: reason, height
+func (_m *BlockStore) SaveInvalidBlock(reason string, height int64) {
+	_m.Called(reason, height)
+}
+
 // Size provides a mock function with given fields:
 func (_m *BlockStore) Size() int64 {
 	ret := _m.Called()
@@ -267,17 +338,6 @@ func (_m *BlockStore) Size() int64 {
 	}
 
 	return r0
-}
-
-func (bs *BlockStore) SaveInvalidBlock(_ string, _ int64) {
-}
-
-func (bs *BlockStore) LoadInvalidBlock() (string, int64) {
-	return "", 0
-}
-
-func (bs *BlockStore) LoadBlockBytes(height int64) []byte {
-	return nil
 }
 
 type mockConstructorTestingTNewBlockStore interface {

@@ -459,6 +459,8 @@ version = "{{ .BlockSync.Version }}"
 [rollupsync]
 enable = {{ .RollupSync.Enable }}
 
+bridge_id = {{ .RollupSync.BridgeId }}
+
 # supported batch chain: l1, celestia
 batch_chain = "{{ .RollupSync.BatchChain }}"
 batch_submitter = "{{ .RollupSync.BatchSubmitter }}"

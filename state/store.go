@@ -67,6 +67,10 @@ type Store interface {
 	LoadLastFinalizeBlockResponse(int64) (*abci.ResponseFinalizeBlock, error)
 	// LoadConsensusParams loads the consensus params for a given height
 	LoadConsensusParams(int64) (types.ConsensusParams, error)
+
+	// initia custom, it is to save current validators when executor is changed
+	SaveValidators(int64, int64, *types.ValidatorSet) error
+
 	// Save overwrites the previous state with the updated one
 	Save(State) error
 	// SaveFinalizeBlockResponse saves ABCIResponses for a given height
@@ -178,6 +182,25 @@ func (store dbStore) loadState(key []byte) (state State, err error) {
 		return state, err
 	}
 	return *sm, nil
+}
+
+// it is to save current validators when executor is changed
+func (store dbStore) SaveValidators(height int64, changedHeight int64, validators *types.ValidatorSet) error {
+	batch := store.db.NewBatch()
+	defer func(batch dbm.Batch) {
+		err := batch.Close()
+		if err != nil {
+			panic(err)
+		}
+	}(batch)
+	if err := store.saveValidatorsInfo(height, changedHeight, validators, batch); err != nil {
+		return err
+	}
+
+	if err := batch.WriteSync(); err != nil {
+		panic(err)
+	}
+	return nil
 }
 
 // Save persists the State, the ValidatorsInfo, and the ConsensusParamsInfo to the database.

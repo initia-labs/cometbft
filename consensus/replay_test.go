@@ -1212,6 +1212,11 @@ func (bs *mockBlockStore) LoadSeenCommit(height int64) *types.Commit {
 	return bs.extCommits[height-1].ToCommit()
 }
 
+func (bs *mockBlockStore) LoadRawCommit(height int64) ([]byte, error) {
+	proto := bs.extCommits[height-1].ToCommit().ToProto()
+	return proto.Marshal()
+}
+
 func (bs *mockBlockStore) LoadBlockExtendedCommit(height int64) *types.ExtendedCommit {
 	return bs.extCommits[height-1]
 }

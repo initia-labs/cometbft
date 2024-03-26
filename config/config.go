@@ -959,6 +959,7 @@ func (cfg *BlockSyncConfig) ValidateBasic() error {
 
 type RollupSyncConfig struct {
 	Enable         bool   `mapstructure:"enable"`
+	BridgeId       int64  `mapstructure:"bridge_id"`
 	BatchChain     string `mapstructure:"batch_chain"`
 	BatchSubmitter string `mapstructure:"batch_submitter"`
 	BatchRPC       string `mapstructure:"batch_rpc"`
@@ -981,6 +982,9 @@ func TestRollupSyncConfig() *RollupSyncConfig {
 // ValidateBasic performs basic validation.
 func (cfg *RollupSyncConfig) ValidateBasic() error {
 	if cfg.Enable {
+		if cfg.BridgeId == 0 {
+			return errors.New("bridge id is required")
+		}
 		if cfg.BatchChain == "l1" || cfg.BatchChain == "celestia" {
 			return errors.New("supported batch chains: l1 | celestia")
 		}
