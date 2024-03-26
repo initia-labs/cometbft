@@ -13,6 +13,7 @@ import (
 	"github.com/cosmos/gogoproto/proto"
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	"github.com/cometbft/cometbft/proxy"
 	"github.com/cometbft/cometbft/rollupsync/provider"
 	rstypes "github.com/cometbft/cometbft/rollupsync/types"
 )
@@ -24,10 +25,11 @@ type RollupSyncer struct {
 	targetBlockHeight uint64
 
 	// immutable
-	initialState sm.State
+	state sm.State
 
 	blockExec *sm.BlockExecutor
 	store     *store.BlockStore
+	proxyApp  proxy.AppConns
 
 	batchProvider  rstypes.BatchProvider
 	outputProvider rstypes.OutputProvider
@@ -35,7 +37,7 @@ type RollupSyncer struct {
 	blockCh chan *types.Block
 }
 
-func NewRollupSyncer(cfg config.RollupSyncConfig, logger log.Logger, state sm.State, blockExec *sm.BlockExecutor, store *store.BlockStore) (*RollupSyncer, error) {
+func NewRollupSyncer(cfg config.RollupSyncConfig, logger log.Logger, state sm.State, blockExec *sm.BlockExecutor, store *store.BlockStore, proxyApp proxy.AppConns) (*RollupSyncer, error) {
 	batchProvider, outputProvider, err := provider.NewProviders(cfg, logger)
 	if err != nil {
 		return nil, err
@@ -43,9 +45,10 @@ func NewRollupSyncer(cfg config.RollupSyncConfig, logger log.Logger, state sm.St
 	return &RollupSyncer{
 		logger: logger,
 
-		initialState: state,
-		blockExec:    blockExec,
-		store:        store,
+		state:     state,
+		blockExec: blockExec,
+		store:     store,
+		proxyApp:  proxyApp,
 
 		batchProvider:  batchProvider,
 		outputProvider: outputProvider,
@@ -71,8 +74,9 @@ func (rs *RollupSyncer) sync(ctx context.Context) (sm.State, error) {
 	batch := make([]byte, 0, MAX_BATCH_BYTES*MAX_BATCH_CHUNK)
 
 	chunks := 0
-	state := rs.initialState
-	var block *types.Block
+	state := rs.state
+
+	var lastCommit *types.Commit
 
 	batchCh := rs.batchProvider.GetBatchChannel()
 	go func() {
@@ -84,7 +88,7 @@ func (rs *RollupSyncer) sync(ctx context.Context) (sm.State, error) {
 
 			chunks++
 			batch = append(batch, batchChunk...)
-			rawBlocks, err := DecompressBatch(batch)
+			rawData, err := DecompressBatch(batch)
 
 			// in the case of failure, a single batch might be separated several chunks of bytes
 			// TODO: calculate maximum batch chunks and restrict appendending chunks continuously
@@ -97,6 +101,10 @@ func (rs *RollupSyncer) sync(ctx context.Context) (sm.State, error) {
 				continue
 			}
 			batch = batch[:0]
+
+			dataLength := len(rawData)
+			rawBlocks := rawData[:dataLength-1]
+			rawCommit := rawData[dataLength-1]
 
 			for _, blockBytes := range rawBlocks {
 				pbb := new(cmtproto.Block)
@@ -113,6 +121,18 @@ func (rs *RollupSyncer) sync(ctx context.Context) (sm.State, error) {
 				}
 				rs.blockCh <- block
 			}
+
+			pbc := new(cmtproto.Commit)
+			err = proto.Unmarshal(rawCommit, pbc)
+			if err != nil {
+				panic(fmt.Sprintf("error reading block seen commit: %v", err))
+			}
+
+			commit, err := types.CommitFromProto(pbc)
+			if err != nil {
+				panic(fmt.Errorf("converting seen commit: %w", err))
+			}
+			lastCommit = commit
 		}
 		rs.logger.Info("Completed fetching batches")
 	}()
@@ -122,37 +142,36 @@ LOOP:
 		select {
 		case <-ctx.Done():
 			return state, nil
-		case nextBlock := <-rs.blockCh:
-			if block != nil {
-				if state.LastBlockHeight > 0 && state.LastBlockHeight+1 != block.Height {
-					panic(fmt.Errorf("sync height mismatch; expected %d, got %d", state.LastBlockHeight+1, block.Height))
-				}
-
-				blockParts, err := block.MakePartSet(types.BlockPartSizeBytes)
-				if err != nil {
-					rs.logger.Error("failed to make ",
-						"height", block.Height,
-						"err", err.Error())
-					return state, err
-				}
-				blockPartSetHeader := blockParts.Header()
-				blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockPartSetHeader}
-
-				rs.store.SaveBlock(block, blockParts, nextBlock.LastCommit)
-
-				state, err = rs.blockExec.ApplyBlock(state, blockID, block)
-				if err != nil {
-					panic(fmt.Sprintf("Failed to process committed block (%d:%X): %v", block.Height, block.Hash(), err))
-				}
+		case block := <-rs.blockCh:
+			if state.LastBlockHeight > 0 && state.LastBlockHeight+1 != block.Height {
+				panic(fmt.Errorf("sync height mismatch; expected %d, got %d", state.LastBlockHeight+1, block.Height))
 			}
-			block = nextBlock
+
+			blockParts, err := block.MakePartSet(types.BlockPartSizeBytes)
+			if err != nil {
+				rs.logger.Error("failed to make ",
+					"height", block.Height,
+					"err", err.Error())
+				return state, err
+			}
+			blockPartSetHeader := blockParts.Header()
+			blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockPartSetHeader}
+
+			// seen commit saves at next block
+			rs.store.SaveBlock(block, blockParts, nil)
+
+			state, err = rs.blockExec.ApplyBlock(state, blockID, block)
+			if err != nil {
+				panic(fmt.Sprintf("Failed to process committed block (%d:%X): %v", block.Height, block.Hash(), err))
+			}
 
 			if block.Height == int64(rs.targetBlockHeight) {
 				break LOOP
 			}
 		}
 	}
-	rs.logger.Info("Rollup sync completed!", "height", state.LastBlockHeight)
 
+	rs.store.SaveSeenCommit(state.LastBlockHeight, lastCommit)
+	rs.logger.Info("Rollup sync completed!", "height", state.LastBlockHeight)
 	return state, nil
 }

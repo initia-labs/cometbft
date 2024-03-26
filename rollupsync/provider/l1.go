@@ -29,12 +29,13 @@ type L1Provider struct {
 	logger log.Logger
 	client *rpchttp.HTTP
 
+	bridgeId  int64
 	submitter string
 
 	batchCh chan []byte
 }
 
-func NewL1Provider(logger log.Logger, rpcAddress string, submitter string) (*L1Provider, error) {
+func NewL1Provider(logger log.Logger, bridgeId int64, rpcAddress string, submitter string) (*L1Provider, error) {
 	client, err := RPCClient(rpcAddress)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create RPC client: %w", err)
@@ -43,6 +44,7 @@ func NewL1Provider(logger log.Logger, rpcAddress string, submitter string) (*L1P
 	return &L1Provider{
 		logger:    logger,
 		client:    client,
+		bridgeId:  bridgeId,
 		submitter: submitter,
 		batchCh:   make(chan []byte, 100),
 	}, nil
@@ -122,27 +124,25 @@ func (lp *L1Provider) GetBatchChannel() <-chan []byte {
 }
 
 func (lp *L1Provider) GetLatestFinalizedBlock(ctx context.Context) (uint64, error) {
-	page := 1
-	tx_per_page := 1
-	res, err := lp.client.TxSearch(ctx, "message.action='/opinit.ophost.v1.MsgProposeOutput'", false, &page, &tx_per_page, "desc")
+	var reqMsg ophostv1.QueryLastFinalizedOutputRequest
+	reqMsg.BridgeId = uint64(lp.bridgeId)
+	reqBytes, err := proto.Marshal(&reqMsg)
 	if err != nil {
 		return 0, err
 	}
 
-	for _, tx := range res.Txs {
-		messages, err := unmarshalCosmosTx(tx.Tx)
-		if err != nil {
-			return 0, err
-		}
-
-		for _, anyMsg := range messages {
-			msg := &ophostv1.MsgProposeOutput{}
-			err := anyMsg.UnmarshalTo(msg)
-			if err != nil {
-				return 0, err
-			}
-			return msg.L2BlockNumber, nil
-		}
+	res, err := lp.client.ABCIQuery(ctx, "/opinit.ophost.v1.Query/LastFinalizedOutput", reqBytes)
+	if err != nil {
+		return 0, err
+	} else if res.Response.Code != 0 {
+		return 0, errors.New(res.Response.Log)
 	}
-	return 0, errors.New("cannot find any proposed output from L1")
+
+	var msg ophostv1.QueryLastFinalizedOutputResponse
+
+	err = proto.Unmarshal(res.Response.Value, &msg)
+	if err != nil {
+		return 0, fmt.Errorf("error unmarshalling query output response: %v", err)
+	}
+	return msg.OutputProposal.L2BlockNumber, nil
 }

@@ -9,7 +9,7 @@ import (
 )
 
 func NewProviders(cfg config.RollupSyncConfig, logger log.Logger) (types.BatchProvider, types.OutputProvider, error) {
-	L1Provider, err := NewL1Provider(logger.With("provider", "l1"), cfg.L1RPC, cfg.BatchSubmitter)
+	L1Provider, err := NewL1Provider(logger.With("provider", "l1"), cfg.BridgeId, cfg.L1RPC, cfg.BatchSubmitter)
 	if err != nil {
 		return nil, nil, err
 	}
