@@ -174,6 +174,21 @@ func (env *Environment) Commit(_ *rpctypes.Context, heightPtr *int64) (*ctypes.R
 	return ctypes.NewResultCommit(&header, commit, true), nil
 }
 
+// Commit gets block commit at a given height.
+// If no height is provided, it will fetch the commit for the latest block.
+// More: https://docs.cometbft.com/v0.38.x/rpc/#/Info/commit
+func (env *Environment) RawCommit(_ *rpctypes.Context, heightPtr *int64) (*ctypes.ResultRawCommit, error) {
+	height, err := env.getHeight(env.BlockStore.Height(), heightPtr)
+	if err != nil {
+		return nil, err
+	}
+
+	rawCommit := env.BlockStore.LoadRawCommit(height)
+	return &ctypes.ResultRawCommit{
+		Commit: rawCommit,
+	}, nil
+}
+
 // BlockResults gets ABCIResults at a given height.
 // If no height is provided, it will fetch results for the latest block.
 //

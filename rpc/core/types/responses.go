@@ -265,3 +265,8 @@ type ResultInvalidBlock struct {
 type ResultBlockBulk struct {
 	Blocks [][]byte `json:"blocks"`
 }
+
+// Result of block bulk
+type ResultRawCommit struct {
+	Commit []byte `json:"commit"`
+}
