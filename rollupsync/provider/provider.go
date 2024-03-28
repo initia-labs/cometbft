@@ -18,7 +18,8 @@ func NewProviders(cfg config.RollupSyncConfig, logger log.Logger) (types.BatchPr
 	case "l1":
 		return L1Provider, L1Provider, nil
 	case "celestia":
-		return nil, nil, errors.New("not implemented")
+		celestiaProvider, err := NewCelestiaProvider(logger.With("provider", "celestia"), cfg.BatchRPC, cfg.BatchSubmitter)
+		return celestiaProvider, L1Provider, err
 	}
 
 	return nil, nil, errors.New("not implemented")

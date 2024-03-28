@@ -63,10 +63,15 @@ func (rs *RollupSyncer) Start(ctx context.Context) (sm.State, error) {
 		return sm.State{}, err
 	}
 	rs.targetBlockHeight = targetBlockHeight
-
 	rs.logger.Info("Start rollup sync", "height", targetBlockHeight)
-	go rs.batchProvider.BatchFetcher(ctx)
 
+	start, end, err := rs.outputProvider.GetQueryHeightRange(ctx)
+	if err != nil {
+		return sm.State{}, err
+	}
+	rs.logger.Info("L1 Query range", "range", fmt.Sprintf("%d ~ %d", start, end))
+
+	go rs.batchProvider.BatchFetcher(ctx, start, end)
 	return rs.sync(ctx)
 }
 
@@ -141,7 +146,8 @@ LOOP:
 	for {
 		select {
 		case <-ctx.Done():
-			return state, nil
+			rs.batchProvider.Quit()
+			return state, ctx.Err()
 		case block := <-rs.blockCh:
 			if state.LastBlockHeight > 0 && state.LastBlockHeight+1 != block.Height {
 				panic(fmt.Errorf("sync height mismatch; expected %d, got %d", state.LastBlockHeight+1, block.Height))
@@ -149,6 +155,7 @@ LOOP:
 
 			blockParts, err := block.MakePartSet(types.BlockPartSizeBytes)
 			if err != nil {
+				rs.batchProvider.Quit()
 				rs.logger.Error("failed to make ",
 					"height", block.Height,
 					"err", err.Error())
@@ -166,11 +173,11 @@ LOOP:
 			}
 
 			if block.Height == int64(rs.targetBlockHeight) {
+				rs.batchProvider.Quit()
 				break LOOP
 			}
 		}
 	}
-
 	rs.store.SaveSeenCommit(state.LastBlockHeight, lastCommit)
 	rs.logger.Info("Rollup sync completed!", "height", state.LastBlockHeight)
 	return state, nil
