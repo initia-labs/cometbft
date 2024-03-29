@@ -16,7 +16,7 @@ import (
 var (
 	DEFAULT_FETCH_INTERVAL  = 10 // millisecond
 	DEFAULT_TXS_PER_PAGE    = 100
-	DEFAULT_HEIGHT_INTERVAL = 1000
+	DEFAULT_HEIGHT_INTERVAL = 100000
 )
 
 // RPCClient sets up a new RPC client

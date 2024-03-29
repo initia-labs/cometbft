@@ -25,7 +25,7 @@ type L1Provider struct {
 	bridgeId  int64
 	submitter string
 
-	batchCh chan []byte
+	batchCh chan rstypes.BatchInfo
 	quit    chan struct{}
 }
 
@@ -40,7 +40,7 @@ func NewL1Provider(logger log.Logger, bridgeId int64, rpcAddress string, submitt
 		client:    client,
 		bridgeId:  bridgeId,
 		submitter: submitter,
-		batchCh:   make(chan []byte, 100),
+		batchCh:   make(chan rstypes.BatchInfo, 100),
 		quit:      make(chan struct{}, 1),
 	}, nil
 }
@@ -55,13 +55,13 @@ LOOP:
 	for {
 		select {
 		case <-ctx.Done():
-			lp.logger.Error("Batch fetcher is terminated", ctx.Err())
+			lp.logger.Info("Closing batch fetcher")
 			return ctx.Err()
 		case <-lp.quit:
 			return nil
 		case <-timer.C:
 			if isEnd, err := lp.fetchBatch(ctx, page, height, nextHeight); err != nil {
-				lp.logger.Error("Failed fetching batch", "height", height, "page", page, "error", err)
+				lp.logger.Debug("Failed fetching batch", "height", height, "page", page, "error", err)
 				continue LOOP
 			} else if isEnd {
 				height = nextHeight
@@ -70,6 +70,9 @@ LOOP:
 					return nil
 				}
 				page = 1
+				lp.batchCh <- rstypes.BatchInfo{
+					L1QueryHeight: height - 1,
+				}
 			} else {
 				page++
 			}
@@ -101,7 +104,9 @@ func (lp L1Provider) fetchBatch(ctx context.Context, page int, height int64, nex
 				return false, err
 			}
 
-			lp.batchCh <- msg.BatchBytes
+			lp.batchCh <- rstypes.BatchInfo{
+				Batch: msg.BatchBytes,
+			}
 		}
 	}
 
@@ -111,11 +116,11 @@ func (lp L1Provider) fetchBatch(ctx context.Context, page int, height int64, nex
 	return false, nil
 }
 
-func (lp *L1Provider) Quit() {
+func (lp L1Provider) Quit() {
 	lp.quit <- struct{}{}
 }
 
-func (lp L1Provider) GetBatchChannel() <-chan []byte {
+func (lp L1Provider) GetBatchChannel() <-chan rstypes.BatchInfo {
 	return lp.batchCh
 }
 
@@ -143,18 +148,11 @@ func (lp L1Provider) GetLatestFinalizedBlock(ctx context.Context) (uint64, error
 	return msg.OutputProposal.L2BlockNumber, nil
 }
 
-func (lp L1Provider) GetQueryHeightRange(ctx context.Context) (int64, int64, error) {
-	page := 1
-	queryStr := fmt.Sprintf("create_bridge.bridge_id='%d'", lp.bridgeId)
-	res, err := lp.client.TxSearch(ctx, queryStr, false, &page, &page, "asc")
-	if err != nil {
-		return 0, 0, err
-	}
-
+func (lp L1Provider) GetLastHeight(ctx context.Context) (int64, error) {
 	resBlock, err := lp.client.Block(ctx, nil)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 
-	return res.Txs[0].Height, resBlock.Block.Height, nil
+	return resBlock.Block.Height, nil
 }

@@ -43,6 +43,7 @@ func calcABCIResponsesKey(height int64) []byte {
 
 var lastABCIResponseKey = []byte("lastABCIResponseKey")
 var offlineStateSyncHeight = []byte("offlineStateSyncHeightKey")
+var rollupSyncL1Height = []byte("rollupSyncL1Height")
 
 //go:generate ../scripts/mockery_generate.sh Store
 
@@ -68,6 +69,9 @@ type Store interface {
 	// LoadConsensusParams loads the consensus params for a given height
 	LoadConsensusParams(int64) (types.ConsensusParams, error)
 
+	// initia custom, it is to save last rollup sync height to avoid starting sync at 1
+	GetRollupSyncL1Block() (int64, error)
+	SetRollupSyncL1Block(int64) error
 	// initia custom, it is to save current validators when executor is changed
 	SaveValidators(int64, int64, *types.ValidatorSet) error
 
@@ -740,6 +744,33 @@ func (store dbStore) saveConsensusParamsInfo(nextHeight, changeHeight int64, par
 	}
 
 	return nil
+}
+
+func (store dbStore) SetRollupSyncL1Block(height int64) error {
+	err := store.db.SetSync(rollupSyncL1Height, int64ToBytes(height))
+	if err != nil {
+		return err
+	}
+	return nil
+
+}
+
+// Gets the height at which the store is bootstrapped after out of band statesync
+func (store dbStore) GetRollupSyncL1Block() (int64, error) {
+	buf, err := store.db.Get(rollupSyncL1Height)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(buf) == 0 {
+		return 0, errors.New("value empty")
+	}
+
+	height := int64FromBytes(buf)
+	if height < 0 {
+		return 0, errors.New("invalid value for height: height cannot be negative")
+	}
+	return height, nil
 }
 
 func (store dbStore) SetOfflineStateSyncHeight(height int64) error {
