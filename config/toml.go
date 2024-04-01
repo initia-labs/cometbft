@@ -465,6 +465,7 @@ bridge_id = {{ .RollupSync.BridgeId }}
 batch_chain = "{{ .RollupSync.BatchChain }}"
 batch_submitter = "{{ .RollupSync.BatchSubmitter }}"
 
+# batch_rpc can be empty, if the batch_chain is "l1"
 batch_rpc = "{{ .RollupSync.BatchRPC }}"
 l1_rpc = "{{ .RollupSync.L1RPC }}"
 

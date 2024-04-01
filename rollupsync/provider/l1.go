@@ -71,7 +71,7 @@ LOOP:
 				}
 				page = 1
 				lp.batchCh <- rstypes.BatchInfo{
-					L1QueryHeight: height - 1,
+					BatchChainHeight: height - 1,
 				}
 			} else {
 				page++

@@ -68,8 +68,8 @@ func (_m *Store) GetOfflineStateSyncHeight() (int64, error) {
 	return r0, r1
 }
 
-// GetRollupSyncL1Block provides a mock function with given fields:
-func (_m *Store) GetRollupSyncL1Block() (int64, error) {
+// GetRollupSyncBatchChainHeight provides a mock function with given fields:
+func (_m *Store) GetRollupSyncBatchChainHeight() (int64, error) {
 	ret := _m.Called()
 
 	var r0 int64
@@ -336,8 +336,8 @@ func (_m *Store) SetOfflineStateSyncHeight(height int64) error {
 	return r0
 }
 
-// SetRollupSyncL1Block provides a mock function with given fields: _a0
-func (_m *Store) SetRollupSyncL1Block(_a0 int64) error {
+// SetRollupSyncBatchChainHeight provides a mock function with given fields: _a0
+func (_m *Store) SetRollupSyncBatchChainHeight(_a0 int64) error {
 	ret := _m.Called(_a0)
 
 	var r0 error

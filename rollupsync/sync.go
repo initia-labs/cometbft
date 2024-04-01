@@ -66,7 +66,7 @@ func (rs *RollupSyncer) Start(ctx context.Context) (sm.State, error) {
 	if rs.state.LastBlockHeight >= int64(targetBlockHeight) {
 		return rs.state, err
 	}
-	start, _ := rs.blockExec.Store().GetRollupSyncL1Block()
+	start, _ := rs.blockExec.Store().GetRollupSyncBatchChainHeight()
 	start++
 
 	rs.logger.Info("Start rollup sync", "height", targetBlockHeight)
@@ -94,7 +94,7 @@ func (rs *RollupSyncer) sync(ctx context.Context) (sm.State, error) {
 		for batchInfo := range batchCh {
 			if batchInfo.Batch == nil {
 				rs.blockCh <- rstypes.BlockInfo{
-					L1QueryHeight: batchInfo.L1QueryHeight,
+					BatchChainHeight: batchInfo.BatchChainHeight,
 				}
 				continue
 			}
@@ -179,7 +179,7 @@ LOOP:
 				blockPartSetHeader := blockParts.Header()
 				blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockPartSetHeader}
 
-				// seen commit saves at next block
+				// don't need to save seen commit here, seen commit is used only in consensus.
 				rs.store.SaveBlock(block, blockParts, nil)
 
 				state, err = rs.blockExec.ApplyBlock(state, blockID, block)
@@ -191,11 +191,11 @@ LOOP:
 					break LOOP
 				}
 			} else {
-				rs.blockExec.Store().SetRollupSyncL1Block(blockInfo.L1QueryHeight)
+				rs.blockExec.Store().SetRollupSyncBatchChainHeight(blockInfo.BatchChainHeight)
 			}
 		}
 	}
-	rs.blockExec.Store().SetRollupSyncL1Block(0)
+	rs.blockExec.Store().SetRollupSyncBatchChainHeight(0)
 
 	rs.store.SaveSeenCommit(state.LastBlockHeight, lastCommit)
 	rs.logger.Info("Rollup sync completed!", "height", state.LastBlockHeight)
