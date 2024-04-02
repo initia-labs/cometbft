@@ -958,23 +958,42 @@ func (cfg *BlockSyncConfig) ValidateBasic() error {
 // RollupSyncConfig
 
 type RollupSyncConfig struct {
-	Enable         bool   `mapstructure:"enable"`
-	BridgeId       int64  `mapstructure:"bridge_id"`
-	BatchChain     string `mapstructure:"batch_chain"`
-	BatchSubmitter string `mapstructure:"batch_submitter"`
-	BatchRPC       string `mapstructure:"batch_rpc"`
-	L1RPC          string `mapstructure:"l1_rpc"`
+	Enable bool `mapstructure:"enable"`
+
+	MaxBatchBytes int64 `mapstructure:"max_batch_bytes"`
+	MaxBatchChunk int64 `mapstructure:"max_batch_chunk"`
+
+	FetchInterval                 int64 `mapstructure:"fetch_interval"`
+	TxsPerPage                    int64 `mapstructure:"txs_per_page"`
+	BatchChainQueryHeightInterval int64 `mapstructure:"batch_chain_query_height_interval"`
+
+	BridgeID   int64                 `mapstructure:"bridge_id"`
+	RPCServers []RollupSyncRPCConfig `mapstructure:"rpc_servers"`
 }
 
-// DefaultBlockSyncConfig returns a default configuration for the block sync service
+type RollupSyncRPCConfig struct {
+	Chain   string `mapstructure:"chain"`
+	Address string `mapstructure:"address"`
+}
+
+// DefaultRollupSyncConfig returns a default configuration for the rollup sync service
 func DefaultRollupSyncConfig() *RollupSyncConfig {
 	return &RollupSyncConfig{
-		BatchChain: "l1",
-		L1RPC:      "tcp://0.0.0.0:26657",
+		// Default max tx bytes is 1MB
+		MaxBatchBytes: 500_000,
+		MaxBatchChunk: 2,
+
+		FetchInterval:                 10,
+		TxsPerPage:                    100,
+		BatchChainQueryHeightInterval: 100,
+
+		RPCServers: []RollupSyncRPCConfig{
+			{Chain: "l1", Address: "tcp://0.0.0.0:26657"},
+		},
 	}
 }
 
-// TestBlockSyncConfig returns a default configuration for the block sync.
+// TestRollupSyncConfig returns a default configuration for the rollup sync.
 func TestRollupSyncConfig() *RollupSyncConfig {
 	return DefaultRollupSyncConfig()
 }
@@ -982,19 +1001,19 @@ func TestRollupSyncConfig() *RollupSyncConfig {
 // ValidateBasic performs basic validation.
 func (cfg *RollupSyncConfig) ValidateBasic() error {
 	if cfg.Enable {
-		if cfg.BridgeId == 0 {
+		if cfg.BridgeID == 0 {
 			return errors.New("bridge id is required")
 		}
-		if cfg.BatchChain == "l1" || cfg.BatchChain == "celestia" {
-			return errors.New("supported batch chains: l1 | celestia")
-		}
 
-		if cfg.BatchRPC == "" && cfg.BatchChain != "l1" {
-			return errors.New("rpc address of the batch chain is required")
+		l1check := false
+		for _, rpcConfig := range cfg.RPCServers {
+			if rpcConfig.Chain == "l1" {
+				l1check = true
+				break
+			}
 		}
-
-		if cfg.BatchSubmitter == "" {
-			return errors.New("batch account address is required")
+		if l1check {
+			return errors.New("rpc address of the l1 chain is required")
 		}
 	}
 	return nil

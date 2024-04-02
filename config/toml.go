@@ -459,15 +459,19 @@ version = "{{ .BlockSync.Version }}"
 [rollupsync]
 enable = {{ .RollupSync.Enable }}
 
-bridge_id = {{ .RollupSync.BridgeId }}
+max_batch_bytes = {{ .RollupSync.MaxBatchBytes }}
+max_batch_chunk = {{ .RollupSync.MaxBatchChunk }}
 
-# supported batch chain: l1, celestia
-batch_chain = "{{ .RollupSync.BatchChain }}"
-batch_submitter = "{{ .RollupSync.BatchSubmitter }}"
+fetch_interval = {{ .RollupSync.FetchInterval }}
+txs_per_page = {{ .RollupSync.TxsPerPage }}
+batch_chain_query_height_interval =  = {{ .RollupSync.BatchChainQueryHeightInterval }}
 
-# batch_rpc can be empty, if the batch_chain is "l1"
-batch_rpc = "{{ .RollupSync.BatchRPC }}"
-l1_rpc = "{{ .RollupSync.L1RPC }}"
+bridge_id = {{ .RollupSync.BridgeID }}
+rpc_servers = [
+{{- range .RollupSync.RPCServers }}
+  { chain="{{ .Chain }}", address="{{ .Address }}" },
+{{- end }}
+]
 
 #######################################################
 ###         Consensus Configuration Options         ###
