@@ -51,7 +51,7 @@ require (
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/uuid v1.6.0
-	github.com/initia-labs/OPinit/api v0.0.0-20240402110547-94e54159eb1a
+	github.com/initia-labs/OPinit/api v0.0.0-20240403083804-4822c74aaf44
 	github.com/oasisprotocol/curve25519-voi v0.0.0-20230904125328-1f23a7beb09a
 	github.com/vektra/mockery/v2 v2.23.1
 	golang.org/x/sync v0.6.0

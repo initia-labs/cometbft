@@ -498,6 +498,10 @@ github.com/initia-labs/OPinit/api v0.0.0-20240402054939-8b8597ac7627 h1:Flljs9Of
 github.com/initia-labs/OPinit/api v0.0.0-20240402054939-8b8597ac7627/go.mod h1:ASCaZChzhQenOxDLIBicEgi5drhMV3YjPxzV29nGvwM=
 github.com/initia-labs/OPinit/api v0.0.0-20240402110547-94e54159eb1a h1:z2ExMaKQCoJqC5soCvkn8dJygGi9Rcz9R9eW5K/jbIc=
 github.com/initia-labs/OPinit/api v0.0.0-20240402110547-94e54159eb1a/go.mod h1:ASCaZChzhQenOxDLIBicEgi5drhMV3YjPxzV29nGvwM=
+github.com/initia-labs/OPinit/api v0.0.0-20240403053437-ac42a7d554af h1:auZ2FAJ/uJgkLICkfaoWnQrx6l4GWpDAYS+S2U9bM1c=
+github.com/initia-labs/OPinit/api v0.0.0-20240403053437-ac42a7d554af/go.mod h1:ASCaZChzhQenOxDLIBicEgi5drhMV3YjPxzV29nGvwM=
+github.com/initia-labs/OPinit/api v0.0.0-20240403083804-4822c74aaf44 h1:F3ZfAGt1Wa+PIUD5p039eY90eiAWBzk6lHQoy8iqz+4=
+github.com/initia-labs/OPinit/api v0.0.0-20240403083804-4822c74aaf44/go.mod h1:ASCaZChzhQenOxDLIBicEgi5drhMV3YjPxzV29nGvwM=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 h1:BQSFePA1RWJOlocH6Fxy8MmwDt+yVQYULKfN0RoTN8A=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99/go.mod h1:1lJo3i6rXxKeerYnT8Nvf0QmHCRC1n8sfWVwXF2Frvo=
 github.com/jdxcode/netrc v0.0.0-20221124155335-4616370d1a84 h1:2uT3aivO7NVpUPGcQX7RbHijHMyWix/yCnIrCWc+5co=

@@ -284,8 +284,6 @@ LOOP:
 
 				state, err = rs.blockExec.ApplyBlock(state, blockID, block)
 				if err != nil {
-					close(done)
-					// rs.logger.Error("Failed to process committed block", "height", block.Height, "hash", block.Hash(), "error", err)
 					return state, err
 				}
 			} else if blockInfo.Commit != nil {
