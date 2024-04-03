@@ -464,7 +464,8 @@ max_batch_chunk = {{ .RollupSync.MaxBatchChunk }}
 
 fetch_interval = {{ .RollupSync.FetchInterval }}
 txs_per_page = {{ .RollupSync.TxsPerPage }}
-batch_chain_query_height_interval =  = {{ .RollupSync.BatchChainQueryHeightInterval }}
+blocks_per_page = {{ .RollupSync.BlocksPerPage }}
+batch_chain_query_height_interval = {{ .RollupSync.BatchChainQueryHeightInterval }}
 
 bridge_id = {{ .RollupSync.BridgeID }}
 rpc_servers = [

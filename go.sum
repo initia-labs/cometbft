@@ -494,6 +494,10 @@ github.com/informalsystems/tm-load-test v1.3.0 h1:FGjKy7vBw6mXNakt+wmNWKggQZRsKk
 github.com/informalsystems/tm-load-test v1.3.0/go.mod h1:OQ5AQ9TbT5hKWBNIwsMjn6Bf4O0U4b1kRc+0qZlQJKw=
 github.com/initia-labs/OPinit/api v0.0.0-20240326110012-c9784a2d7baa h1:KX1T38Rtxda2OHgeMTNxvlEr3zEpOMkJKhIoS8EZL/0=
 github.com/initia-labs/OPinit/api v0.0.0-20240326110012-c9784a2d7baa/go.mod h1:ASCaZChzhQenOxDLIBicEgi5drhMV3YjPxzV29nGvwM=
+github.com/initia-labs/OPinit/api v0.0.0-20240402054939-8b8597ac7627 h1:Flljs9Of0nbxnFK7FImxq/+LlZg/d77wXdwNS/355EM=
+github.com/initia-labs/OPinit/api v0.0.0-20240402054939-8b8597ac7627/go.mod h1:ASCaZChzhQenOxDLIBicEgi5drhMV3YjPxzV29nGvwM=
+github.com/initia-labs/OPinit/api v0.0.0-20240402110547-94e54159eb1a h1:z2ExMaKQCoJqC5soCvkn8dJygGi9Rcz9R9eW5K/jbIc=
+github.com/initia-labs/OPinit/api v0.0.0-20240402110547-94e54159eb1a/go.mod h1:ASCaZChzhQenOxDLIBicEgi5drhMV3YjPxzV29nGvwM=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 h1:BQSFePA1RWJOlocH6Fxy8MmwDt+yVQYULKfN0RoTN8A=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99/go.mod h1:1lJo3i6rXxKeerYnT8Nvf0QmHCRC1n8sfWVwXF2Frvo=
 github.com/jdxcode/netrc v0.0.0-20221124155335-4616370d1a84 h1:2uT3aivO7NVpUPGcQX7RbHijHMyWix/yCnIrCWc+5co=

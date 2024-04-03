@@ -4,7 +4,8 @@ import (
 	"errors"
 	"strings"
 
-	v1beta1 "cosmossdk.io/api/cosmos/tx/v1beta1"
+	abciv1beta1 "cosmossdk.io/api/cosmos/base/abci/v1beta1"
+	txv1beta1 "cosmossdk.io/api/cosmos/tx/v1beta1"
 	"google.golang.org/protobuf/proto"
 	anypb "google.golang.org/protobuf/types/known/anypb"
 
@@ -26,13 +27,21 @@ func RPCClient(server string) (*rpchttp.HTTP, error) {
 	return c, nil
 }
 
+func unmarshalCosmosTxData(data []byte) ([]*anypb.Any, error) {
+	var msgData abciv1beta1.TxMsgData
+	if err := proto.Unmarshal(data, &msgData); err != nil {
+		return nil, err
+	}
+	return msgData.MsgResponses, nil
+}
+
 func unmarshalCosmosTx(txbytes []byte) ([]*anypb.Any, error) {
-	var raw v1beta1.TxRaw
+	var raw txv1beta1.TxRaw
 	if err := proto.Unmarshal(txbytes, &raw); err != nil {
 		return nil, err
 	}
 
-	var body v1beta1.TxBody
+	var body txv1beta1.TxBody
 	if err := proto.Unmarshal(raw.BodyBytes, &body); err != nil {
 		return nil, err
 	}

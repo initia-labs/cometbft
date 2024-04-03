@@ -2,7 +2,9 @@ package rollupsync
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/libs/log"
@@ -20,7 +22,7 @@ import (
 
 type RollupSyncer struct {
 	logger log.Logger
-	cfg    config.RollupSyncConfig
+	cfg    *config.RollupSyncConfig
 
 	targetBlockHeight uint64
 
@@ -31,17 +33,20 @@ type RollupSyncer struct {
 	store     *store.BlockStore
 	proxyApp  proxy.AppConns
 
-	batchProvider  rstypes.BatchProvider
-	outputProvider rstypes.OutputProvider
+	l1Provider *provider.L1Provider
 
+	batchCh chan rstypes.BatchInfo
 	blockCh chan rstypes.BlockInfo
+
+	done chan struct{}
 }
 
-func NewRollupSyncer(cfg config.RollupSyncConfig, logger log.Logger, state sm.State, blockExec *sm.BlockExecutor, store *store.BlockStore, proxyApp proxy.AppConns) (*RollupSyncer, error) {
-	batchProvider, outputProvider, err := provider.NewProviders(cfg, logger)
+func NewRollupSyncer(cfg *config.RollupSyncConfig, logger log.Logger, state sm.State, blockExec *sm.BlockExecutor, store *store.BlockStore, proxyApp proxy.AppConns) (*RollupSyncer, error) {
+	l1Provider, err := provider.NewL1Provider(logger, cfg)
 	if err != nil {
 		return nil, err
 	}
+
 	return &RollupSyncer{
 		logger: logger,
 		cfg:    cfg,
@@ -51,55 +56,119 @@ func NewRollupSyncer(cfg config.RollupSyncConfig, logger log.Logger, state sm.St
 		store:     store,
 		proxyApp:  proxyApp,
 
-		batchProvider:  batchProvider,
-		outputProvider: outputProvider,
+		l1Provider: l1Provider,
 
-		blockCh: make(chan rstypes.BlockInfo, 100),
+		batchCh: make(chan rstypes.BatchInfo, 100),
+		blockCh: make(chan rstypes.BlockInfo, 1000),
 	}, nil
 }
 
 func (rs *RollupSyncer) Start(ctx context.Context) (sm.State, error) {
-	targetBlockHeight, err := rs.outputProvider.GetLatestFinalizedBlock(ctx)
+	targetBlockHeight, err := rs.l1Provider.GetLatestFinalizedBlock(ctx)
 	if err != nil {
 		return sm.State{}, err
 	}
+	rs.logger.Info("Start rollup sync", "initialHeight", rs.state.LastBlockHeight+1, "target", targetBlockHeight)
 	rs.targetBlockHeight = targetBlockHeight
 	if rs.state.LastBlockHeight >= int64(targetBlockHeight) {
 		return rs.state, err
 	}
-	start, _ := rs.blockExec.Store().GetRollupSyncBatchChainHeight()
-	start++
 
-	rs.logger.Info("Start rollup sync", "height", targetBlockHeight)
-
-	end, err := rs.batchProvider.GetLastHeight(ctx)
+	batchInfoUpdates, err := rs.l1Provider.GetBatchInfoUpdates(ctx)
 	if err != nil {
 		return sm.State{}, err
 	}
-	rs.logger.Info("L1 Query range", "range", fmt.Sprintf("%d ~ %d", start, end))
+	batchInfoUpdates[len(batchInfoUpdates)-1].End = int64(targetBlockHeight)
+	rs.logger.Info("Batchinfo updates", "history", batchInfoUpdates.String())
 
-	go rs.batchProvider.BatchFetcher(ctx, start, end)
-	return rs.sync(ctx)
+	return rs.blockSync(ctx, rs.state, batchInfoUpdates)
 }
 
-func (rs *RollupSyncer) sync(ctx context.Context) (sm.State, error) {
-	batch := make([]byte, 0, rs.cfg.MaxBatchBytes*rs.cfg.MaxBatchChunk)
+func (rs RollupSyncer) GetBatchProvider(chain string) (rstypes.BatchProvider, error) {
+	switch chain {
+	case rstypes.CHAIN_NAME_L1:
+		return rs.l1Provider, nil
+	case rstypes.CHAIN_NAME_CELESTIA:
+		return provider.NewCelestiaProvider(rs.logger.With("provider", rstypes.CHAIN_NAME_CELESTIA), rs.cfg)
+	}
 
-	chunks := 0
-	state := rs.state
+	return nil, errors.New("not implemented")
+}
 
-	var lastCommit *types.Commit
+func (rs *RollupSyncer) provideBatches(ctx context.Context, batchInfoUpdates rstypes.BatchInfoUpdates, height int64) error {
+	for _, batchInfoUpdate := range batchInfoUpdates {
+		if batchInfoUpdate.Start < height {
+			continue
+		}
 
-	batchCh := rs.batchProvider.GetBatchChannel()
-	syncCtx, cancel := context.WithCancel(ctx)
+		batchProvider, err := rs.GetBatchProvider(batchInfoUpdate.Chain)
+		if err != nil {
+			return err
+		}
+		batchProvider.SetSubmitter(batchInfoUpdate.Submitter)
+		rs.logger.Info("update batch info", "height", batchInfoUpdate.Start, "chain", batchInfoUpdate.Chain, "submitter", batchInfoUpdate.Submitter)
 
+		batchChainStart := int64(0)
+		if batchInfoUpdate.Start <= rs.state.LastBlockHeight+1 {
+			batchChainStart, _ = rs.blockExec.Store().GetRollupSyncBatchChainHeight()
+			batchChainStart++
+		}
+
+		batchChainEnd, err := batchProvider.GetLastHeight(ctx)
+		if err != nil {
+			return err
+		}
+		rs.logger.Info("batch chain query range", "chain", batchInfoUpdate.Chain, "range", fmt.Sprintf("%d ~ %d", batchChainStart, batchChainEnd))
+
+		err = rs.batchSync(ctx, batchInfoUpdate.End, batchProvider, batchChainStart, batchChainEnd)
+		if err != nil {
+			return err
+		}
+
+		height = batchInfoUpdate.End + 1
+	}
+
+	return nil
+}
+
+func (rs *RollupSyncer) batchSync(ctx context.Context, targetL2Height int64, batchProvider rstypes.BatchProvider, batchChainStart int64, batchChainEnd int64) error {
+	bpCtx, cancelProvider := context.WithCancel(ctx)
+	defer cancelProvider()
+
+	done := make(chan struct{})
 	go func() {
-		for batchInfo := range batchCh {
+		err := batchProvider.BatchFetcher(bpCtx, rs.batchCh, batchChainStart, batchChainEnd)
+		if err != nil {
+			rs.logger.Error("batch provider", "fetcher", err.Error())
+		}
+		close(done)
+	}()
+
+	batch := make([]byte, 0, rs.cfg.MaxBatchBytes*rs.cfg.MaxBatchChunk)
+	chunks := 0
+	endChecker := time.NewTicker(100 * time.Millisecond)
+	defer endChecker.Stop()
+
+BATCH_LOOP:
+	for {
+		select {
+		case <-endChecker.C:
+			select {
+			case <-done:
+				if len(rs.batchCh) == 0 {
+					return errors.New("batch provider early closed")
+				}
+			default:
+			}
+
+		case <-ctx.Done():
+			return ctx.Err()
+		case batchInfo := <-rs.batchCh:
 			if batchInfo.Batch == nil {
 				rs.blockCh <- rstypes.BlockInfo{
 					BatchChainHeight: batchInfo.BatchChainHeight,
 				}
-				continue
+				continue BATCH_LOOP
 			}
 			rs.logger.Debug("Receive a batch chunk")
 
@@ -107,16 +176,11 @@ func (rs *RollupSyncer) sync(ctx context.Context) (sm.State, error) {
 			batch = append(batch, batchInfo.Batch...)
 			rawData, err := DecompressBatch(batch)
 
-			// in the case of failure, a single batch might be separated several chunks of bytes
-			// TODO: calculate maximum batch chunks and restrict appendending chunks continuously
-			// to avoid a situation that the raw batch is abnormal.
 			if err != nil {
 				if chunks >= int(rs.cfg.MaxBatchChunk) {
-					rs.logger.Error("error decompressing batch", "error", err)
-					cancel()
-					return
+					return err
 				}
-				continue
+				continue BATCH_LOOP
 			}
 			batch = batch[:0]
 			chunks = 0
@@ -125,53 +189,76 @@ func (rs *RollupSyncer) sync(ctx context.Context) (sm.State, error) {
 			rawBlocks := rawData[:dataLength-1]
 			rawCommit := rawData[dataLength-1]
 
-			for _, blockBytes := range rawBlocks {
+			for i, blockBytes := range rawBlocks {
 				pbb := new(cmtproto.Block)
 				err := proto.Unmarshal(blockBytes, pbb)
 				if err != nil {
-					rs.logger.Error("error reading block", "error", err)
-					cancel()
-					return
+					return err
 				}
 
 				block, err := types.BlockFromProto(pbb)
 				if err != nil {
-					rs.logger.Error("error from proto block", "error", err)
-					cancel()
-					return
+					return err
 				}
 				rs.blockCh <- rstypes.BlockInfo{
 					Block: block,
 				}
-			}
 
-			pbc := new(cmtproto.Commit)
-			err = proto.Unmarshal(rawCommit, pbc)
-			if err != nil {
-				rs.logger.Error("error reading block seen commit", "error", err)
-				cancel()
-				return
-			}
+				if i == len(rawBlocks)-1 {
+					pbc := new(cmtproto.Commit)
+					err = proto.Unmarshal(rawCommit, pbc)
+					if err != nil {
+						return err
+					}
 
-			commit, err := types.CommitFromProto(pbc)
-			if err != nil {
-				rs.logger.Error("converting seen commit", "error", err)
-				cancel()
-				return
+					commit, err := types.CommitFromProto(pbc)
+					if err != nil {
+						return err
+					}
+					rs.blockCh <- rstypes.BlockInfo{
+						Commit: commit,
+					}
+				}
+
+				if block.Height == targetL2Height {
+					break BATCH_LOOP
+				}
 			}
-			lastCommit = commit
 		}
-		rs.logger.Info("Completed fetching batches")
+	}
+	rs.logger.Info("Completed fetching batches")
+	return nil
+}
+
+func (rs *RollupSyncer) blockSync(ctx context.Context, state sm.State, batchInfoUpdates rstypes.BatchInfoUpdates) (sm.State, error) {
+	batchCtx, cancelBatchSync := context.WithCancel(ctx)
+	defer cancelBatchSync()
+
+	done := make(chan struct{})
+	go func() {
+		err := rs.provideBatches(batchCtx, batchInfoUpdates, state.LastBlockHeight+1)
+		if err != nil {
+			rs.logger.Error("batch sync", "error", err.Error())
+		}
+		close(done)
 	}()
 
+	endChecker := time.NewTicker(100 * time.Millisecond)
+
+	var lastCommit *types.Commit
 LOOP:
 	for {
 		select {
-		case <-syncCtx.Done():
-			rs.batchProvider.Quit()
-			return state, syncCtx.Err()
+		case <-endChecker.C:
+			select {
+			case <-done:
+				if len(rs.blockCh) == 0 {
+					return state, errors.New("rollup sync early closed")
+				}
+			default:
+			}
+
 		case <-ctx.Done():
-			rs.batchProvider.Quit()
 			return state, ctx.Err()
 		case blockInfo := <-rs.blockCh:
 			block := blockInfo.Block
@@ -179,15 +266,11 @@ LOOP:
 				if state.LastBlockHeight+1 > block.Height {
 					continue LOOP
 				} else if state.LastBlockHeight+1 < block.Height {
-					rs.batchProvider.Quit()
-					err := fmt.Errorf("sync height mismatch; expected %d, got %d", state.LastBlockHeight+1, block.Height)
-					rs.logger.Error(err.Error())
-					return state, err
+					return state, fmt.Errorf("sync height mismatch; expected %d, got %d", state.LastBlockHeight+1, block.Height)
 				}
 
 				blockParts, err := block.MakePartSet(types.BlockPartSizeBytes)
 				if err != nil {
-					rs.batchProvider.Quit()
 					rs.logger.Error("failed to make ",
 						"height", block.Height,
 						"err", err.Error())
@@ -201,11 +284,13 @@ LOOP:
 
 				state, err = rs.blockExec.ApplyBlock(state, blockID, block)
 				if err != nil {
-					rs.logger.Error("Failed to process committed block", "height", block.Height, "hash", block.Hash(), "error", err)
+					close(done)
+					// rs.logger.Error("Failed to process committed block", "height", block.Height, "hash", block.Hash(), "error", err)
 					return state, err
 				}
-				if block.Height == int64(rs.targetBlockHeight) {
-					rs.batchProvider.Quit()
+			} else if blockInfo.Commit != nil {
+				lastCommit = blockInfo.Commit
+				if state.LastBlockHeight == int64(rs.targetBlockHeight) {
 					break LOOP
 				}
 			} else {
@@ -214,8 +299,9 @@ LOOP:
 		}
 	}
 	rs.blockExec.Store().SetRollupSyncBatchChainHeight(0)
-
 	rs.store.SaveSeenCommit(state.LastBlockHeight, lastCommit)
+
 	rs.logger.Info("Rollup sync completed!", "height", state.LastBlockHeight)
+
 	return state, nil
 }

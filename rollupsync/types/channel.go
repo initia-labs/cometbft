@@ -10,4 +10,5 @@ type BatchInfo struct {
 type BlockInfo struct {
 	BatchChainHeight int64
 	Block            *types.Block
+	Commit           *types.Commit
 }

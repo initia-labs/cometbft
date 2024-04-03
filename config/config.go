@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/cometbft/cometbft/version"
@@ -965,6 +966,7 @@ type RollupSyncConfig struct {
 
 	FetchInterval                 int64 `mapstructure:"fetch_interval"`
 	TxsPerPage                    int64 `mapstructure:"txs_per_page"`
+	BlocksPerPage                 int64 `mapstructure:"blocks_per_page"`
 	BatchChainQueryHeightInterval int64 `mapstructure:"batch_chain_query_height_interval"`
 
 	BridgeID   int64                 `mapstructure:"bridge_id"`
@@ -983,9 +985,12 @@ func DefaultRollupSyncConfig() *RollupSyncConfig {
 		MaxBatchBytes: 500_000,
 		MaxBatchChunk: 2,
 
-		FetchInterval:                 10,
-		TxsPerPage:                    100,
-		BatchChainQueryHeightInterval: 100,
+		FetchInterval: 10,
+		TxsPerPage:    1000,
+
+		// Default max block bytes is 100MB
+		BlocksPerPage:                 10,
+		BatchChainQueryHeightInterval: 1000,
 
 		RPCServers: []RollupSyncRPCConfig{
 			{Chain: "l1", Address: "tcp://0.0.0.0:26657"},
@@ -1005,14 +1010,10 @@ func (cfg *RollupSyncConfig) ValidateBasic() error {
 			return errors.New("bridge id is required")
 		}
 
-		l1check := false
-		for _, rpcConfig := range cfg.RPCServers {
-			if rpcConfig.Chain == "l1" {
-				l1check = true
-				break
-			}
-		}
-		if l1check {
+		idx := slices.IndexFunc(cfg.RPCServers, func(elem RollupSyncRPCConfig) bool {
+			return elem.Chain == "l1"
+		})
+		if idx < 0 {
 			return errors.New("rpc address of the l1 chain is required")
 		}
 	}
