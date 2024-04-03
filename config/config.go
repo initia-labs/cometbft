@@ -149,6 +149,9 @@ func (cfg *Config) ValidateBasic() error {
 	if err := cfg.BlockSync.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [blocksync] section: %w", err)
 	}
+	if err := cfg.RollupSync.ValidateBasic(); err != nil {
+		return fmt.Errorf("error in [rollupsync] section: %w", err)
+	}
 	if err := cfg.Consensus.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [consensus] section: %w", err)
 	}
