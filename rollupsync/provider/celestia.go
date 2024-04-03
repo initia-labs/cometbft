@@ -57,7 +57,7 @@ func (cp *CelestiaProvider) BatchFetcher(ctx context.Context, batchCh chan<- rst
 	page := 1
 	height := startHeight
 	nextHeight := height + int64(cp.cfg.BatchChainQueryHeightInterval)
-	searchMap := make(map[int64]map[uint32]struct{})
+	searchMap := make(map[int64][]uint32)
 
 LOOP:
 	for {
@@ -90,7 +90,7 @@ LOOP:
 	}
 }
 
-func (cp *CelestiaProvider) fetchBatch(ctx context.Context, page int, height int64, nextHeight int64, searchMap map[int64]map[uint32]struct{}) (bool, error) {
+func (cp *CelestiaProvider) fetchBatch(ctx context.Context, page int, height int64, nextHeight int64, searchMap map[int64][]uint32) (bool, error) {
 	txsPerPage := int(cp.cfg.TxsPerPage)
 	queryStr := fmt.Sprintf("tx.height >= %d AND tx.height < %d AND message.action='/celestia.blob.v1.MsgPayForBlobs' AND message.sender='%s'", height, nextHeight, cp.submitter)
 	res, err := cp.client.TxSearch(ctx, queryStr, false, &page, &txsPerPage, "asc")
@@ -101,25 +101,31 @@ func (cp *CelestiaProvider) fetchBatch(ctx context.Context, page int, height int
 
 	for _, tx := range res.Txs {
 		if _, ok := searchMap[tx.Height]; !ok {
-			searchMap[tx.Height] = make(map[uint32]struct{})
+			searchMap[tx.Height] = make([]uint32, 0)
 		}
-		searchMap[tx.Height][tx.Index] = struct{}{}
+		searchMap[tx.Height] = append(searchMap[tx.Height], tx.Index)
 	}
-
 	if res.TotalCount <= page*txsPerPage {
 		return true, nil
 	}
 	return false, nil
 }
 
-func (cp *CelestiaProvider) fetchBlock(ctx context.Context, batchCh chan<- rstypes.BatchInfo, searchMap map[int64]map[uint32]struct{}) error {
-	for height, indexes := range searchMap {
+func (cp *CelestiaProvider) fetchBlock(ctx context.Context, batchCh chan<- rstypes.BatchInfo, searchMap map[int64][]uint32) error {
+	heights := make([]int64, 0)
+	for height := range searchMap {
+		heights = append(heights, height)
+	}
+	slices.Sort(heights)
+
+	for _, height := range heights {
 		res, err := cp.client.Block(ctx, &height)
 		if err != nil {
 			return err
 		}
+		slices.Sort(searchMap[height])
 
-		for index := range indexes {
+		for _, index := range searchMap[height] {
 			txbytes := res.Block.Txs[index]
 			blobTx, err := unmarshalCelestiaBlobTx(txbytes)
 			if err != nil {
@@ -130,12 +136,8 @@ func (cp *CelestiaProvider) fetchBlock(ctx context.Context, batchCh chan<- rstyp
 					Batch: blob.Data,
 				}
 			}
-
-			delete(searchMap[height], index)
-			if len(searchMap[height]) == 0 {
-				delete(searchMap, height)
-			}
 		}
+		delete(searchMap, height)
 	}
 	return nil
 }
