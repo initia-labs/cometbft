@@ -225,13 +225,12 @@ func (lp L1Provider) GetBatchInfoUpdates(ctx context.Context, targetBlockHeight 
 								return nil, err
 							}
 
-							// the updated batch info applied from the next block
-							// of the finalized l2 block number.
+							// batch info applied [finalizedL2BlockNumber, nextFinalizedL2BlockNumber - 1]
 							batchInfoUpdate.Start = l2BlockNumber + 1
 						}
 					}
 
-					// update last batch info end height to the finalized l2 block number.
+					// batch info applied [finalizedL2BlockNumber, nextFinalizedL2BlockNumber - 1]
 					batchInfoUpdates[len(batchInfoUpdates)-1].End = batchInfoUpdate.Start - 1
 					batchInfoUpdates = append(batchInfoUpdates, batchInfoUpdate)
 				}
@@ -245,7 +244,7 @@ func (lp L1Provider) GetBatchInfoUpdates(ctx context.Context, targetBlockHeight 
 		page++
 	}
 
-	// set last batch info update end height to the latest finalized block height.
+	// set last batch info update end height to the target block height
 	batchInfoUpdates[len(batchInfoUpdates)-1].End = int64(targetBlockHeight)
 	return batchInfoUpdates, nil
 }
