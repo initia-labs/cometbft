@@ -27,6 +27,7 @@ func (env *Environment) GetRoutes() RoutesMap {
 		"block_by_hash":        rpc.NewRPCFunc(env.BlockByHash, "hash", rpc.Cacheable()),
 		"block_results":        rpc.NewRPCFunc(env.BlockResults, "height", rpc.Cacheable("height")),
 		"commit":               rpc.NewRPCFunc(env.Commit, "height", rpc.Cacheable("height")),
+		"raw_commit":           rpc.NewRPCFunc(env.RawCommit, "height", rpc.Cacheable("height")),
 		"header":               rpc.NewRPCFunc(env.Header, "height", rpc.Cacheable("height")),
 		"header_by_hash":       rpc.NewRPCFunc(env.HeaderByHash, "hash", rpc.Cacheable()),
 		"check_tx":             rpc.NewRPCFunc(env.CheckTx, "tx"),

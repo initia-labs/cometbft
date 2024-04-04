@@ -8,8 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"time"
 
+	rstypes "github.com/cometbft/cometbft/rollupsync/types"
 	"github.com/cometbft/cometbft/version"
 )
 
@@ -77,6 +79,7 @@ type Config struct {
 	Mempool         *MempoolConfig         `mapstructure:"mempool"`
 	StateSync       *StateSyncConfig       `mapstructure:"statesync"`
 	BlockSync       *BlockSyncConfig       `mapstructure:"blocksync"`
+	RollupSync      *RollupSyncConfig      `mapstructure:"rollupsync"`
 	Consensus       *ConsensusConfig       `mapstructure:"consensus"`
 	Storage         *StorageConfig         `mapstructure:"storage"`
 	TxIndex         *TxIndexConfig         `mapstructure:"tx_index"`
@@ -92,6 +95,7 @@ func DefaultConfig() *Config {
 		Mempool:         DefaultMempoolConfig(),
 		StateSync:       DefaultStateSyncConfig(),
 		BlockSync:       DefaultBlockSyncConfig(),
+		RollupSync:      DefaultRollupSyncConfig(),
 		Consensus:       DefaultConsensusConfig(),
 		Storage:         DefaultStorageConfig(),
 		TxIndex:         DefaultTxIndexConfig(),
@@ -145,6 +149,9 @@ func (cfg *Config) ValidateBasic() error {
 	}
 	if err := cfg.BlockSync.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [blocksync] section: %w", err)
+	}
+	if err := cfg.RollupSync.ValidateBasic(); err != nil {
+		return fmt.Errorf("error in [rollupsync] section: %w", err)
 	}
 	if err := cfg.Consensus.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [consensus] section: %w", err)
@@ -950,6 +957,64 @@ func (cfg *BlockSyncConfig) ValidateBasic() error {
 	default:
 		return fmt.Errorf("unknown blocksync version %s", cfg.Version)
 	}
+}
+
+//-----------------------------------------------------------------------------
+// RollupSyncConfig
+
+type RollupSyncConfig struct {
+	Enable                     bool                  `mapstructure:"enable"`
+	BridgeID                   int64                 `mapstructure:"bridge_id"`
+	MaxBatchChunkBytes         int64                 `mapstructure:"max_batch_chunk_bytes"`
+	MaxBatchChunkNum           int64                 `mapstructure:"max_batch_chunk_num"`
+	FetchInterval              int64                 `mapstructure:"fetch_interval"`
+	TxsPerPage                 int64                 `mapstructure:"txs_per_page"`
+	BlocksPerPage              int64                 `mapstructure:"blocks_per_page"`
+	BatchChainQueryHeightRange int64                 `mapstructure:"batch_chain_query_height_range"`
+	RPCServers                 []RollupSyncRPCConfig `mapstructure:"rpc_servers"`
+}
+
+type RollupSyncRPCConfig struct {
+	Chain   string `mapstructure:"chain"`
+	Address string `mapstructure:"address"`
+}
+
+// DefaultRollupSyncConfig returns a default configuration for the rollup sync service
+func DefaultRollupSyncConfig() *RollupSyncConfig {
+	return &RollupSyncConfig{
+		Enable:                     false,
+		BridgeID:                   0,
+		MaxBatchChunkBytes:         500_000, // 500KB
+		MaxBatchChunkNum:           10,
+		FetchInterval:              10, // 10 milliseconds
+		TxsPerPage:                 1000,
+		BlocksPerPage:              10,
+		BatchChainQueryHeightRange: 1000,
+		RPCServers: []RollupSyncRPCConfig{
+			{Chain: rstypes.CHAIN_NAME_L1, Address: "tcp://0.0.0.0:26657"},
+		},
+	}
+}
+
+// TestRollupSyncConfig returns a default configuration for the rollup sync.
+func TestRollupSyncConfig() *RollupSyncConfig {
+	return DefaultRollupSyncConfig()
+}
+
+// ValidateBasic performs basic validation.
+func (cfg *RollupSyncConfig) ValidateBasic() error {
+	if cfg.Enable {
+		if cfg.BridgeID == 0 {
+			return errors.New("bridge id is required")
+		}
+
+		if idx := slices.IndexFunc(cfg.RPCServers, func(elem RollupSyncRPCConfig) bool {
+			return elem.Chain == rstypes.CHAIN_NAME_L1
+		}); idx < 0 {
+			return errors.New("l1 rpc server is required")
+		}
+	}
+	return nil
 }
 
 //-----------------------------------------------------------------------------

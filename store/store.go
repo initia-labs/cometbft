@@ -330,6 +330,23 @@ func (bs *BlockStore) LoadSeenCommit(height int64) *types.Commit {
 	return commit
 }
 
+func (bs *BlockStore) LoadRawCommit(height int64) ([]byte, error) {
+	var calcFunc func(int64) []byte
+	if bs.height == height {
+		calcFunc = calcSeenCommitKey
+	} else {
+		calcFunc = calcBlockCommitKey
+	}
+	bz, err := bs.db.Get(calcFunc(height))
+	if err != nil {
+		return nil, err
+	}
+	if len(bz) == 0 {
+		return nil, errors.New("empty commit")
+	}
+	return bz, nil
+}
+
 // PruneBlocks removes block up to (but not including) a height. It returns number of blocks pruned and the evidence retain height - the height at which data needed to prove evidence must not be removed.
 func (bs *BlockStore) PruneBlocks(height int64, state sm.State) (uint64, int64, error) {
 	if height <= 0 {
@@ -511,7 +528,7 @@ func (bs *BlockStore) saveBlockToBatch(
 	if !blockParts.IsComplete() {
 		return errors.New("BlockStore can only save complete block part sets")
 	}
-	if height != seenCommit.Height {
+	if seenCommit != nil && height != seenCommit.Height {
 		return fmt.Errorf("BlockStore cannot save seen commit of a different height (block: %d, commit: %d)", height, seenCommit.Height)
 	}
 
@@ -549,14 +566,15 @@ func (bs *BlockStore) saveBlockToBatch(
 		return err
 	}
 
-	// Save seen commit (seen +2/3 precommits for block)
-	// NOTE: we can delete this at a later height
-	pbsc := seenCommit.ToProto()
-	seenCommitBytes := mustEncode(pbsc)
-	if err := batch.Set(calcSeenCommitKey(height), seenCommitBytes); err != nil {
-		return err
+	if seenCommit != nil {
+		// Save seen commit (seen +2/3 precommits for block)
+		// NOTE: we can delete this at a later height
+		pbsc := seenCommit.ToProto()
+		seenCommitBytes := mustEncode(pbsc)
+		if err := batch.Set(calcSeenCommitKey(height), seenCommitBytes); err != nil {
+			return err
+		}
 	}
-
 	return nil
 }
 

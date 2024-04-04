@@ -174,6 +174,17 @@ func (env *Environment) Commit(_ *rpctypes.Context, heightPtr *int64) (*ctypes.R
 	return ctypes.NewResultCommit(&header, commit, true), nil
 }
 
+// RawCommit gets block commit proto at a given height.
+func (env *Environment) RawCommit(_ *rpctypes.Context, heightPtr *int64) (*ctypes.ResultRawCommit, error) {
+	rawCommit, err := env.BlockStore.LoadRawCommit(*heightPtr)
+	if err != nil {
+		return nil, err
+	}
+	return &ctypes.ResultRawCommit{
+		Commit: rawCommit,
+	}, nil
+}
+
 // BlockResults gets ABCIResults at a given height.
 // If no height is provided, it will fetch results for the latest block.
 //

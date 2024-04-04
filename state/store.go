@@ -43,6 +43,7 @@ func calcABCIResponsesKey(height int64) []byte {
 
 var lastABCIResponseKey = []byte("lastABCIResponseKey")
 var offlineStateSyncHeight = []byte("offlineStateSyncHeightKey")
+var rollupSyncBatchChainHeight = []byte("rollupSyncBatchChainHeight")
 
 //go:generate ../scripts/mockery_generate.sh Store
 
@@ -67,6 +68,13 @@ type Store interface {
 	LoadLastFinalizeBlockResponse(int64) (*abci.ResponseFinalizeBlock, error)
 	// LoadConsensusParams loads the consensus params for a given height
 	LoadConsensusParams(int64) (types.ConsensusParams, error)
+
+	// initia custom, it is to save last rollup sync height to avoid starting sync at 1
+	GetRollupSyncBatchChainHeight() (int64, error)
+	SetRollupSyncBatchChainHeight(int64) error
+	// initia custom, it is to save current validators when executor is changed
+	SaveValidators(int64, int64, *types.ValidatorSet) error
+
 	// Save overwrites the previous state with the updated one
 	Save(State) error
 	// SaveFinalizeBlockResponse saves ABCIResponses for a given height
@@ -178,6 +186,25 @@ func (store dbStore) loadState(key []byte) (state State, err error) {
 		return state, err
 	}
 	return *sm, nil
+}
+
+// SaveValidators overwrite validator set if the executor is changed
+func (store dbStore) SaveValidators(height int64, changedHeight int64, validators *types.ValidatorSet) error {
+	batch := store.db.NewBatch()
+	defer func(batch dbm.Batch) {
+		err := batch.Close()
+		if err != nil {
+			panic(err)
+		}
+	}(batch)
+	if err := store.saveValidatorsInfo(height, changedHeight, validators, batch); err != nil {
+		return err
+	}
+
+	if err := batch.WriteSync(); err != nil {
+		panic(err)
+	}
+	return nil
 }
 
 // Save persists the State, the ValidatorsInfo, and the ConsensusParamsInfo to the database.
@@ -717,6 +744,33 @@ func (store dbStore) saveConsensusParamsInfo(nextHeight, changeHeight int64, par
 	}
 
 	return nil
+}
+
+func (store dbStore) SetRollupSyncBatchChainHeight(height int64) error {
+	err := store.db.SetSync(rollupSyncBatchChainHeight, int64ToBytes(height))
+	if err != nil {
+		return err
+	}
+	return nil
+
+}
+
+// Gets the height at which the store is bootstrapped after out of band statesync
+func (store dbStore) GetRollupSyncBatchChainHeight() (int64, error) {
+	buf, err := store.db.Get(rollupSyncBatchChainHeight)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(buf) == 0 {
+		return 0, errors.New("value empty")
+	}
+
+	height := int64FromBytes(buf)
+	if height < 0 {
+		return 0, errors.New("invalid value for height: height cannot be negative")
+	}
+	return height, nil
 }
 
 func (store dbStore) SetOfflineStateSyncHeight(height int64) error {

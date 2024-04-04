@@ -275,6 +275,15 @@ func (blockExec *BlockExecutor) ApplyBlock(
 		return state, fmt.Errorf("commit failed for application: %v", err)
 	}
 
+	if checkExecutorChanged(state.Validators, state.NextValidators) {
+		// force update validator set to be available that new validator make next block
+		state.LastHeightValidatorsChanged--
+		state.Validators = state.NextValidators.Copy()
+		state.NextValidators.IncrementProposerPriority(1)
+
+		blockExec.store.SaveValidators(state.LastBlockHeight+1, state.LastHeightValidatorsChanged, state.Validators)
+	}
+
 	// Lock mempool, commit app state, update mempoool.
 	retainHeight, err := blockExec.Commit(state, block, abciResponse)
 	if err != nil {
@@ -551,6 +560,19 @@ func BuildExtendedCommitInfo(ec *types.ExtendedCommit, valSet *types.ValidatorSe
 		Round: ec.Round,
 		Votes: votes,
 	}
+}
+
+// check if all current validators changed
+func checkExecutorChanged(validators *types.ValidatorSet, nextValidators *types.ValidatorSet) bool {
+	check := true
+	validators.Iterate(func(_ int, val *types.Validator) bool {
+		if nextValidators.HasAddress(val.Address) {
+			check = false
+			return true
+		}
+		return false
+	})
+	return check
 }
 
 func validateValidatorUpdates(abciUpdates []abci.ValidatorUpdate,

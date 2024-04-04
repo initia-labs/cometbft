@@ -68,6 +68,30 @@ func (_m *Store) GetOfflineStateSyncHeight() (int64, error) {
 	return r0, r1
 }
 
+// GetRollupSyncBatchChainHeight provides a mock function with given fields:
+func (_m *Store) GetRollupSyncBatchChainHeight() (int64, error) {
+	ret := _m.Called()
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func() (int64, error)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func() int64); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func() error); ok {
+		r1 = rf()
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // Load provides a mock function with given fields:
 func (_m *Store) Load() (state.State, error) {
 	ret := _m.Called()
@@ -284,6 +308,20 @@ func (_m *Store) SaveFinalizeBlockResponse(_a0 int64, _a1 *abcitypes.ResponseFin
 	return r0
 }
 
+// SaveValidators provides a mock function with given fields: _a0, _a1, _a2
+func (_m *Store) SaveValidators(_a0 int64, _a1 int64, _a2 *types.ValidatorSet) error {
+	ret := _m.Called(_a0, _a1, _a2)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64, int64, *types.ValidatorSet) error); ok {
+		r0 = rf(_a0, _a1, _a2)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // SetOfflineStateSyncHeight provides a mock function with given fields: height
 func (_m *Store) SetOfflineStateSyncHeight(height int64) error {
 	ret := _m.Called(height)
@@ -291,6 +329,20 @@ func (_m *Store) SetOfflineStateSyncHeight(height int64) error {
 	var r0 error
 	if rf, ok := ret.Get(0).(func(int64) error); ok {
 		r0 = rf(height)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// SetRollupSyncBatchChainHeight provides a mock function with given fields: _a0
+func (_m *Store) SetRollupSyncBatchChainHeight(_a0 int64) error {
+	ret := _m.Called(_a0)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64) error); ok {
+		r0 = rf(_a0)
 	} else {
 		r0 = ret.Error(0)
 	}
