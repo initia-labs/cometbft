@@ -3,21 +3,34 @@ module github.com/cometbft/cometbft
 go 1.21.5
 
 require (
+	cosmossdk.io/api v0.7.3
 	github.com/BurntSushi/toml v1.2.1
+	github.com/Masterminds/semver/v3 v3.2.0
 	github.com/adlio/schema v1.3.3
+	github.com/btcsuite/btcd/btcec/v2 v2.3.2
+	github.com/btcsuite/btcd/btcutil v1.1.3
+	github.com/bufbuild/buf v1.15.1
+	github.com/celestiaorg/go-square v1.0.1
 	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
+	github.com/cometbft/cometbft-db v0.9.1
+	github.com/cosmos/gogoproto v1.4.11
 	github.com/fortytw2/leaktest v1.3.0
+	github.com/go-git/go-git/v5 v5.11.0
 	github.com/go-kit/kit v0.12.0
 	github.com/go-kit/log v0.2.1
 	github.com/go-logfmt/logfmt v0.6.0
+	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/golang/protobuf v1.5.3
 	github.com/golangci/golangci-lint v1.52.0
 	github.com/google/orderedcode v0.0.1
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/informalsystems/tm-load-test v1.3.0
+	github.com/initia-labs/OPinit/api v0.0.0-20240404023002-8608273959a8
 	github.com/lib/pq v1.10.7
 	github.com/libp2p/go-buffer-pool v0.1.0
 	github.com/minio/highwayhash v1.0.2
+	github.com/oasisprotocol/curve25519-voi v0.0.0-20230904125328-1f23a7beb09a
 	github.com/ory/dockertest v3.3.5+incompatible
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.17.0
@@ -30,32 +43,13 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.1
 	github.com/stretchr/testify v1.9.0
+	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
+	github.com/vektra/mockery/v2 v2.23.1
 	golang.org/x/crypto v0.19.0
 	golang.org/x/net v0.21.0
-	google.golang.org/grpc v1.62.0
-)
-
-require (
-	github.com/bufbuild/buf v1.15.1
-	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
-)
-
-require (
-	cosmossdk.io/api v0.7.3
-	github.com/Masterminds/semver/v3 v3.2.0
-	github.com/btcsuite/btcd/btcec/v2 v2.3.2
-	github.com/btcsuite/btcd/btcutil v1.1.3
-	github.com/celestiaorg/go-square v1.0.1
-	github.com/cometbft/cometbft-db v0.9.1
-	github.com/cosmos/gogoproto v1.4.11
-	github.com/go-git/go-git/v5 v5.11.0
-	github.com/gofrs/uuid v4.4.0+incompatible
-	github.com/google/uuid v1.6.0
-	github.com/initia-labs/OPinit/api v0.0.0-20240403083804-4822c74aaf44
-	github.com/oasisprotocol/curve25519-voi v0.0.0-20230904125328-1f23a7beb09a
-	github.com/vektra/mockery/v2 v2.23.1
 	golang.org/x/sync v0.6.0
 	gonum.org/v1/gonum v0.12.0
+	google.golang.org/grpc v1.62.0
 	google.golang.org/protobuf v1.32.0
 )
 

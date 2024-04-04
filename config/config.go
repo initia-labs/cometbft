@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	rstypes "github.com/cometbft/cometbft/rollupsync/types"
 	"github.com/cometbft/cometbft/version"
 )
 
@@ -962,18 +963,15 @@ func (cfg *BlockSyncConfig) ValidateBasic() error {
 // RollupSyncConfig
 
 type RollupSyncConfig struct {
-	Enable bool `mapstructure:"enable"`
-
-	MaxBatchBytes int64 `mapstructure:"max_batch_bytes"`
-	MaxBatchChunk int64 `mapstructure:"max_batch_chunk"`
-
-	FetchInterval                 int64 `mapstructure:"fetch_interval"`
-	TxsPerPage                    int64 `mapstructure:"txs_per_page"`
-	BlocksPerPage                 int64 `mapstructure:"blocks_per_page"`
-	BatchChainQueryHeightInterval int64 `mapstructure:"batch_chain_query_height_interval"`
-
-	BridgeID   int64                 `mapstructure:"bridge_id"`
-	RPCServers []RollupSyncRPCConfig `mapstructure:"rpc_servers"`
+	Enable                     bool                  `mapstructure:"enable"`
+	BridgeID                   int64                 `mapstructure:"bridge_id"`
+	MaxBatchChunkBytes         int64                 `mapstructure:"max_batch_chunk_bytes"`
+	MaxBatchChunkNum           int64                 `mapstructure:"max_batch_chunk_num"`
+	FetchInterval              int64                 `mapstructure:"fetch_interval"`
+	TxsPerPage                 int64                 `mapstructure:"txs_per_page"`
+	BlocksPerPage              int64                 `mapstructure:"blocks_per_page"`
+	BatchChainQueryHeightRange int64                 `mapstructure:"batch_chain_query_height_range"`
+	RPCServers                 []RollupSyncRPCConfig `mapstructure:"rpc_servers"`
 }
 
 type RollupSyncRPCConfig struct {
@@ -984,19 +982,16 @@ type RollupSyncRPCConfig struct {
 // DefaultRollupSyncConfig returns a default configuration for the rollup sync service
 func DefaultRollupSyncConfig() *RollupSyncConfig {
 	return &RollupSyncConfig{
-		// Default max tx bytes is 1MB
-		MaxBatchBytes: 500_000,
-		MaxBatchChunk: 2,
-
-		FetchInterval: 10,
-		TxsPerPage:    1000,
-
-		// Default max block bytes is 100MB
-		BlocksPerPage:                 10,
-		BatchChainQueryHeightInterval: 1000,
-
+		Enable:                     false,
+		BridgeID:                   0,
+		MaxBatchChunkBytes:         500_000, // 500KB
+		MaxBatchChunkNum:           10,
+		FetchInterval:              10, // 10 milliseconds
+		TxsPerPage:                 1000,
+		BlocksPerPage:              10,
+		BatchChainQueryHeightRange: 1000,
 		RPCServers: []RollupSyncRPCConfig{
-			{Chain: "l1", Address: "tcp://0.0.0.0:26657"},
+			{Chain: rstypes.CHAIN_NAME_L1, Address: "tcp://0.0.0.0:26657"},
 		},
 	}
 }
@@ -1013,11 +1008,10 @@ func (cfg *RollupSyncConfig) ValidateBasic() error {
 			return errors.New("bridge id is required")
 		}
 
-		idx := slices.IndexFunc(cfg.RPCServers, func(elem RollupSyncRPCConfig) bool {
-			return elem.Chain == "l1"
-		})
-		if idx < 0 {
-			return errors.New("rpc address of the l1 chain is required")
+		if idx := slices.IndexFunc(cfg.RPCServers, func(elem RollupSyncRPCConfig) bool {
+			return elem.Chain == rstypes.CHAIN_NAME_L1
+		}); idx < 0 {
+			return errors.New("l1 rpc server is required")
 		}
 	}
 	return nil
