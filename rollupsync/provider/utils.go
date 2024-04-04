@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strings"
 
-	abciv1beta1 "cosmossdk.io/api/cosmos/base/abci/v1beta1"
 	txv1beta1 "cosmossdk.io/api/cosmos/tx/v1beta1"
 	"google.golang.org/protobuf/proto"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -14,8 +13,8 @@ import (
 	celblob "github.com/celestiaorg/go-square/blob"
 )
 
-// RPCClient sets up a new RPC client
-func RPCClient(server string) (*rpchttp.HTTP, error) {
+// newRpcClient sets up a new RPC client
+func newRpcClient(server string) (*rpchttp.HTTP, error) {
 	if !strings.Contains(server, "://") {
 		server = "http://" + server
 	}
@@ -25,14 +24,6 @@ func RPCClient(server string) (*rpchttp.HTTP, error) {
 		return nil, err
 	}
 	return c, nil
-}
-
-func unmarshalCosmosTxData(data []byte) ([]*anypb.Any, error) {
-	var msgData abciv1beta1.TxMsgData
-	if err := proto.Unmarshal(data, &msgData); err != nil {
-		return nil, err
-	}
-	return msgData.MsgResponses, nil
 }
 
 func unmarshalCosmosTx(txbytes []byte) ([]*anypb.Any, error) {

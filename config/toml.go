@@ -459,15 +459,37 @@ version = "{{ .BlockSync.Version }}"
 [rollupsync]
 enable = {{ .RollupSync.Enable }}
 
-max_batch_bytes = {{ .RollupSync.MaxBatchBytes }}
-max_batch_chunk = {{ .RollupSync.MaxBatchChunk }}
-
-fetch_interval = {{ .RollupSync.FetchInterval }}
-txs_per_page = {{ .RollupSync.TxsPerPage }}
-blocks_per_page = {{ .RollupSync.BlocksPerPage }}
-batch_chain_query_height_interval = {{ .RollupSync.BatchChainQueryHeightInterval }}
-
+# The bridge id of the rollup chain, which is registered in l1's bridge config.
 bridge_id = {{ .RollupSync.BridgeID }}
+
+# When we sync from the batch chain, we need to limit the fetch size to avoid
+# overwhelming the node with a large number of batch data.
+#
+# Normally the batch submitter will split the batch into chunks of a certain size
+# due to the limitation of the batch chain's block size.
+#
+# The maximum size of a batch chunk.
+max_batch_chunk_bytes = {{ .RollupSync.MaxBatchChunkBytes }}
+# The maximum number of batch chunks of a batch data.
+max_batch_chunk_num = {{ .RollupSync.MaxBatchChunkNum }}
+
+# The interval to fetch the batch data from the batch chain in milliseconds.
+fetch_interval = {{ .RollupSync.FetchInterval }}
+
+# The number of txs per page when fetching txs from the batch chain.
+txs_per_page = {{ .RollupSync.TxsPerPage }}
+# The number of blocks per page when fetching blocks from the l1 chain
+# to search batch updates.
+blocks_per_page = {{ .RollupSync.BlocksPerPage }}
+# The range of batch chain heights to search batch data.
+batch_chain_query_height_range = {{ .RollupSync.BatchChainQueryHeightRange }}
+
+# The chain RPCs to fetch the batch data.
+# You should provide l1 RPC info for rollup sync, event your batch chain is not l1.
+#
+# supported chains:
+# - l1
+# - celestia
 rpc_servers = [
 {{- range .RollupSync.RPCServers }}
   { chain="{{ .Chain }}", address="{{ .Address }}" },

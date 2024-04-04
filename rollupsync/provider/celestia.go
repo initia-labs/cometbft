@@ -31,7 +31,7 @@ func NewCelestiaProvider(logger log.Logger, cfg *config.RollupSyncConfig) (*Cele
 	if idx < 0 {
 		return nil, fmt.Errorf("%s rpc address is not provided", rstypes.CHAIN_NAME_CELESTIA)
 	}
-	client, err := RPCClient(cfg.RPCServers[idx].Address)
+	client, err := newRpcClient(cfg.RPCServers[idx].Address)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create RPC client: %w", err)
 	}
@@ -47,73 +47,78 @@ func (cp *CelestiaProvider) SetSubmitter(submitter string) {
 	cp.submitter = submitter
 }
 
-func (cp *CelestiaProvider) BatchFetcher(ctx context.Context, batchCh chan<- rstypes.BatchInfo, startHeight int64, endHeight int64) error {
+func (cp *CelestiaProvider) BatchFetcher(ctx context.Context, batchCh chan<- rstypes.BatchChanInfo, startHeight int64, endHeight int64) error {
 	if cp.submitter == "" {
 		return errors.New("submitter is not provided")
 	}
 
 	timer := time.NewTicker(time.Duration(cp.cfg.FetchInterval) * time.Millisecond)
 	defer timer.Stop()
+
 	page := 1
 	height := startHeight
-	nextHeight := height + int64(cp.cfg.BatchChainQueryHeightInterval)
-	searchMap := make(map[int64][]uint32)
+	nextHeight := height + int64(cp.cfg.BatchChainQueryHeightRange)
+	txIndexMap := make(map[int64][]uint32)
 
-LOOP:
 	for {
 		select {
 		case <-ctx.Done():
 			cp.logger.Info("Closing batch fetcher")
 			return nil
 		case <-timer.C:
-			if isEnd, err := cp.fetchBatch(ctx, page, height, nextHeight, searchMap); err != nil {
-				cp.logger.Debug("Failed fetching batch", "height", height, "page", page, "error", err)
-				continue LOOP
-			} else if isEnd {
-				height = nextHeight
-				nextHeight = height + int64(cp.cfg.BatchChainQueryHeightInterval)
-				err := cp.fetchBlock(ctx, batchCh, searchMap)
-				if err != nil {
-					continue LOOP
-				}
-				if height > endHeight {
-					return nil
-				}
-				page = 1
-				batchCh <- rstypes.BatchInfo{
-					BatchChainHeight: height - 1,
-				}
-			} else {
+			if isEnd, err := cp.searchBatchTxs(ctx, page, height, nextHeight, txIndexMap); err != nil {
+				cp.logger.Debug("Failed search batch txs", "height", height, "nextHeight", nextHeight, "page", page, "error", err)
+				continue
+			} else if !isEnd {
 				page++
+				continue
 			}
+
+			if err := cp.fetchBatch(ctx, batchCh, txIndexMap); err != nil {
+				cp.logger.Debug("Failed fetch batch", "height", height, "next_height", nextHeight, "error", err)
+				continue
+			}
+
+			batchCh <- rstypes.BatchChanInfo{
+				BatchChainHeight: nextHeight - 1,
+			}
+
+			height = nextHeight
+			nextHeight = height + int64(cp.cfg.BatchChainQueryHeightRange)
+			if height > endHeight {
+				return nil
+			}
+
+			page = 1
 		}
 	}
 }
 
-func (cp *CelestiaProvider) fetchBatch(ctx context.Context, page int, height int64, nextHeight int64, searchMap map[int64][]uint32) (bool, error) {
+func (cp *CelestiaProvider) searchBatchTxs(ctx context.Context, page int, height int64, nextHeight int64, txIndexMap map[int64][]uint32) (bool, error) {
 	txsPerPage := int(cp.cfg.TxsPerPage)
 	queryStr := fmt.Sprintf("tx.height >= %d AND tx.height < %d AND message.action='/celestia.blob.v1.MsgPayForBlobs' AND message.sender='%s'", height, nextHeight, cp.submitter)
 	res, err := cp.client.TxSearch(ctx, queryStr, false, &page, &txsPerPage, "asc")
 	if err != nil {
 		return false, err
 	}
-	cp.logger.Debug("Fetch batch", "current", height, "next", nextHeight, "page", page, "txs", len(res.Txs))
+
+	cp.logger.Debug("Fetch batch", "height", height, "next_height", nextHeight, "page", page, "num_txs", len(res.Txs))
 
 	for _, tx := range res.Txs {
-		if _, ok := searchMap[tx.Height]; !ok {
-			searchMap[tx.Height] = make([]uint32, 0)
+		if _, ok := txIndexMap[tx.Height]; !ok {
+			txIndexMap[tx.Height] = make([]uint32, 0)
 		}
-		searchMap[tx.Height] = append(searchMap[tx.Height], tx.Index)
+
+		// only need tx index to fetch blob data from tx bytes in a block
+		txIndexMap[tx.Height] = append(txIndexMap[tx.Height], tx.Index)
 	}
-	if res.TotalCount <= page*txsPerPage {
-		return true, nil
-	}
-	return false, nil
+
+	return res.TotalCount <= page*txsPerPage, nil
 }
 
-func (cp *CelestiaProvider) fetchBlock(ctx context.Context, batchCh chan<- rstypes.BatchInfo, searchMap map[int64][]uint32) error {
+func (cp *CelestiaProvider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.BatchChanInfo, txIndexMap map[int64][]uint32) error {
 	heights := make([]int64, 0)
-	for height := range searchMap {
+	for height := range txIndexMap {
 		heights = append(heights, height)
 	}
 	slices.Sort(heights)
@@ -123,21 +128,24 @@ func (cp *CelestiaProvider) fetchBlock(ctx context.Context, batchCh chan<- rstyp
 		if err != nil {
 			return err
 		}
-		slices.Sort(searchMap[height])
 
-		for _, index := range searchMap[height] {
-			txbytes := res.Block.Txs[index]
-			blobTx, err := unmarshalCelestiaBlobTx(txbytes)
+		slices.Sort(txIndexMap[height])
+
+		for _, index := range txIndexMap[height] {
+			txBytes := res.Block.Txs[index]
+			blobTx, err := unmarshalCelestiaBlobTx(txBytes)
 			if err != nil {
 				return err
 			}
+
 			for _, blob := range blobTx.Blobs {
-				batchCh <- rstypes.BatchInfo{
+				batchCh <- rstypes.BatchChanInfo{
 					Batch: blob.Data,
 				}
 			}
 		}
-		delete(searchMap, height)
+
+		delete(txIndexMap, height)
 	}
 	return nil
 }

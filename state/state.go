@@ -66,7 +66,6 @@ type State struct {
 	Validators                  *types.ValidatorSet
 	LastValidators              *types.ValidatorSet
 	LastHeightValidatorsChanged int64
-	LastHeightExecutorChanged   bool
 
 	// Consensus parameters used for validating blocks.
 	// Changes returned by FinalizeBlock and updated after Commit.
