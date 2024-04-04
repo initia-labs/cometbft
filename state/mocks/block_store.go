@@ -50,6 +50,24 @@ func (_m *BlockStore) Close() error {
 	return r0
 }
 
+// DeleteBlocksFromHeight provides a mock function with given fields: height
+func (_m *BlockStore) DeleteBlocksFromHeight(height int64) error {
+	ret := _m.Called(height)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteBlocksFromHeight")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64) error); ok {
+		r0 = rf(height)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // DeleteLatestBlock provides a mock function with no fields
 func (_m *BlockStore) DeleteLatestBlock() error {
 	ret := _m.Called()
@@ -140,6 +158,26 @@ func (_m *BlockStore) LoadBlockByHash(hash []byte) *types.Block {
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*types.Block)
+		}
+	}
+
+	return r0
+}
+
+// LoadBlockBytes provides a mock function with given fields: height
+func (_m *BlockStore) LoadBlockBytes(height int64) []byte {
+	ret := _m.Called(height)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LoadBlockBytes")
+	}
+
+	var r0 []byte
+	if rf, ok := ret.Get(0).(func(int64) []byte); ok {
+		r0 = rf(height)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
 		}
 	}
 
@@ -246,6 +284,36 @@ func (_m *BlockStore) LoadBlockPart(height int64, index int) *types.Part {
 	return r0
 }
 
+// LoadRawCommit provides a mock function with given fields: height
+func (_m *BlockStore) LoadRawCommit(height int64) ([]byte, error) {
+	ret := _m.Called(height)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LoadRawCommit")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(int64) ([]byte, error)); ok {
+		return rf(height)
+	}
+	if rf, ok := ret.Get(0).(func(int64) []byte); ok {
+		r0 = rf(height)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(int64) error); ok {
+		r1 = rf(height)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // LoadSeenCommit provides a mock function with given fields: height
 func (_m *BlockStore) LoadSeenCommit(height int64) *types.Commit {
 	ret := _m.Called(height)
@@ -327,10 +395,6 @@ func (_m *BlockStore) Size() int64 {
 	}
 
 	return r0
-}
-
-func (bs *BlockStore) LoadBlockBytes(height int64) []byte {
-	return nil
 }
 
 // NewBlockStore creates a new instance of BlockStore. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

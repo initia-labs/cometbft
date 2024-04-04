@@ -1212,6 +1212,11 @@ func (bs *mockBlockStore) LoadSeenCommit(height int64) *types.Commit {
 	return bs.extCommits[height-1].ToCommit()
 }
 
+func (bs *mockBlockStore) LoadRawCommit(height int64) ([]byte, error) {
+	proto := bs.extCommits[height-1].ToCommit().ToProto()
+	return proto.Marshal()
+}
+
 func (bs *mockBlockStore) LoadBlockExtendedCommit(height int64) *types.ExtendedCommit {
 	return bs.extCommits[height-1]
 }
@@ -1228,8 +1233,9 @@ func (bs *mockBlockStore) PruneBlocks(height int64, _ sm.State) (uint64, int64, 
 	return pruned, evidencePoint, nil
 }
 
-func (bs *mockBlockStore) DeleteLatestBlock() error { return nil }
-func (bs *mockBlockStore) Close() error             { return nil }
+func (bs *mockBlockStore) DeleteLatestBlock() error                  { return nil }
+func (bs *mockBlockStore) DeleteBlocksFromHeight(height int64) error { return nil }
+func (bs *mockBlockStore) Close() error                              { return nil }
 
 func (bs *mockBlockStore) LoadBlockBytes(height int64) []byte {
 	return nil

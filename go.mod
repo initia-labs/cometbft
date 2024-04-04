@@ -51,6 +51,14 @@ require (
 	google.golang.org/protobuf v1.36.5
 )
 
+// modules for rollup sync
+require (
+	cosmossdk.io/api v0.7.6
+	github.com/celestiaorg/go-square/v2 v2.0.0
+	github.com/cosmos/cosmos-proto v1.0.0-beta.5
+	github.com/initia-labs/OPinit/api v1.0.0
+)
+
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
@@ -132,6 +140,7 @@ require (
 	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/tools v0.23.0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20241202173237-19429a94021a // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241202173237-19429a94021a // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect

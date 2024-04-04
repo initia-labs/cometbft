@@ -1,0 +1,82 @@
+package provider
+
+import (
+	"errors"
+	"strings"
+
+	authzv1beta1 "cosmossdk.io/api/cosmos/authz/v1beta1"
+	txv1beta1 "cosmossdk.io/api/cosmos/tx/v1beta1"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+
+	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	ophostv1 "github.com/initia-labs/OPinit/api/opinit/ophost/v1"
+
+	"github.com/celestiaorg/go-square/v2/tx"
+)
+
+// newRpcClient sets up a new RPC client
+func newRpcClient(server string) (*rpchttp.HTTP, error) {
+	if !strings.Contains(server, "://") {
+		server = "http://" + server
+	}
+
+	c, err := rpchttp.New(server, "/websocket")
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func UnmarshalCosmosTx(txbytes []byte) (*txv1beta1.TxRaw, *txv1beta1.TxBody, error) {
+	var raw txv1beta1.TxRaw
+	if err := proto.Unmarshal(txbytes, &raw); err != nil {
+		return nil, nil, err
+	}
+
+	var body txv1beta1.TxBody
+	if err := proto.Unmarshal(raw.BodyBytes, &body); err != nil {
+		return nil, nil, err
+	}
+	return &raw, &body, nil
+}
+
+func MarshalCosmosTx(raw *txv1beta1.TxRaw, body *txv1beta1.TxBody) ([]byte, error) {
+	bodyBytes, err := proto.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	raw.BodyBytes = bodyBytes
+	rawBytes, err := proto.Marshal(raw)
+	if err != nil {
+		return nil, err
+	}
+	return rawBytes, nil
+}
+
+func unmarshalCelestiaBlobTx(txbytes []byte) (*tx.BlobTx, error) {
+	blobTx, success, err := tx.UnmarshalBlobTx(txbytes)
+	if err != nil {
+		return nil, err
+	}
+	if !success {
+		return nil, errors.New("fail unmarshaling celestia blobtx")
+	}
+	return blobTx, nil
+}
+
+func unmarshalMsgRecordBatch(msg *anypb.Any) ([]byte, error) {
+	recordBatch := new(ophostv1.MsgRecordBatch)
+	if err := msg.UnmarshalTo(recordBatch); err != nil {
+		return nil, err
+	}
+	return recordBatch.BatchBytes, nil
+}
+
+func unmarshalAuthzMsgExec(msg *anypb.Any) ([]*anypb.Any, error) {
+	authzMsgExec := new(authzv1beta1.MsgExec)
+	if err := msg.UnmarshalTo(authzMsgExec); err != nil {
+		return nil, err
+	}
+	return authzMsgExec.Msgs, nil
+}

@@ -365,6 +365,23 @@ func (bs *BlockStore) LoadSeenCommit(height int64) *types.Commit {
 	return commit.Clone()
 }
 
+func (bs *BlockStore) LoadRawCommit(height int64) ([]byte, error) {
+	var calcFunc func(int64) []byte
+	if bs.height == height {
+		calcFunc = calcSeenCommitKey
+	} else {
+		calcFunc = calcBlockCommitKey
+	}
+	bz, err := bs.db.Get(calcFunc(height))
+	if err != nil {
+		return nil, err
+	}
+	if len(bz) == 0 {
+		return nil, errors.New("empty commit")
+	}
+	return bz, nil
+}
+
 // PruneBlocks removes block up to (but not including) a height. It returns number of blocks pruned and the evidence retain height - the height at which data needed to prove evidence must not be removed.
 func (bs *BlockStore) PruneBlocks(height int64, state sm.State) (uint64, int64, error) {
 	if height <= 0 {
@@ -546,7 +563,7 @@ func (bs *BlockStore) saveBlockToBatch(
 	if !blockParts.IsComplete() {
 		return errors.New("BlockStore can only save complete block part sets")
 	}
-	if height != seenCommit.Height {
+	if seenCommit != nil && height != seenCommit.Height {
 		return fmt.Errorf("BlockStore cannot save seen commit of a different height (block: %d, commit: %d)", height, seenCommit.Height)
 	}
 
@@ -584,14 +601,15 @@ func (bs *BlockStore) saveBlockToBatch(
 		return err
 	}
 
-	// Save seen commit (seen +2/3 precommits for block)
-	// NOTE: we can delete this at a later height
-	pbsc := seenCommit.ToProto()
-	seenCommitBytes := mustEncode(pbsc)
-	if err := batch.Set(calcSeenCommitKey(height), seenCommitBytes); err != nil {
-		return err
+	if seenCommit != nil {
+		// Save seen commit (seen +2/3 precommits for block)
+		// NOTE: we can delete this at a later height
+		pbsc := seenCommit.ToProto()
+		seenCommitBytes := mustEncode(pbsc)
+		if err := batch.Set(calcSeenCommitKey(height), seenCommitBytes); err != nil {
+			return err
+		}
 	}
-
 	return nil
 }
 
@@ -776,4 +794,74 @@ func (bs *BlockStore) DeleteLatestBlock() error {
 	defer bs.mtx.Unlock()
 	bs.height = targetHeight - 1
 	return bs.saveStateAndWriteDB(batch, "failed to delete the latest block")
+}
+
+func (bs *BlockStore) DeleteBlocksFromHeight(height int64) error {
+	if height <= 0 {
+		return fmt.Errorf("height must be greater than 0")
+	}
+	bs.mtx.RLock()
+	if height > bs.height {
+		bs.mtx.RUnlock()
+		return nil
+	}
+	base := bs.base
+	bs.mtx.RUnlock()
+	if height < base {
+		return fmt.Errorf("cannot delete to height %v, it is lower than base height %v",
+			height, base)
+	}
+
+	batch := bs.db.NewBatch()
+	defer batch.Close()
+	flush := func(batch dbm.Batch, h int64) error {
+		// We can't trust batches to be atomic, so update last height first to make sure noone
+		// tries to access missing blocks.
+		bs.mtx.Lock()
+		defer batch.Close()
+		defer bs.mtx.Unlock()
+		bs.height = h - 1
+		return bs.saveStateAndWriteDB(batch, "failed to delete blocks")
+	}
+
+	blocks := uint64(0)
+	for h := bs.height; h >= height; h-- {
+		meta := bs.LoadBlockMeta(h)
+		if meta == nil { // assume already deleted
+			continue
+		}
+		if err := batch.Delete(calcBlockHashKey(meta.BlockID.Hash)); err != nil {
+			return err
+		}
+
+		if err := batch.Delete(calcBlockCommitKey(h)); err != nil {
+			return err
+		}
+
+		if err := batch.Delete(calcSeenCommitKey(h)); err != nil {
+			return err
+		}
+		for p := 0; p < int(meta.BlockID.PartSetHeader.Total); p++ {
+			if err := batch.Delete(calcBlockPartKey(h, p)); err != nil {
+				return err
+			}
+		}
+		// delete last, so as to not leave keys built on meta.BlockID dangling
+		if err := batch.Delete(calcBlockMetaKey(h)); err != nil {
+			return err
+		}
+		blocks++
+
+		// flush every 1000 blocks to avoid batches becoming too large
+		if blocks%1000 == 0 && blocks > 0 {
+			err := flush(batch, h)
+			if err != nil {
+				return err
+			}
+			batch = bs.db.NewBatch()
+			defer batch.Close()
+		}
+	}
+
+	return flush(batch, height)
 }

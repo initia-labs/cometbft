@@ -286,3 +286,75 @@ func makeBlockIDRandom() types.BlockID {
 		},
 	}
 }
+
+func nextState(initialState state.State) state.State {
+	nextHeight := initialState.LastBlockHeight + 1
+	newParams := types.DefaultConsensusParams()
+	newParams.Version.App = uint64(nextHeight)
+	newParams.Block.MaxBytes = 1000
+
+	nextState := initialState.Copy()
+	nextState.LastBlockHeight = nextHeight
+	nextState.Version.Consensus.App = 11
+	nextState.LastBlockID = makeBlockIDRandom()
+	nextState.AppHash = tmhash.Sum([]byte("app_hash"))
+	nextState.LastValidators = initialState.Validators
+	nextState.Validators = initialState.NextValidators
+	nextState.NextValidators = initialState.NextValidators.CopyIncrementProposerPriority(1)
+	nextState.ConsensusParams = *newParams
+	nextState.LastHeightConsensusParamsChanged = nextHeight
+	nextState.LastHeightValidatorsChanged = nextHeight + 1
+
+	return nextState
+}
+
+func TestRollback_To(t *testing.T) {
+	height := int64(100)
+	nextHeight := int64(101)
+	blockStore := &mocks.BlockStore{}
+	stateStore := setupStateStore(t, height)
+	initialState, err := stateStore.Load()
+	require.NoError(t, err)
+
+	curState := initialState
+	blockStore.On("LoadBlockMeta", height).Return(&types.BlockMeta{
+		BlockID: initialState.LastBlockID,
+		Header: types.Header{
+			Height:          initialState.LastBlockHeight,
+			Time:            initialState.LastBlockTime,
+			AppHash:         crypto.CRandBytes(tmhash.Size),
+			LastBlockID:     makeBlockIDRandom(),
+			LastResultsHash: initialState.LastResultsHash,
+		},
+	})
+
+	for range 10 {
+		curState = nextState(curState)
+		require.NoError(t, stateStore.Save(curState))
+
+		if curState.LastBlockHeight == nextHeight {
+			blockStore.On("LoadBlockMeta", nextHeight).Return(&types.BlockMeta{
+				BlockID: initialState.LastBlockID,
+				Header: types.Header{
+					Height:          initialState.LastBlockHeight,
+					Time:            initialState.LastBlockTime,
+					AppHash:         initialState.AppHash,
+					LastBlockID:     makeBlockIDRandom(),
+					LastResultsHash: initialState.LastResultsHash,
+				},
+			})
+		}
+	}
+
+	// rollback the state
+	rollbackHeight, rollbackHash, err := state.RollbackTo(blockStore, stateStore, height, false)
+	require.NoError(t, err)
+	require.EqualValues(t, height, rollbackHeight)
+	require.EqualValues(t, initialState.AppHash, rollbackHash)
+	blockStore.AssertExpectations(t)
+
+	// assert that we've recovered the prior state
+	loadedState, err := stateStore.Load()
+	require.NoError(t, err)
+	require.EqualValues(t, initialState, loadedState)
+}

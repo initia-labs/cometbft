@@ -52,6 +52,24 @@ func (_m *Store) Close() error {
 	return r0
 }
 
+// Delete provides a mock function with no fields
+func (_m *Store) Delete() error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Delete")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // GetOfflineStateSyncHeight provides a mock function with no fields
 func (_m *Store) GetOfflineStateSyncHeight() (int64, error) {
 	ret := _m.Called()
@@ -73,6 +91,34 @@ func (_m *Store) GetOfflineStateSyncHeight() (int64, error) {
 
 	if rf, ok := ret.Get(1).(func() error); ok {
 		r1 = rf()
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetRollupSyncBatchChainHeight provides a mock function with given fields: _a0
+func (_m *Store) GetRollupSyncBatchChainHeight(_a0 int64) (int64, error) {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRollupSyncBatchChainHeight")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(int64) (int64, error)); ok {
+		return rf(_a0)
+	}
+	if rf, ok := ret.Get(0).(func(int64) int64); ok {
+		r0 = rf(_a0)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(int64) error); ok {
+		r1 = rf(_a0)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -252,6 +298,62 @@ func (_m *Store) LoadLastFinalizeBlockResponse(_a0 int64) (*abcitypes.ResponseFi
 	return r0, r1
 }
 
+// LoadLastHeightConsensusParamsChanged provides a mock function with given fields: _a0
+func (_m *Store) LoadLastHeightConsensusParamsChanged(_a0 int64) (int64, error) {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LoadLastHeightConsensusParamsChanged")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(int64) (int64, error)); ok {
+		return rf(_a0)
+	}
+	if rf, ok := ret.Get(0).(func(int64) int64); ok {
+		r0 = rf(_a0)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(int64) error); ok {
+		r1 = rf(_a0)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// LoadLastHeightValidatorsChanged provides a mock function with given fields: _a0
+func (_m *Store) LoadLastHeightValidatorsChanged(_a0 int64) (int64, error) {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LoadLastHeightValidatorsChanged")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(int64) (int64, error)); ok {
+		return rf(_a0)
+	}
+	if rf, ok := ret.Get(0).(func(int64) int64); ok {
+		r0 = rf(_a0)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(int64) error); ok {
+		r1 = rf(_a0)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // LoadValidators provides a mock function with given fields: _a0
 func (_m *Store) LoadValidators(_a0 int64) (*types.ValidatorSet, error) {
 	ret := _m.Called(_a0)
@@ -336,6 +438,24 @@ func (_m *Store) SaveFinalizeBlockResponse(_a0 int64, _a1 *abcitypes.ResponseFin
 	return r0
 }
 
+// SaveValidators provides a mock function with given fields: _a0, _a1, _a2
+func (_m *Store) SaveValidators(_a0 int64, _a1 int64, _a2 *types.ValidatorSet) error {
+	ret := _m.Called(_a0, _a1, _a2)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SaveValidators")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64, int64, *types.ValidatorSet) error); ok {
+		r0 = rf(_a0, _a1, _a2)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // SetOfflineStateSyncHeight provides a mock function with given fields: height
 func (_m *Store) SetOfflineStateSyncHeight(height int64) error {
 	ret := _m.Called(height)
@@ -347,6 +467,24 @@ func (_m *Store) SetOfflineStateSyncHeight(height int64) error {
 	var r0 error
 	if rf, ok := ret.Get(0).(func(int64) error); ok {
 		r0 = rf(height)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// SetRollupSyncBatchChainHeight provides a mock function with given fields: _a0, _a1
+func (_m *Store) SetRollupSyncBatchChainHeight(_a0 int64, _a1 int64) error {
+	ret := _m.Called(_a0, _a1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetRollupSyncBatchChainHeight")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64, int64) error); ok {
+		r0 = rf(_a0, _a1)
 	} else {
 		r0 = ret.Error(0)
 	}

@@ -71,8 +71,8 @@ const defaultConfigTemplate = `# This is a TOML config file.
 
 # NOTE: Any path below can be absolute (e.g. "/var/myawesomeapp/data") or
 # relative to the home directory (e.g. "data"). The home directory is
-# "$HOME/.cometbft" by default, but could be changed via $CMTHOME env variable
-# or --home cmd flag.
+# "$HOME/.cometbft" by default, but can be changed via the $CMTHOME environment variable
+# or the --home command-line flag.
 
 # The version of the CometBFT binary that created or
 # last modified the config file. Do not modify this.
@@ -99,7 +99,7 @@ moniker = "{{ .BaseConfig.Moniker }}"
 #   - use cleveldb build tag (go build -tags cleveldb)
 # * boltdb (uses etcd's fork of bolt - github.com/etcd-io/bbolt)
 #   - EXPERIMENTAL
-#   - may be faster is some use-cases (random reads - indexer)
+#   - may be faster in some use-cases (random reads - indexer)
 #   - use boltdb build tag (go build -tags boltdb)
 # * rocksdb (uses github.com/tecbot/gorocksdb)
 #   - EXPERIMENTAL
@@ -468,6 +468,41 @@ chunk_fetchers = "{{ .StateSync.ChunkFetchers }}"
 #
 #   1) "v0" - the default block sync implementation
 version = "{{ .BlockSync.Version }}"
+
+#######################################################
+###         Rollup Sync Configuration Options       ###
+#######################################################
+[rollupsync]
+enable = {{ .RollupSync.Enable }}
+
+# The mode of the rollup sync.
+# Options:
+#   1) "sync" (default) - sync the rollup chain from the batch data back to the normal sync mode after reaching the finalized height.
+#   2) "challenge" - sync the rollup chain from the batch data without switching back to the normal sync mode.
+mode = "{{ .RollupSync.Mode }}"
+
+# The bridge id of the rollup chain, which is registered in l1's bridge config.
+bridge_id = {{ .RollupSync.BridgeID }}
+
+# The interval to fetch the batch data from the batch chain in milliseconds.
+fetch_interval = {{ .RollupSync.FetchInterval }}
+
+# The number of txs per page when fetching txs from the batch chain.
+txs_per_page = {{ .RollupSync.TxsPerPage }}
+# The range of batch chain heights to search batch data.
+batch_chain_query_height_range = {{ .RollupSync.BatchChainQueryHeightRange }}
+
+# The chain RPCs to fetch the batch data.
+# You should provide l1 RPC info for rollup sync, event your batch chain is not l1.
+#
+# supported chains:
+# - initia
+# - celestia
+rpc_servers = [
+{{- range .RollupSync.RPCServers }}
+  { chain="{{ .Chain }}", address="{{ .Address }}" },
+{{- end }}
+]
 
 #######################################################
 ###         Consensus Configuration Options         ###

@@ -44,6 +44,10 @@ func calcABCIResponsesKey(height int64) []byte {
 var lastABCIResponseKey = []byte("lastABCIResponseKey")
 var offlineStateSyncHeight = []byte("offlineStateSyncHeightKey")
 
+func calcRollupSyncBatchChainHeightKey(batchInfoIndex int64) []byte {
+	return []byte(fmt.Sprintf("rollupSyncBatchChainHeight:%v", batchInfoIndex))
+}
+
 //go:generate ../scripts/mockery_generate.sh Store
 
 // Store defines the state store interface
@@ -61,12 +65,26 @@ type Store interface {
 	Load() (State, error)
 	// LoadValidators loads the validator set at a given height
 	LoadValidators(int64) (*types.ValidatorSet, error)
+	// LoadLastHeightValidatorsChanged loads the last height at which the validators changed
+	LoadLastHeightValidatorsChanged(int64) (int64, error)
 	// LoadFinalizeBlockResponse loads the abciResponse for a given height
 	LoadFinalizeBlockResponse(int64) (*abci.ResponseFinalizeBlock, error)
 	// LoadLastFinalizeBlockResponse loads the last abciResponse for a given height
 	LoadLastFinalizeBlockResponse(int64) (*abci.ResponseFinalizeBlock, error)
 	// LoadConsensusParams loads the consensus params for a given height
 	LoadConsensusParams(int64) (types.ConsensusParams, error)
+	// LoadLastHeightConsensusParamsChanged loads the last height at which the consensus params changed
+	LoadLastHeightConsensusParamsChanged(int64) (int64, error)
+
+	// initia custom, it is to save last rollup sync height to avoid starting sync at 1
+	GetRollupSyncBatchChainHeight(int64) (int64, error)
+	SetRollupSyncBatchChainHeight(int64, int64) error
+
+	// initia custom, it is to save current validators when executor is changed
+	SaveValidators(int64, int64, *types.ValidatorSet) error
+
+	// Save overwrites the previous state with the updated one
+	Delete() error
 	// Save overwrites the previous state with the updated one
 	Save(State) error
 	// SaveFinalizeBlockResponse saves ABCIResponses for a given height
@@ -178,6 +196,29 @@ func (store dbStore) loadState(key []byte) (state State, err error) {
 		return state, err
 	}
 	return *sm, nil
+}
+
+// SaveValidators overwrite validator set if the executor is changed
+func (store dbStore) SaveValidators(height int64, changedHeight int64, validators *types.ValidatorSet) error {
+	batch := store.db.NewBatch()
+	defer func(batch dbm.Batch) {
+		err := batch.Close()
+		if err != nil {
+			panic(err)
+		}
+	}(batch)
+	if err := store.saveValidatorsInfo(height, changedHeight, validators, batch); err != nil {
+		return err
+	}
+
+	if err := batch.WriteSync(); err != nil {
+		panic(err)
+	}
+	return nil
+}
+
+func (store dbStore) Delete() error {
+	return store.db.Delete(stateKey)
 }
 
 // Save persists the State, the ValidatorsInfo, and the ConsensusParamsInfo to the database.
@@ -585,6 +626,14 @@ func (store dbStore) LoadValidators(height int64) (*types.ValidatorSet, error) {
 	return vip, nil
 }
 
+func (store dbStore) LoadLastHeightValidatorsChanged(height int64) (int64, error) {
+	valInfo, err := loadValidatorsInfo(store.db, height)
+	if err != nil {
+		return 0, ErrNoValSetForHeight{height}
+	}
+	return valInfo.LastHeightChanged, err
+}
+
 func lastStoredHeightFor(height, lastHeightChanged int64) int64 {
 	checkpointHeight := height - height%valSetCheckpointInterval
 	return cmtmath.MaxInt64(checkpointHeight, lastHeightChanged)
@@ -680,6 +729,15 @@ func (store dbStore) LoadConsensusParams(height int64) (types.ConsensusParams, e
 	return types.ConsensusParamsFromProto(paramsInfo.ConsensusParams), nil
 }
 
+func (store dbStore) LoadLastHeightConsensusParamsChanged(height int64) (int64, error) {
+	paramsInfo, err := store.loadConsensusParamsInfo(height)
+	if err != nil {
+		return 0, fmt.Errorf("could not find consensus params for height #%d: %w", height, err)
+	}
+
+	return paramsInfo.LastHeightChanged, err
+}
+
 func (store dbStore) loadConsensusParamsInfo(height int64) (*cmtstate.ConsensusParamsInfo, error) {
 	buf, err := store.db.Get(calcConsensusParamsKey(height))
 	if err != nil {
@@ -723,6 +781,33 @@ func (store dbStore) saveConsensusParamsInfo(nextHeight, changeHeight int64, par
 	}
 
 	return nil
+}
+
+func (store dbStore) SetRollupSyncBatchChainHeight(batchInfoIndex int64, height int64) error {
+	err := store.db.SetSync(calcRollupSyncBatchChainHeightKey(batchInfoIndex), int64ToBytes(height))
+	if err != nil {
+		return err
+	}
+	return nil
+
+}
+
+// Gets the height at which the store is bootstrapped after out of band statesync
+func (store dbStore) GetRollupSyncBatchChainHeight(batchInfoIndex int64) (int64, error) {
+	buf, err := store.db.Get(calcRollupSyncBatchChainHeightKey(batchInfoIndex))
+	if err != nil {
+		return 0, err
+	}
+
+	if len(buf) == 0 {
+		return 0, nil
+	}
+
+	height := int64FromBytes(buf)
+	if height < 0 {
+		return 0, errors.New("invalid value for height: height cannot be negative")
+	}
+	return height, nil
 }
 
 func (store dbStore) SetOfflineStateSyncHeight(height int64) error {
