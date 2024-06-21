@@ -17,7 +17,7 @@ import (
 
 func TestBlockIndexer(t *testing.T) {
 	store := db.NewPrefixDB(db.NewMemDB(), []byte("block_events"))
-	indexer := blockidxkv.New(store)
+	indexer := blockidxkv.New(store, 0)
 
 	require.NoError(t, indexer.Index(types.EventDataNewBlockEvents{
 		Height: 1,
@@ -144,7 +144,7 @@ func TestBlockIndexer(t *testing.T) {
 
 func TestBlockIndexerMulti(t *testing.T) {
 	store := db.NewPrefixDB(db.NewMemDB(), []byte("block_events"))
-	indexer := blockidxkv.New(store)
+	indexer := blockidxkv.New(store, 0)
 
 	require.NoError(t, indexer.Index(types.EventDataNewBlockEvents{
 		Height: 1,
@@ -308,7 +308,7 @@ func TestBigInt(t *testing.T) {
 	bigFloatLower := bigInt + ".1"
 	bigIntSmaller := "9999999999999999999"
 	store := db.NewPrefixDB(db.NewMemDB(), []byte("block_events"))
-	indexer := blockidxkv.New(store)
+	indexer := blockidxkv.New(store, 0)
 
 	require.NoError(t, indexer.Index(types.EventDataNewBlockEvents{
 		Height: 1,
@@ -434,6 +434,104 @@ func TestBigInt(t *testing.T) {
 			results, err := indexer.Search(context.Background(), tc.q)
 			require.NoError(t, err)
 			require.Equal(t, tc.results, results)
+		})
+	}
+}
+
+func TestTxIndexPruning(t *testing.T) {
+	indexer := blockidxkv.New(db.NewMemDB(), 100)
+
+	blockEvents := types.EventDataNewBlockEvents{
+		Height: 1,
+		Events: []abci.Event{
+			{},
+			{
+				Type: "account",
+				Attributes: []abci.EventAttribute{
+					{
+						Key:   "number",
+						Value: "1",
+						Index: true,
+					},
+					{
+						Key:   "owner",
+						Value: "/Ivan/",
+						Index: true,
+					},
+				},
+			},
+			{
+				Type: "",
+				Attributes: []abci.EventAttribute{
+					{
+						Key:   "not_allowed",
+						Value: "Vlad",
+						Index: true,
+					},
+				},
+			},
+		},
+	}
+
+	err := indexer.Index(blockEvents)
+	require.NoError(t, err)
+
+	// before pruning
+	testCases := []struct {
+		q                 string
+		successAfterPrune bool
+	}{
+		//search by height
+		{"block.height = 1", true},
+		// search by exact match (one key)
+		{"account.number = 1", false},
+		{"account.owner = '/Ivan/'", false},
+		// search by range
+		{"account.number >= 1 AND account.number <= 5", false},
+		// search by range (lower bound)
+		{"account.number >= 1", false},
+		// search by range (upper bound)
+		{"account.number <= 5", false},
+		{"account.number <= 1", false},
+		// search using CONTAINS
+		{"account.owner CONTAINS 'an'", false},
+		// search using EXISTS
+		{"account.number EXISTS", false},
+	}
+
+	ctx := context.Background()
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.q, func(t *testing.T) {
+			results, err := indexer.Search(ctx, query.MustCompile(tc.q))
+			require.NoError(t, err)
+
+			require.Len(t, results, 1)
+			for _, h := range results {
+				require.Equal(t, int64(1), h)
+			}
+		})
+	}
+
+	// prune index
+	indexer.Prune(101)
+
+	// after pruning
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.q, func(t *testing.T) {
+			results, err := indexer.Search(ctx, query.MustCompile(tc.q))
+			require.NoError(t, err)
+
+			if tc.successAfterPrune {
+				require.Len(t, results, 1)
+				for _, h := range results {
+					require.Equal(t, int64(1), h)
+				}
+			} else {
+				require.Len(t, results, 0)
+			}
 		})
 	}
 }

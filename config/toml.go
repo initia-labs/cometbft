@@ -357,8 +357,8 @@ type = "flood"
 recheck = {{ .Mempool.Recheck }}
 
 # recheck_timeout is the time the application has during the rechecking process
-# to return CheckTx responses, once all requests have been sent. Responses that 
-# arrive after the timeout expires are discarded. It only applies to 
+# to return CheckTx responses, once all requests have been sent. Responses that
+# arrive after the timeout expires are discarded. It only applies to
 # non-local ABCI clients and when recheck is enabled.
 #
 # The ideal value will strongly depend on the application. It could roughly be estimated as the
@@ -585,6 +585,14 @@ indexer = "{{ .TxIndex.Indexer }}"
 # The PostgreSQL connection configuration, the connection format:
 #   postgresql://<user>:<password>@<host>:<port>/<db>?<opts>
 psql-conn = "{{ .TxIndex.PsqlConn }}"
+
+# RetainHeight sets the minimum tx height offsets from the current block being committed,
+# such that all txs past this offset are pruned.
+#
+# If set to 0, the index will retain all tx index.
+# Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
+# except "tx.hash" and "tx.height" and "block.height" which are always retained.
+retain-height = {{ .TxIndex.RetainHeight }}
 
 #######################################################
 ###       Instrumentation Configuration Options     ###

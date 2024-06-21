@@ -3,6 +3,7 @@ package kv
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/big"
@@ -35,11 +36,20 @@ type BlockerIndexer struct {
 	// Matching will be done both on height AND eventSeq
 	eventSeq int64
 	log      log.Logger
+
+	// The minimum tx height offsets from the current block being committed,
+	// such that all txs past this offset are pruned.
+	//
+	// If set to 0, the index will retain all tx index.
+	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
+	// except "tx.hash" and "tx.height" and "block.height" which are always retained.
+	retainHeight int64
 }
 
-func New(store dbm.DB) *BlockerIndexer {
+func New(store dbm.DB, retainHeight int64) *BlockerIndexer {
 	return &BlockerIndexer{
-		store: store,
+		store:        store,
+		retainHeight: retainHeight,
 	}
 }
 
@@ -601,9 +611,60 @@ func (idx *BlockerIndexer) indexEvents(batch dbm.Batch, events []abci.Event, hei
 				if err := batch.Set(key, heightBz); err != nil {
 					return err
 				}
+
+				// if index pruning enabled, also index the reverse mapping
+				if idx.retainHeight != 0 {
+					err = batch.Set(keyForReverse(height, key), []byte{0x1})
+					if err != nil {
+						return err
+					}
+				}
 			}
 		}
 	}
 
 	return nil
+}
+
+func (idx *BlockerIndexer) Prune(curHeight int64) error {
+	minHeight := curHeight - idx.retainHeight
+	if minHeight <= 0 || minHeight >= curHeight {
+		return nil
+	}
+
+	pruneBatch := idx.store.NewBatch()
+	defer pruneBatch.Close()
+
+	startKey := keyForReverse(1, nil)
+	endKey := keyForReverse(minHeight+1, nil)
+	iter, err := idx.store.Iterator(startKey, endKey)
+	if err != nil {
+		return err
+	}
+
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		// delete event index keys
+		if err := pruneBatch.Delete(extractEventKeyFromReverseKey(iter.Key())); err != nil {
+			return err
+		}
+
+		// delete reverse index keys
+		if err := pruneBatch.Delete(iter.Key()); err != nil {
+			return err
+		}
+	}
+
+	return pruneBatch.WriteSync()
+}
+
+func extractEventKeyFromReverseKey(reverseKey []byte) []byte {
+	return reverseKey[len(types.ReverseBlockIndexPrefix)+8:]
+}
+
+func keyForReverse(height int64, eventKey []byte) []byte {
+	heightBz := make([]byte, 8)
+	binary.BigEndian.PutUint64(heightBz, uint64(height))
+
+	return append(append(types.ReverseBlockIndexPrefix, heightBz...), eventKey...)
 }

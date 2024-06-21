@@ -2,6 +2,7 @@ package txindex
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/cometbft/cometbft/libs/service"
 	"github.com/cometbft/cometbft/state/indexer"
@@ -58,6 +59,12 @@ func (is *IndexerService) OnStart() error {
 	}
 
 	go func() {
+		blockIdxPruningRunning := atomic.Bool{}
+		blockIdxPruningRunning.Store(false)
+
+		txIdxPruningRunning := atomic.Bool{}
+		txIdxPruningRunning.Store(false)
+
 		for {
 			select {
 			case <-blockSub.Canceled():
@@ -113,9 +120,32 @@ func (is *IndexerService) OnStart() error {
 				} else {
 					is.Logger.Debug("indexed transactions", "height", height, "num_txs", numTxs)
 				}
+
+				if running := blockIdxPruningRunning.Swap(true); !running {
+					go func() {
+						defer blockIdxPruningRunning.Store(false)
+						if err := is.blockIdxr.Prune(height); err != nil {
+							is.Logger.Error("failed to prune tx index", "height", height, "err", err)
+						}
+
+						is.Logger.Debug("pruned block_index", "height", height)
+					}()
+				}
+
+				if running := txIdxPruningRunning.Swap(true); !running {
+					go func() {
+						defer txIdxPruningRunning.Store(false)
+						if err := is.txIdxr.Prune(height); err != nil {
+							is.Logger.Error("failed to prune tx index", "height", height, "err", err)
+						}
+
+						is.Logger.Debug("pruned tx_index", "height", height)
+					}()
+				}
 			}
 		}
 	}()
+
 	return nil
 }
 
