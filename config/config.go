@@ -1189,6 +1189,14 @@ type TxIndexConfig struct {
 	// The PostgreSQL connection configuration, the connection format:
 	// postgresql://<user>:<password>@<host>:<port>/<db>?<opts>
 	PsqlConn string `mapstructure:"psql-conn"`
+
+	// The minimum tx height offsets from the current block being committed,
+	// such that all txs past this offset are pruned.
+	//
+	// If set to 0, the index will retain all tx index.
+	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
+	// except "tx.hash" and "tx.height" and "block.height" which are always retained.
+	RetainHeight int64 `mapstructure:"retain-height"`
 }
 
 // DefaultTxIndexConfig returns a default configuration for the transaction indexer.

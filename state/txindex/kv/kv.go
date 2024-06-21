@@ -3,6 +3,7 @@ package kv
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -40,12 +41,21 @@ type TxIndex struct {
 	eventSeq int64
 
 	log log.Logger
+
+	// The minimum tx height offsets from the current block being committed,
+	// such that all txs past this offset are pruned.
+	//
+	// If set to 0, the index will retain all tx index.
+	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
+	// except "tx.hash" and "tx.height" and "block.height" which are always retained.
+	retainHeight int64
 }
 
 // NewTxIndex creates new KV indexer.
-func NewTxIndex(store dbm.DB) *TxIndex {
+func NewTxIndex(store dbm.DB, retainHeight int64) *TxIndex {
 	return &TxIndex{
-		store: store,
+		store:        store,
+		retainHeight: retainHeight,
 	}
 }
 
@@ -187,9 +197,18 @@ func (txi *TxIndex) indexEvents(result *abci.TxResult, hash []byte, store dbm.Ba
 				return fmt.Errorf("event type and attribute key \"%s\" is reserved; please use a different key", compositeTag)
 			}
 			if attr.GetIndex() {
-				err := store.Set(keyForEvent(compositeTag, attr.Value, result, txi.eventSeq), hash)
+				eventKey := keyForEvent(compositeTag, attr.Value, result, txi.eventSeq)
+				err := store.Set(eventKey, hash)
 				if err != nil {
 					return err
+				}
+
+				// if index pruning enabled, also index the reverse mapping
+				if txi.retainHeight != 0 {
+					err = store.Set(keyForReverse(result.Height, eventKey), []byte{0x1})
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -760,4 +779,47 @@ func startKey(fields ...interface{}) []byte {
 		b.Write([]byte(fmt.Sprintf("%v", f) + tagKeySeparator))
 	}
 	return b.Bytes()
+}
+
+func (txi *TxIndex) Prune(curHeight int64) error {
+	minHeight := curHeight - txi.retainHeight
+	if minHeight <= 0 || minHeight >= curHeight {
+		return nil
+	}
+
+	pruneBatch := txi.store.NewBatch()
+	defer pruneBatch.Close()
+
+	startKey := keyForReverse(1, nil)
+	endKey := keyForReverse(minHeight+1, nil)
+	iter, err := txi.store.Iterator(startKey, endKey)
+	if err != nil {
+		return err
+	}
+
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		// delete event index keys
+		if err := pruneBatch.Delete(extractEventKeyFromReverseKey(iter.Key())); err != nil {
+			return err
+		}
+
+		// delete reverse index keys
+		if err := pruneBatch.Delete(iter.Key()); err != nil {
+			return err
+		}
+	}
+
+	return pruneBatch.WriteSync()
+}
+
+func extractEventKeyFromReverseKey(reverseKey []byte) []byte {
+	return reverseKey[len(types.ReverseTxIndexPrefix)+8:]
+}
+
+func keyForReverse(height int64, eventKey []byte) []byte {
+	heightBz := make([]byte, 8)
+	binary.BigEndian.PutUint64(heightBz, uint64(height))
+
+	return append(append(types.ReverseTxIndexPrefix, heightBz...), eventKey...)
 }

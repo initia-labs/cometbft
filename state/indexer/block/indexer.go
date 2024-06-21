@@ -28,8 +28,7 @@ func IndexerFromConfig(cfg *config.Config, dbProvider config.DBProvider, chainID
 			return nil, nil, err
 		}
 
-		return kv.NewTxIndex(store), blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events"))), nil
-
+		return kv.NewTxIndex(store, cfg.TxIndex.RetainHeight), blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events")), cfg.TxIndex.RetainHeight), nil
 	case "psql":
 		conn := cfg.TxIndex.PsqlConn
 		if conn == "" {

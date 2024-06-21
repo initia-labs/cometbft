@@ -25,7 +25,7 @@ func BenchmarkTxSearch(b *testing.B) {
 		b.Errorf("failed to create database: %s", err)
 	}
 
-	indexer := NewTxIndex(db)
+	indexer := NewTxIndex(db, 0)
 
 	for i := 0; i < 35000; i++ {
 		events := []abci.Event{
