@@ -38,8 +38,7 @@ func IndexerFromConfigWithDisabledIndexers(cfg *config.Config, dbProvider config
 			return nil, nil, false, err
 		}
 
-		return kv.NewTxIndex(store), blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events"))), false, nil
-
+		return kv.NewTxIndex(store, cfg.TxIndex.RetainHeight), blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events")), cfg.TxIndex.RetainHeight), false, nil
 	case "psql":
 		conn := cfg.TxIndex.PsqlConn
 		if conn == "" {

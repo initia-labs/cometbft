@@ -145,6 +145,12 @@ const (
 	BlockHeightKey = "block.height"
 )
 
+// ReverseIndexPrefix is a prefix of reverse access key to find the event key bytes by the height.
+var (
+	ReverseTxIndexPrefix    = []byte{0xff, 0xff, 0x01}
+	ReverseBlockIndexPrefix = []byte{0xff, 0xff, 0x02}
+)
+
 var (
 	EventQueryCompleteProposal    = QueryForEvent(EventCompleteProposal)
 	EventQueryLock                = QueryForEvent(EventLock)
