@@ -32,7 +32,7 @@ type TxIndexer interface {
 	//Set Logger
 	SetLogger(l log.Logger)
 
-	// Prune removes all transactions below a certain height.
+	// Prune removes all tx indexes below a certain height.
 	Prune(curHeight int64) error
 }
 
