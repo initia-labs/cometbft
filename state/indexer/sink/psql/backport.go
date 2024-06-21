@@ -62,6 +62,10 @@ func (BackportTxIndexer) Search(context.Context, *query.Query) ([]*abci.TxResult
 
 func (BackportTxIndexer) SetLogger(log.Logger) {}
 
+func (BackportTxIndexer) Prune(curHeight int64) error {
+	return nil
+}
+
 // BlockIndexer returns a bridge that implements the CometBFT v0.34 block
 // indexer interface, using the Postgres event sink as a backing store.
 func (es *EventSink) BlockIndexer() BackportBlockIndexer {
@@ -91,3 +95,7 @@ func (BackportBlockIndexer) Search(context.Context, *query.Query) ([]int64, erro
 }
 
 func (BackportBlockIndexer) SetLogger(log.Logger) {}
+
+func (BackportBlockIndexer) Prune(curHeight int64) error {
+	return nil
+}

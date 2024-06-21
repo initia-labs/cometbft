@@ -29,3 +29,7 @@ func (idx *BlockerIndexer) Search(context.Context, *query.Query) ([]int64, error
 
 func (idx *BlockerIndexer) SetLogger(log.Logger) {
 }
+
+func (idx *BlockerIndexer) Prune(curHeight int64) error {
+	return nil
+}

@@ -74,6 +74,20 @@ func (_m *TxIndexer) Index(result *types.TxResult) error {
 	return r0
 }
 
+// Prune provides a mock function with given fields: curHeight
+func (_m *TxIndexer) Prune(curHeight int64) error {
+	ret := _m.Called(curHeight)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64) error); ok {
+		r0 = rf(curHeight)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // Search provides a mock function with given fields: ctx, q
 func (_m *TxIndexer) Search(ctx context.Context, q *query.Query) ([]*types.TxResult, error) {
 	ret := _m.Called(ctx, q)

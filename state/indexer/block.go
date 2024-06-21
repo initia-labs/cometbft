@@ -24,4 +24,7 @@ type BlockIndexer interface {
 	Search(ctx context.Context, q *query.Query) ([]int64, error)
 
 	SetLogger(l log.Logger)
+
+	// Prune removes all transactions below a certain height.
+	Prune(curHeight int64) error
 }
