@@ -734,7 +734,11 @@ func TestMempoolConcurrentUpdateAndReceiveCheckTxResponse(t *testing.T) {
 		go func(h int) {
 			defer wg.Done()
 
-			err := mp.Update(int64(h), []types.Tx{tx}, abciResponses(1, abci.CodeTypeOK), nil, nil)
+			mp.Lock()
+			err := mp.FlushAppConn()
+			require.NoError(t, err)
+			err = mp.Update(int64(h), []types.Tx{tx}, abciResponses(1, abci.CodeTypeOK), nil, nil)
+			mp.Unlock()
 			require.NoError(t, err)
 			require.Equal(t, int64(h), mp.height.Load(), "height mismatch")
 		}(h)
@@ -884,6 +888,7 @@ func TestMempoolAsyncRecheckTxReturnError(t *testing.T) {
 	require.True(t, mp.recheck.done())
 	require.Nil(t, mp.recheck.cursor)
 	require.Nil(t, mp.recheck.end)
+	require.False(t, mp.recheck.isRechecking.Load())
 	mockClient.AssertExpectations(t)
 
 	// One call to CheckTxAsync per tx, for rechecking.
@@ -905,6 +910,7 @@ func TestMempoolAsyncRecheckTxReturnError(t *testing.T) {
 	// mp.recheck.done() should be true only before and after calling recheckTxs.
 	mp.recheckTxs()
 	require.True(t, mp.recheck.done())
+	require.False(t, mp.recheck.isRechecking.Load())
 	require.Nil(t, mp.recheck.cursor)
 	require.NotNil(t, mp.recheck.end)
 	require.Equal(t, mp.recheck.end, mp.txs.Back())
