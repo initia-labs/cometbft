@@ -215,11 +215,7 @@ BATCH_LOOP:
 
 			rawData, err := decompressBatch(batchBytes)
 			if err != nil {
-				if chunks >= int(rs.cfg.MaxBatchChunks) {
-					return err
-				}
-
-				continue
+				return errors.Join(errors.New("failed to decompress batch"), err)
 			}
 
 			// cleanup batch chunks
@@ -234,7 +230,7 @@ BATCH_LOOP:
 			for i, blockBytes := range rawBlocks {
 				block, err := unmarshalBlock(blockBytes)
 				if err != nil {
-					return err
+					return errors.Join(errors.New("failed to unmarshal block"), err)
 				}
 
 				rs.blockCh <- rstypes.BlockChanInfo{
@@ -248,13 +244,13 @@ BATCH_LOOP:
 					if i == len(rawBlocks)-1 {
 						commit, err = unmarshalCommit(rawCommit)
 						if err != nil {
-							return err
+							return errors.Join(errors.New("failed to unmarshal commit"), err)
 						}
 					} else {
 						// extract last commit from the next block
 						nextBlock, err := unmarshalBlock(rawBlocks[i+1])
 						if err != nil {
-							return err
+							return errors.Join(errors.New("failed to unmarshal block"), err)
 						}
 
 						commit = nextBlock.LastCommit
