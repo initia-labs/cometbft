@@ -170,7 +170,7 @@ BATCH_LOOP:
 		case batchInfo := <-rs.batchCh:
 			if batchInfo.Batch == nil {
 				// pass signal to the block channel
-				// to indicate that the batch chain height has been checked.
+				// to indicate that the batch chain [~ height] has been checked.
 				rs.blockCh <- rstypes.BlockChanInfo{
 					BatchChainHeight: batchInfo.BatchChainHeight,
 				}
