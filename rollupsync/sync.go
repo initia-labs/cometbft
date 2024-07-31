@@ -192,9 +192,10 @@ BATCH_LOOP:
 					rs.logger.Error("failed to decode batch header", "error", err.Error())
 					batchHeader = nil
 
-					// wait until the header is received.
-					continue
+					// wait until the header is received; fallback to continue
 				}
+
+				continue
 			}
 
 			chunkBytes := batchInfo.Batch
