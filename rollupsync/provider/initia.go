@@ -77,6 +77,7 @@ func (lp L1Provider) BatchFetcher(ctx context.Context, batchCh chan<- rstypes.Ba
 				continue
 			}
 
+			// send a signal to the batchCh to indicate that the batch chain [~ nextHeight-1] has been checked
 			batchCh <- rstypes.BatchChanInfo{
 				BatchChainHeight: nextHeight - 1,
 			}
@@ -189,9 +190,9 @@ func (lp L1Provider) GetBatchInfoUpdates(ctx context.Context, targetBlockHeight 
 			}
 
 			batchInfoUpdates = append(batchInfoUpdates, rstypes.BatchInfoUpdate{
-				Chain:     msg.Config.BatchInfo.Chain,
+				ChainType: msg.Config.BatchInfo.ChainType,
 				Submitter: msg.Config.BatchInfo.Submitter,
-				Start:     1,
+				Start:     int64(msg.Config.SubmissionStartHeight),
 			})
 		}
 	}
@@ -215,8 +216,8 @@ func (lp L1Provider) GetBatchInfoUpdates(ctx context.Context, targetBlockHeight 
 					batchInfoUpdate := rstypes.BatchInfoUpdate{}
 					for _, attr := range event.Attributes {
 						switch attr.Key {
-						case "batch_chain":
-							batchInfoUpdate.Chain = attr.Value
+						case "batch_chain_type":
+							batchInfoUpdate.ChainType = rstypes.BatchChainTypeFromString(attr.Value)
 						case "batch_submitter":
 							batchInfoUpdate.Submitter = attr.Value
 						case "finalized_l2_block_number":

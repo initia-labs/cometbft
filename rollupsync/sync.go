@@ -1,7 +1,10 @@
 package rollupsync
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,6 +14,7 @@ import (
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/store"
 	"github.com/cometbft/cometbft/types"
+	ophostv1 "github.com/initia-labs/OPinit/api/opinit/ophost/v1"
 
 	"github.com/cometbft/cometbft/proxy"
 	"github.com/cometbft/cometbft/rollupsync/provider"
@@ -83,11 +87,11 @@ func (rs *RollupSyncer) Start(ctx context.Context) (sm.State, error) {
 	return rs.blockSync(ctx, batchInfoUpdates)
 }
 
-func (rs RollupSyncer) batchProvider(chain string) (rstypes.BatchProvider, error) {
-	switch chain {
-	case rstypes.CHAIN_NAME_L1:
+func (rs RollupSyncer) batchProvider(chainType ophostv1.BatchInfo_ChainType) (rstypes.BatchProvider, error) {
+	switch chainType {
+	case ophostv1.BatchInfo_CHAIN_TYPE_INITIA:
 		return rs.l1Provider, nil
-	case rstypes.CHAIN_NAME_CELESTIA:
+	case ophostv1.BatchInfo_CHAIN_TYPE_CELESTIA:
 		return provider.NewCelestiaProvider(rs.logger.With("provider", rstypes.CHAIN_NAME_CELESTIA), rs.cfg)
 	}
 
@@ -104,7 +108,7 @@ func (rs *RollupSyncer) fetchBatches(ctx context.Context, batchInfoUpdates rstyp
 			continue
 		}
 
-		batchProvider, err := rs.batchProvider(batchInfoUpdate.Chain)
+		batchProvider, err := rs.batchProvider(batchInfoUpdate.ChainType)
 		if err != nil {
 			return err
 		}
@@ -114,8 +118,8 @@ func (rs *RollupSyncer) fetchBatches(ctx context.Context, batchInfoUpdates rstyp
 			return err
 		}
 
-		rs.logger.Info("batch info", "height", batchInfoUpdate.Start, "chain", batchInfoUpdate.Chain, "submitter", batchInfoUpdate.Submitter)
-		rs.logger.Info("batch chain query range", "chain", batchInfoUpdate.Chain, "range", fmt.Sprintf("%d ~ %d", batchChainStartHeight, batchChainLastHeight))
+		rs.logger.Info("batch info", "height", batchInfoUpdate.Start, "chain", batchInfoUpdate.ChainType, "submitter", batchInfoUpdate.Submitter)
+		rs.logger.Info("batch chain query range", "chain", batchInfoUpdate.ChainType, "range", fmt.Sprintf("%d ~ %d", batchChainStartHeight, batchChainLastHeight))
 
 		err = rs.fetchBatch(ctx, batchInfoUpdate.End, batchProvider, batchChainStartHeight, batchChainLastHeight)
 		if err != nil {
@@ -144,7 +148,8 @@ func (rs *RollupSyncer) fetchBatch(ctx context.Context, targetL2Height int64, ba
 	}()
 
 	chunks := 0
-	batch := make([]byte, 0, rs.cfg.MaxBatchChunkBytes*rs.cfg.MaxBatchChunkNum)
+	var batchHeader *rstypes.BatchHeader
+	batchBytes := make([]byte, 0, rs.cfg.MaxBatchChunkSize*rs.cfg.MaxBatchChunks)
 	endChecker := time.NewTicker(100 * time.Millisecond)
 	defer endChecker.Stop()
 
@@ -164,6 +169,8 @@ BATCH_LOOP:
 			return ctx.Err()
 		case batchInfo := <-rs.batchCh:
 			if batchInfo.Batch == nil {
+				// pass signal to the block channel
+				// to indicate that the batch chain height has been checked.
 				rs.blockCh <- rstypes.BlockChanInfo{
 					BatchChainHeight: batchInfo.BatchChainHeight,
 				}
@@ -173,11 +180,41 @@ BATCH_LOOP:
 
 			rs.logger.Debug("received a batch chunk")
 
+			// if batch header is not initialized, always look for the header
+			// first.
+			if batchHeader == nil {
+				batchHeader = new(rstypes.BatchHeader)
+
+				decoder := json.NewDecoder(bytes.NewBuffer(batchInfo.Batch))
+				decoder.DisallowUnknownFields()
+				err := decoder.Decode(batchHeader)
+				if err != nil {
+					rs.logger.Error("failed to decode batch header", "error", err.Error())
+					batchHeader = nil
+
+					// wait until the header is received.
+					continue
+				}
+			}
+
+			chunkBytes := batchInfo.Batch
+
+			// validate the received chunk is correct
+			checksum := sha256.Sum256(chunkBytes)
+			if !bytes.Equal(checksum[:], batchHeader.Chunks[chunks]) {
+				rs.logger.Error("checksum mismatch", "chunk", chunks)
+				return errors.New("checksum mismatch")
+			}
+
 			chunks++
-			batch = append(batch, batchInfo.Batch...)
-			rawData, err := decompressBatch(batch)
+			batchBytes = append(batchBytes, chunkBytes...)
+			if chunks < len(batchHeader.Chunks) {
+				continue
+			}
+
+			rawData, err := decompressBatch(batchBytes)
 			if err != nil {
-				if chunks >= int(rs.cfg.MaxBatchChunkNum) {
+				if chunks >= int(rs.cfg.MaxBatchChunks) {
 					return err
 				}
 
@@ -185,7 +222,8 @@ BATCH_LOOP:
 			}
 
 			// cleanup batch chunks
-			batch = batch[:0]
+			batchBytes = batchBytes[:0]
+			batchHeader = nil
 			chunks = 0
 
 			dataLength := len(rawData)
@@ -236,6 +274,16 @@ BATCH_LOOP:
 }
 
 func (rs *RollupSyncer) blockSync(ctx context.Context, batchInfoUpdates rstypes.BatchInfoUpdates) (sm.State, error) {
+	if len(batchInfoUpdates) == 0 {
+		return rs.state, nil
+	}
+
+	// check if the rollup sync can start from the first batch info start height
+	batchSubmissionStartHeight := batchInfoUpdates[0].Start
+	if rs.state.LastBlockHeight < batchSubmissionStartHeight {
+		return rs.state, fmt.Errorf("rollup sync can start from `%d`, but current height is `%d`", batchSubmissionStartHeight, rs.state.LastBlockHeight)
+	}
+
 	batchCtx, cancelBatchSync := context.WithCancel(ctx)
 	defer cancelBatchSync()
 
