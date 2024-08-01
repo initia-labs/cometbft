@@ -54,7 +54,7 @@ require (
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/initia-labs/OPinit/api v0.4.0
+	github.com/initia-labs/OPinit/api v0.4.1
 	github.com/oasisprotocol/curve25519-voi v0.0.0-20220708102147-0a8a51822cae
 	github.com/vektra/mockery/v2 v2.23.1
 	golang.org/x/sync v0.7.0
@@ -311,5 +311,3 @@ retract (
 	// superseeded by v0.38.3 because of ASA-2024-001
 	[v0.38.0, v0.38.2]
 )
-
-replace github.com/initia-labs/OPinit/api => ../OPinit/api
