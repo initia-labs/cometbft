@@ -345,12 +345,12 @@ func NewNodeWithContext(ctx context.Context,
 	if err != nil {
 		return nil, fmt.Errorf("can't get pubkey: %w", err)
 	}
+	localAddr := pubKey.Address()
 
-	rollupSync := config.RollupSync.Enable
+	rollupSync := config.RollupSync != nil && config.RollupSync.Enable
 
 	// Determine whether we should attempt state sync.
-	// don't start statesync if rollup sync is enabled evenif state sync is on
-	stateSync := config.StateSync.Enable && !onlyValidatorIsUs(state, pubKey) && !rollupSync
+	stateSync := config.StateSync.Enable && !onlyValidatorIsUs(state, localAddr) && !rollupSync
 	if stateSync && state.LastBlockHeight > 0 {
 		logger.Info("Found local state with non-zero height, skipping state sync")
 		stateSync = false
@@ -375,8 +375,7 @@ func NewNodeWithContext(ctx context.Context,
 
 	// Determine whether we should do block sync. This must happen after the handshake, since the
 	// app may modify the validator set, specifying ourself as the only validator.
-	// don't start blocksync also if rollup sync is enabled
-	blockSync := !onlyValidatorIsUs(state, pubKey) && !rollupSync
+	blockSync := !onlyValidatorIsUs(state, localAddr) && !rollupSync
 
 	logNodeStartupInfo(state, pubKey, logger, consensusLogger)
 
@@ -421,7 +420,7 @@ func NewNodeWithContext(ctx context.Context,
 	}
 
 	// Don't start block sync if we're doing a state sync first.
-	bcReactor, err := createBlocksyncReactor(config, state, blockExec, blockStore, blockSync && !stateSync, logger, bsMetrics, offlineStateSyncHeight)
+	bcReactor, err := createBlocksyncReactor(config, state, blockExec, blockStore, blockSync && !stateSync, localAddr, logger, bsMetrics, offlineStateSyncHeight)
 	if err != nil {
 		return nil, fmt.Errorf("could not create blocksync reactor: %w", err)
 	}
@@ -611,10 +610,11 @@ func (n *Node) OnStop() {
 	if err := n.eventBus.Stop(); err != nil {
 		n.Logger.Error("Error closing eventBus", "err", err)
 	}
-	if err := n.indexerService.Stop(); err != nil {
-		n.Logger.Error("Error closing indexerService", "err", err)
+	if n.indexerService != nil {
+		if err := n.indexerService.Stop(); err != nil {
+			n.Logger.Error("Error closing indexerService", "err", err)
+		}
 	}
-
 	// now stop the reactors
 	if err := n.sw.Stop(); err != nil {
 		n.Logger.Error("Error closing switch", "err", err)
