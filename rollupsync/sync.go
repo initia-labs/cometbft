@@ -14,6 +14,7 @@ import (
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/store"
 	"github.com/cometbft/cometbft/types"
+	opchildv1 "github.com/initia-labs/OPinit/api/opinit/opchild/v1"
 	ophostv1 "github.com/initia-labs/OPinit/api/opinit/ophost/v1"
 
 	"github.com/cometbft/cometbft/proxy"
@@ -233,6 +234,11 @@ BATCH_LOOP:
 					return errors.Join(errors.New("failed to unmarshal block"), err)
 				}
 
+				err = rs.fillOracleData(ctx, block)
+				if err != nil {
+					return errors.Join(errors.New("failed to fill oracle data to block"), err)
+				}
+
 				rs.blockCh <- rstypes.BlockChanInfo{
 					Block: block,
 				}
@@ -359,4 +365,43 @@ LOOP:
 
 	rs.logger.Info("Rollup sync completed!", "height", rs.state.LastBlockHeight)
 	return rs.state, nil
+}
+
+func (rs *RollupSyncer) fillOracleData(ctx context.Context, block *types.Block) error {
+	for i, txBytes := range block.Txs {
+		raw, body, err := provider.UnmarshalCosmosTx(txBytes)
+		if err != nil {
+			return err
+		}
+
+		for _, anyMsg := range body.Messages {
+			if anyMsg.TypeUrl != "/opinit.opchild.v1.MsgUpdateOracle" {
+				continue
+			}
+
+			msg := new(opchildv1.MsgUpdateOracle)
+			err := anyMsg.UnmarshalTo(msg)
+			if err != nil {
+				return err
+			}
+
+			oracleTx, err := rs.l1Provider.GetOracleTx(ctx, int64(msg.Height))
+			if err != nil {
+				return errors.Join(errors.New("failed to fetch oracle tx"), err)
+			}
+			msg.Data = oracleTx
+
+			err = anyMsg.MarshalFrom(msg)
+			if err != nil {
+				return errors.Join(errors.New("failed to marshal oracle msg"), err)
+			}
+		}
+
+		convertedTxBytes, err := provider.MarshalCosmosTx(raw, body)
+		if err != nil {
+			return errors.Join(errors.New("failed to marshal cosmos tx"), err)
+		}
+		block.Txs[i] = convertedTxBytes
+	}
+	return nil
 }

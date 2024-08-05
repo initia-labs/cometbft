@@ -104,7 +104,8 @@ func (lp L1Provider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.Batc
 	lp.logger.Debug("Fetch batch", "height", height, "next_height", nextHeight, "page", page, "num_txs", len(res.Txs))
 
 	for _, tx := range res.Txs {
-		messages, err := unmarshalCosmosTx(tx.Tx)
+		_, body, err := UnmarshalCosmosTx(tx.Tx)
+		messages := body.Messages
 		if err != nil {
 			return false, err
 		}
@@ -173,7 +174,8 @@ func (lp L1Provider) GetBatchInfoUpdates(ctx context.Context, targetBlockHeight 
 
 	batchInfoUpdates := make(rstypes.BatchInfoUpdates, 0)
 	for _, tx := range res.Txs {
-		messages, err := unmarshalCosmosTx(tx.Tx)
+		_, body, err := UnmarshalCosmosTx(tx.Tx)
+		messages := body.Messages
 		if err != nil {
 			return nil, err
 		}
@@ -248,4 +250,12 @@ func (lp L1Provider) GetBatchInfoUpdates(ctx context.Context, targetBlockHeight 
 	// set last batch info update end height to the target block height
 	batchInfoUpdates[len(batchInfoUpdates)-1].End = int64(targetBlockHeight)
 	return batchInfoUpdates, nil
+}
+
+func (lp L1Provider) GetOracleTx(ctx context.Context, height int64) ([]byte, error) {
+	resBlock, err := lp.client.Block(ctx, &height)
+	if err != nil {
+		return nil, err
+	}
+	return resBlock.Block.Txs[0], nil
 }
