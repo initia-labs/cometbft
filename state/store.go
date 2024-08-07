@@ -72,6 +72,7 @@ type Store interface {
 	// initia custom, it is to save last rollup sync height to avoid starting sync at 1
 	GetRollupSyncBatchChainHeight() (int64, error)
 	SetRollupSyncBatchChainHeight(int64) error
+
 	// initia custom, it is to save current validators when executor is changed
 	SaveValidators(int64, int64, *types.ValidatorSet) error
 

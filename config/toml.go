@@ -484,10 +484,10 @@ bridge_id = {{ .RollupSync.BridgeID }}
 # Normally the batch submitter will split the batch into chunks of a certain size
 # due to the limitation of the batch chain's block size.
 #
-# The maximum size of a batch chunk.
-max_batch_chunk_bytes = {{ .RollupSync.MaxBatchChunkBytes }}
-# The maximum number of batch chunks of a batch data.
-max_batch_chunk_num = {{ .RollupSync.MaxBatchChunkNum }}
+# The max batch chunk size is the maximum size of a batch chunk in bytes.
+max_batch_chunk_size = {{ .RollupSync.MaxBatchChunkSize }}
+# The max batch chunks is the maximum number of batch chunks to fetch in a batch.
+max_batch_chunks = {{ .RollupSync.MaxBatchChunks }}
 
 # The interval to fetch the batch data from the batch chain in milliseconds.
 fetch_interval = {{ .RollupSync.FetchInterval }}

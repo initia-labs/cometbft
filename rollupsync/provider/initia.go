@@ -61,8 +61,7 @@ func (lp L1Provider) BatchFetcher(ctx context.Context, batchCh chan<- rstypes.Ba
 
 	page := 1
 	height := startHeight
-	nextHeight := height + int64(lp.cfg.BatchChainQueryHeightRange)
-
+	nextHeight := height + lp.cfg.BatchChainQueryHeightRange
 	for {
 		select {
 		case <-ctx.Done():
@@ -77,12 +76,13 @@ func (lp L1Provider) BatchFetcher(ctx context.Context, batchCh chan<- rstypes.Ba
 				continue
 			}
 
+			// send a signal to the batchCh to indicate that the batch chain [~ nextHeight-1] has been checked
 			batchCh <- rstypes.BatchChanInfo{
 				BatchChainHeight: nextHeight - 1,
 			}
 
 			height = nextHeight
-			nextHeight = height + int64(lp.cfg.BatchChainQueryHeightRange)
+			nextHeight = height + lp.cfg.BatchChainQueryHeightRange
 			if height > endHeight {
 				return nil
 			}
@@ -100,10 +100,9 @@ func (lp L1Provider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.Batc
 		return false, err
 	}
 
-	lp.logger.Debug("Fetch batch", "height", height, "next_height", nextHeight, "page", page, "num_txs", len(res.Txs))
-
 	for _, tx := range res.Txs {
-		messages, err := unmarshalCosmosTx(tx.Tx)
+		_, body, err := UnmarshalCosmosTx(tx.Tx)
+		messages := body.Messages
 		if err != nil {
 			return false, err
 		}
@@ -124,7 +123,6 @@ func (lp L1Provider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.Batc
 			}
 		}
 	}
-
 	return res.TotalCount <= page*txsPerPage, nil
 }
 
@@ -172,7 +170,8 @@ func (lp L1Provider) GetBatchInfoUpdates(ctx context.Context, targetBlockHeight 
 
 	batchInfoUpdates := make(rstypes.BatchInfoUpdates, 0)
 	for _, tx := range res.Txs {
-		messages, err := unmarshalCosmosTx(tx.Tx)
+		_, body, err := UnmarshalCosmosTx(tx.Tx)
+		messages := body.Messages
 		if err != nil {
 			return nil, err
 		}
@@ -189,9 +188,9 @@ func (lp L1Provider) GetBatchInfoUpdates(ctx context.Context, targetBlockHeight 
 			}
 
 			batchInfoUpdates = append(batchInfoUpdates, rstypes.BatchInfoUpdate{
-				Chain:     msg.Config.BatchInfo.Chain,
+				ChainType: msg.Config.BatchInfo.ChainType,
 				Submitter: msg.Config.BatchInfo.Submitter,
-				Start:     1,
+				Start:     int64(msg.Config.SubmissionStartHeight),
 			})
 		}
 	}
@@ -215,8 +214,8 @@ func (lp L1Provider) GetBatchInfoUpdates(ctx context.Context, targetBlockHeight 
 					batchInfoUpdate := rstypes.BatchInfoUpdate{}
 					for _, attr := range event.Attributes {
 						switch attr.Key {
-						case "batch_chain":
-							batchInfoUpdate.Chain = attr.Value
+						case "batch_chain_type":
+							batchInfoUpdate.ChainType = rstypes.BatchChainTypeFromString(attr.Value)
 						case "batch_submitter":
 							batchInfoUpdate.Submitter = attr.Value
 						case "finalized_l2_block_number":
@@ -245,6 +244,14 @@ func (lp L1Provider) GetBatchInfoUpdates(ctx context.Context, targetBlockHeight 
 	}
 
 	// set last batch info update end height to the target block height
-	batchInfoUpdates[len(batchInfoUpdates)-1].End = int64(targetBlockHeight)
+	batchInfoUpdates[len(batchInfoUpdates)-1].End = targetBlockHeight
 	return batchInfoUpdates, nil
+}
+
+func (lp L1Provider) GetOracleTx(ctx context.Context, height int64) ([]byte, error) {
+	resBlock, err := lp.client.Block(ctx, &height)
+	if err != nil {
+		return nil, err
+	}
+	return resBlock.Block.Txs[0], nil
 }

@@ -246,6 +246,16 @@ func (b *Block) ToProto() (*cmtproto.Block, error) {
 // FromProto sets a protobuf Block to the given pointer.
 // It returns an error if the block is invalid.
 func BlockFromProto(bp *cmtproto.Block) (*Block, error) {
+	b, err := BlockFromProtoWithNoValidation(bp)
+	if err != nil {
+		return nil, err
+	}
+
+	return b, b.ValidateBasic()
+}
+
+// BlockFromProtoWithNoValidation sets a protobuf Block to the given pointer.
+func BlockFromProtoWithNoValidation(bp *cmtproto.Block) (*Block, error) {
 	if bp == nil {
 		return nil, errors.New("nil block")
 	}
@@ -273,7 +283,7 @@ func BlockFromProto(bp *cmtproto.Block) (*Block, error) {
 		b.LastCommit = lc
 	}
 
-	return b, b.ValidateBasic()
+	return b, nil
 }
 
 //-----------------------------------------------------------------------------

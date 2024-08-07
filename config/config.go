@@ -984,8 +984,8 @@ func (cfg *BlockSyncConfig) ValidateBasic() error {
 type RollupSyncConfig struct {
 	Enable                     bool                  `mapstructure:"enable"`
 	BridgeID                   int64                 `mapstructure:"bridge_id"`
-	MaxBatchChunkBytes         int64                 `mapstructure:"max_batch_chunk_bytes"`
-	MaxBatchChunkNum           int64                 `mapstructure:"max_batch_chunk_num"`
+	MaxBatchChunkSize          int64                 `mapstructure:"max_batch_chunk_size"`
+	MaxBatchChunks             int64                 `mapstructure:"max_batch_chunks"`
 	FetchInterval              int64                 `mapstructure:"fetch_interval"`
 	TxsPerPage                 int64                 `mapstructure:"txs_per_page"`
 	BlocksPerPage              int64                 `mapstructure:"blocks_per_page"`
@@ -1003,8 +1003,8 @@ func DefaultRollupSyncConfig() *RollupSyncConfig {
 	return &RollupSyncConfig{
 		Enable:                     false,
 		BridgeID:                   0,
-		MaxBatchChunkBytes:         500_000, // 500KB
-		MaxBatchChunkNum:           10,
+		MaxBatchChunkSize:          300_000, // 300KB
+		MaxBatchChunks:             10,
 		FetchInterval:              10, // 10 milliseconds
 		TxsPerPage:                 1000,
 		BlocksPerPage:              10,

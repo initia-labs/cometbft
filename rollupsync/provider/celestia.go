@@ -79,6 +79,7 @@ func (cp *CelestiaProvider) BatchFetcher(ctx context.Context, batchCh chan<- rst
 				continue
 			}
 
+			// send a signal to the batchCh to indicate that the batch chain [~ nextHeight-1] has been checked
 			batchCh <- rstypes.BatchChanInfo{
 				BatchChainHeight: nextHeight - 1,
 			}
@@ -140,7 +141,7 @@ func (cp *CelestiaProvider) fetchBatch(ctx context.Context, batchCh chan<- rstyp
 
 			for _, blob := range blobTx.Blobs {
 				batchCh <- rstypes.BatchChanInfo{
-					Batch: blob.Data,
+					Batch: blob.Data(),
 				}
 			}
 		}
