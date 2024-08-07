@@ -3,14 +3,17 @@ package rollupsync
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/base64"
+	"encoding/binary"
 	"io"
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
-	"github.com/cometbft/cometbft/rollupsync/types"
 	cmtypes "github.com/cometbft/cometbft/types"
 	"github.com/cosmos/gogoproto/proto"
 )
+
+func getLength(b []byte) int {
+	return int(binary.LittleEndian.Uint64(b))
+}
 
 func decompressBatch(b []byte) ([][]byte, error) {
 	br := bytes.NewReader(b)
@@ -26,14 +29,11 @@ func decompressBatch(b []byte) ([][]byte, error) {
 	}
 
 	blocksBytes := make([][]byte, 0)
-
-	encodedBlocks := bytes.Split(res, []byte(","))
-	for _, encodedBlock := range encodedBlocks {
-		blockBytes, err := base64.StdEncoding.DecodeString(string(encodedBlock))
-		if err != nil {
-			return nil, types.ErrBatchDecodingError
-		}
-		blocksBytes = append(blocksBytes, blockBytes)
+	for offset := 0; offset < len(res); {
+		bytesLength := getLength(res[offset : offset+8])
+		offset += 8
+		blocksBytes = append(blocksBytes, res[offset:offset+bytesLength])
+		offset += bytesLength
 	}
 	return blocksBytes, nil
 }
@@ -45,7 +45,7 @@ func unmarshalBlock(blockBz []byte) (*cmtypes.Block, error) {
 		return nil, err
 	}
 
-	return cmtypes.BlockFromProto(pbb)
+	return cmtypes.BlockFromProtoWithNoValidation(pbb)
 }
 
 func unmarshalCommit(commitBz []byte) (*cmtypes.Commit, error) {

@@ -239,6 +239,11 @@ BATCH_LOOP:
 					return errors.Join(errors.New("failed to fill oracle data to block"), err)
 				}
 
+				err = block.ValidateBasic()
+				if err != nil {
+					return errors.Join(fmt.Errorf("invalid block: %d", block.Height), err)
+				}
+
 				rs.blockCh <- rstypes.BlockChanInfo{
 					Block: block,
 				}
@@ -246,7 +251,7 @@ BATCH_LOOP:
 				// if the block is reached to target height, break the loop
 				// and send the last commit.
 				if block.Height == targetL2Height {
-					commit := new(types.Commit)
+					var commit *types.Commit
 					if i == len(rawBlocks)-1 {
 						commit, err = unmarshalCommit(rawCommit)
 						if err != nil {
@@ -283,7 +288,7 @@ func (rs *RollupSyncer) blockSync(ctx context.Context, batchInfoUpdates rstypes.
 
 	// check if the rollup sync can start from the first batch info start height
 	batchSubmissionStartHeight := batchInfoUpdates[0].Start
-	if rs.state.LastBlockHeight < batchSubmissionStartHeight {
+	if rs.state.LastBlockHeight != 0 && rs.state.LastBlockHeight < batchSubmissionStartHeight {
 		return rs.state, fmt.Errorf("rollup sync can start from `%d`, but current height is `%d`", batchSubmissionStartHeight, rs.state.LastBlockHeight)
 	}
 
@@ -301,6 +306,7 @@ func (rs *RollupSyncer) blockSync(ctx context.Context, batchInfoUpdates rstypes.
 	}()
 
 	endChecker := time.NewTicker(100 * time.Millisecond)
+	defer endChecker.Stop()
 
 	var lastCommit *types.Commit
 LOOP:
@@ -378,13 +384,12 @@ func (rs *RollupSyncer) fillOracleData(ctx context.Context, block *types.Block) 
 			if anyMsg.TypeUrl != "/opinit.opchild.v1.MsgUpdateOracle" {
 				continue
 			}
-
 			msg := new(opchildv1.MsgUpdateOracle)
 			err := anyMsg.UnmarshalTo(msg)
 			if err != nil {
 				return err
 			}
-
+			fmt.Println(msg.Height)
 			oracleTx, err := rs.l1Provider.GetOracleTx(ctx, int64(msg.Height))
 			if err != nil {
 				return errors.Join(errors.New("failed to fetch oracle tx"), err)
@@ -395,6 +400,7 @@ func (rs *RollupSyncer) fillOracleData(ctx context.Context, block *types.Block) 
 			if err != nil {
 				return errors.Join(errors.New("failed to marshal oracle msg"), err)
 			}
+			anyMsg.TypeUrl = "/opinit.opchild.v1.MsgUpdateOracle"
 		}
 
 		convertedTxBytes, err := provider.MarshalCosmosTx(raw, body)

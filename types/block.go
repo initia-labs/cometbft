@@ -276,6 +276,39 @@ func BlockFromProto(bp *cmtproto.Block) (*Block, error) {
 	return b, b.ValidateBasic()
 }
 
+// FromProto sets a protobuf Block to the given pointer.
+// This is a conversion for rollup sync. Since the oracle data is empty, it is for later validation.
+func BlockFromProtoWithNoValidation(bp *cmtproto.Block) (*Block, error) {
+	if bp == nil {
+		return nil, errors.New("nil block")
+	}
+
+	b := new(Block)
+	h, err := HeaderFromProto(&bp.Header)
+	if err != nil {
+		return nil, err
+	}
+	b.Header = h
+	data, err := DataFromProto(&bp.Data)
+	if err != nil {
+		return nil, err
+	}
+	b.Data = data
+	if err := b.Evidence.FromProto(&bp.Evidence); err != nil {
+		return nil, err
+	}
+
+	if bp.LastCommit != nil {
+		lc, err := CommitFromProto(bp.LastCommit)
+		if err != nil {
+			return nil, err
+		}
+		b.LastCommit = lc
+	}
+
+	return b, nil
+}
+
 //-----------------------------------------------------------------------------
 
 // MaxDataBytes returns the maximum size of block's data.

@@ -61,8 +61,7 @@ func (lp L1Provider) BatchFetcher(ctx context.Context, batchCh chan<- rstypes.Ba
 
 	page := 1
 	height := startHeight
-	nextHeight := height + int64(lp.cfg.BatchChainQueryHeightRange)
-
+	nextHeight := height + lp.cfg.BatchChainQueryHeightRange
 	for {
 		select {
 		case <-ctx.Done():
@@ -83,7 +82,7 @@ func (lp L1Provider) BatchFetcher(ctx context.Context, batchCh chan<- rstypes.Ba
 			}
 
 			height = nextHeight
-			nextHeight = height + int64(lp.cfg.BatchChainQueryHeightRange)
+			nextHeight = height + lp.cfg.BatchChainQueryHeightRange
 			if height > endHeight {
 				return nil
 			}
@@ -100,8 +99,6 @@ func (lp L1Provider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.Batc
 	if err != nil {
 		return false, err
 	}
-
-	lp.logger.Debug("Fetch batch", "height", height, "next_height", nextHeight, "page", page, "num_txs", len(res.Txs))
 
 	for _, tx := range res.Txs {
 		_, body, err := UnmarshalCosmosTx(tx.Tx)
@@ -126,7 +123,6 @@ func (lp L1Provider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.Batc
 			}
 		}
 	}
-
 	return res.TotalCount <= page*txsPerPage, nil
 }
 
@@ -248,7 +244,7 @@ func (lp L1Provider) GetBatchInfoUpdates(ctx context.Context, targetBlockHeight 
 	}
 
 	// set last batch info update end height to the target block height
-	batchInfoUpdates[len(batchInfoUpdates)-1].End = int64(targetBlockHeight)
+	batchInfoUpdates[len(batchInfoUpdates)-1].End = targetBlockHeight
 	return batchInfoUpdates, nil
 }
 
