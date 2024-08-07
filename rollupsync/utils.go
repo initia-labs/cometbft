@@ -38,6 +38,9 @@ func decompressBatch(b []byte) ([][]byte, error) {
 	return blocksBytes, nil
 }
 
+// unmarshal block without validation.
+//
+// the validation will be performed after oracle data is fetched.
 func unmarshalBlock(blockBz []byte) (*cmtypes.Block, error) {
 	pbb := new(cmtproto.Block)
 	err := proto.Unmarshal(blockBz, pbb)

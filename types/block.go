@@ -254,8 +254,7 @@ func BlockFromProto(bp *cmtproto.Block) (*Block, error) {
 	return b, b.ValidateBasic()
 }
 
-// FromProto sets a protobuf Block to the given pointer.
-// This is a conversion for rollup sync. Since the oracle data is empty, it is for later validation.
+// BlockFromProtoWithNoValidation sets a protobuf Block to the given pointer.
 func BlockFromProtoWithNoValidation(bp *cmtproto.Block) (*Block, error) {
 	if bp == nil {
 		return nil, errors.New("nil block")
