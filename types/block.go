@@ -246,31 +246,9 @@ func (b *Block) ToProto() (*cmtproto.Block, error) {
 // FromProto sets a protobuf Block to the given pointer.
 // It returns an error if the block is invalid.
 func BlockFromProto(bp *cmtproto.Block) (*Block, error) {
-	if bp == nil {
-		return nil, errors.New("nil block")
-	}
-
-	b := new(Block)
-	h, err := HeaderFromProto(&bp.Header)
+	b, err := BlockFromProtoWithNoValidation(bp)
 	if err != nil {
 		return nil, err
-	}
-	b.Header = h
-	data, err := DataFromProto(&bp.Data)
-	if err != nil {
-		return nil, err
-	}
-	b.Data = data
-	if err := b.Evidence.FromProto(&bp.Evidence); err != nil {
-		return nil, err
-	}
-
-	if bp.LastCommit != nil {
-		lc, err := CommitFromProto(bp.LastCommit)
-		if err != nil {
-			return nil, err
-		}
-		b.LastCommit = lc
 	}
 
 	return b, b.ValidateBasic()
