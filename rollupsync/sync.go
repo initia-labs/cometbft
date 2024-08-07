@@ -291,7 +291,7 @@ func (rs *RollupSyncer) blockSync(ctx context.Context, batchInfoUpdates rstypes.
 
 	// check if the rollup sync can start from the first batch info start height
 	batchSubmissionStartHeight := batchInfoUpdates[0].Start
-	if rs.state.LastBlockHeight != 0 && rs.state.LastBlockHeight < batchSubmissionStartHeight {
+	if rs.state.LastBlockHeight+1 < batchSubmissionStartHeight {
 		return rs.state, fmt.Errorf("rollup sync can start from `%d`, but current height is `%d`", batchSubmissionStartHeight, rs.state.LastBlockHeight)
 	}
 
