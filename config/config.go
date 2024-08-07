@@ -1003,7 +1003,7 @@ func DefaultRollupSyncConfig() *RollupSyncConfig {
 	return &RollupSyncConfig{
 		Enable:                     false,
 		BridgeID:                   0,
-		MaxBatchChunkSize:          300_000, // 500KB
+		MaxBatchChunkSize:          300_000, // 300KB
 		MaxBatchChunks:             10,
 		FetchInterval:              10, // 10 milliseconds
 		TxsPerPage:                 1000,
