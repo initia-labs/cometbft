@@ -141,7 +141,7 @@ func (cp *CelestiaProvider) fetchBatch(ctx context.Context, batchCh chan<- rstyp
 
 			for _, blob := range blobTx.Blobs {
 				batchCh <- rstypes.BatchChanInfo{
-					Batch: blob.Data,
+					Batch: blob.Data(),
 				}
 			}
 		}

@@ -1,8 +1,6 @@
 module github.com/cometbft/cometbft
 
-go 1.22
-
-toolchain go1.22.2
+go 1.22.5
 
 require (
 	github.com/BurntSushi/toml v1.2.1
@@ -42,13 +40,11 @@ require (
 )
 
 require (
-	cosmossdk.io/api v0.7.4
 	github.com/Masterminds/semver/v3 v3.2.0
 	github.com/btcsuite/btcd/btcec/v2 v2.3.2
 	github.com/btcsuite/btcd/btcutil v1.1.3
-	github.com/celestiaorg/go-square v1.0.1
 	github.com/cometbft/cometbft-db v0.7.0
-	github.com/cosmos/gogoproto v1.4.12
+	github.com/cosmos/gogoproto v1.5.0
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/uuid v1.6.0
@@ -58,7 +54,14 @@ require (
 	github.com/vektra/mockery/v2 v2.23.1
 	golang.org/x/sync v0.7.0
 	gonum.org/v1/gonum v0.12.0
-	google.golang.org/protobuf v1.34.1
+	google.golang.org/protobuf v1.34.2
+)
+
+// modules for rollup sync
+require (
+	cosmossdk.io/api v0.7.5
+	github.com/celestiaorg/go-square/v2 v2.0.0-rc0
+	github.com/cosmos/cosmos-proto v1.0.0-beta.5
 )
 
 require (
@@ -96,7 +99,6 @@ require (
 	github.com/chigopher/pathlib v0.12.0 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/containerd/continuity v0.3.0 // indirect
-	github.com/cosmos/cosmos-proto v1.0.0-beta.5 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.3 // indirect
 	github.com/curioswitch/go-reassign v0.2.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.2.4 // indirect

@@ -9,7 +9,7 @@ import (
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 
-	celblob "github.com/celestiaorg/go-square/blob"
+	"github.com/celestiaorg/go-square/v2/share"
 )
 
 // newRpcClient sets up a new RPC client
@@ -51,8 +51,11 @@ func MarshalCosmosTx(raw *txv1beta1.TxRaw, body *txv1beta1.TxBody) ([]byte, erro
 	return rawBytes, nil
 }
 
-func unmarshalCelestiaBlobTx(txbytes []byte) (*celblob.BlobTx, error) {
-	blobTx, success := celblob.UnmarshalBlobTx(txbytes)
+func unmarshalCelestiaBlobTx(txbytes []byte) (*share.BlobTx, error) {
+	blobTx, success, err := share.UnmarshalBlobTx(txbytes)
+	if err != nil {
+		return nil, err
+	}
 	if !success {
 		return nil, errors.New("fail unmarshaling celestia blobtx")
 	}

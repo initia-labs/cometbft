@@ -9,17 +9,20 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cosmos/cosmos-proto/anyutil"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/libs/log"
-	sm "github.com/cometbft/cometbft/state"
-	"github.com/cometbft/cometbft/store"
-	"github.com/cometbft/cometbft/types"
-	opchildv1 "github.com/initia-labs/OPinit/api/opinit/opchild/v1"
-	ophostv1 "github.com/initia-labs/OPinit/api/opinit/ophost/v1"
-
 	"github.com/cometbft/cometbft/proxy"
 	"github.com/cometbft/cometbft/rollupsync/provider"
 	rstypes "github.com/cometbft/cometbft/rollupsync/types"
+	sm "github.com/cometbft/cometbft/state"
+	"github.com/cometbft/cometbft/store"
+	"github.com/cometbft/cometbft/types"
+
+	opchildv1 "github.com/initia-labs/OPinit/api/opinit/opchild/v1"
+	ophostv1 "github.com/initia-labs/OPinit/api/opinit/ophost/v1"
 )
 
 type RollupSyncer struct {
@@ -384,23 +387,24 @@ func (rs *RollupSyncer) fillOracleData(ctx context.Context, block *types.Block) 
 			if anyMsg.TypeUrl != "/opinit.opchild.v1.MsgUpdateOracle" {
 				continue
 			}
+
 			msg := new(opchildv1.MsgUpdateOracle)
 			err := anyMsg.UnmarshalTo(msg)
 			if err != nil {
 				return err
 			}
-			fmt.Println(msg.Height)
+
 			oracleTx, err := rs.l1Provider.GetOracleTx(ctx, int64(msg.Height))
 			if err != nil {
 				return errors.Join(errors.New("failed to fetch oracle tx"), err)
 			}
 			msg.Data = oracleTx
 
-			err = anyMsg.MarshalFrom(msg)
+			// https://github.com/cosmos/cosmos-sdk/blob/main/docs/learn/advanced/05-encoding.md#anys-typeurl
+			err = anyutil.MarshalFrom(anyMsg, msg, proto.MarshalOptions{})
 			if err != nil {
 				return errors.Join(errors.New("failed to marshal oracle msg"), err)
 			}
-			anyMsg.TypeUrl = "/opinit.opchild.v1.MsgUpdateOracle"
 		}
 
 		convertedTxBytes, err := provider.MarshalCosmosTx(raw, body)
