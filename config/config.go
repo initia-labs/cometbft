@@ -983,7 +983,7 @@ func (cfg *BlockSyncConfig) ValidateBasic() error {
 
 type RollupSyncConfig struct {
 	Enable                     bool                  `mapstructure:"enable"`
-	BridgeID                   int64                 `mapstructure:"bridge_id"`
+	BridgeID                   uint64                `mapstructure:"bridge_id"`
 	MaxBatchChunkSize          int64                 `mapstructure:"max_batch_chunk_size"`
 	MaxBatchChunks             int64                 `mapstructure:"max_batch_chunks"`
 	FetchInterval              int64                 `mapstructure:"fetch_interval"`

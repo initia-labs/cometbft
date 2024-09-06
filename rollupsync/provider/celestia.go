@@ -12,6 +12,8 @@ import (
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
 
 	rstypes "github.com/cometbft/cometbft/rollupsync/types"
+
+	coretypes "github.com/cometbft/cometbft/rpc/core/types"
 )
 
 var _ rstypes.BatchProvider = (*CelestiaProvider)(nil)
@@ -21,7 +23,8 @@ type CelestiaProvider struct {
 	cfg    *config.RollupSyncConfig
 	client *rpchttp.HTTP
 
-	submitter string
+	cachedBlock *coretypes.ResultBlock
+	submitter   string
 }
 
 func NewCelestiaProvider(logger log.Logger, cfg *config.RollupSyncConfig) (*CelestiaProvider, error) {
@@ -47,7 +50,7 @@ func (cp *CelestiaProvider) SetSubmitter(submitter string) {
 	cp.submitter = submitter
 }
 
-func (cp *CelestiaProvider) BatchFetcher(ctx context.Context, batchCh chan<- rstypes.BatchChanInfo, startHeight int64, endHeight int64) error {
+func (cp *CelestiaProvider) BatchFetcher(ctx context.Context, batchCh chan<- rstypes.BatchChanInfo, batchChainStartHeight int64, l2EndHeight *uint64) error {
 	if cp.submitter == "" {
 		return errors.New("submitter is not provided")
 	}
@@ -56,9 +59,8 @@ func (cp *CelestiaProvider) BatchFetcher(ctx context.Context, batchCh chan<- rst
 	defer timer.Stop()
 
 	page := 1
-	height := startHeight
-	nextHeight := height + int64(cp.cfg.BatchChainQueryHeightRange)
-	txIndexMap := make(map[int64][]uint32)
+	height := batchChainStartHeight
+	nextHeight := height + cp.cfg.BatchChainQueryHeightRange
 
 	for {
 		select {
@@ -66,89 +68,74 @@ func (cp *CelestiaProvider) BatchFetcher(ctx context.Context, batchCh chan<- rst
 			cp.logger.Info("Closing batch fetcher")
 			return nil
 		case <-timer.C:
-			if isEnd, err := cp.searchBatchTxs(ctx, page, height, nextHeight, txIndexMap); err != nil {
-				cp.logger.Debug("Failed search batch txs", "height", height, "nextHeight", nextHeight, "page", page, "error", err)
+			if isEnd, lastBatchHeaderStart, err := cp.fetchBatch(ctx, batchCh, page, height, nextHeight); err != nil {
+				cp.logger.Debug("Failed fetching batch", "height", height, "page", page, "error", err)
 				continue
 			} else if !isEnd {
 				page++
 				continue
-			}
-
-			if err := cp.fetchBatch(ctx, batchCh, txIndexMap); err != nil {
-				cp.logger.Debug("Failed fetch batch", "height", height, "next_height", nextHeight, "error", err)
-				continue
-			}
-
-			// send a signal to the batchCh to indicate that the batch chain [~ nextHeight-1] has been checked
-			batchCh <- rstypes.BatchChanInfo{
-				BatchChainHeight: nextHeight - 1,
-			}
-
-			height = nextHeight
-			nextHeight = height + int64(cp.cfg.BatchChainQueryHeightRange)
-			if height > endHeight {
+			} else if lastBatchHeaderStart != 0 && *l2EndHeight != 0 && lastBatchHeaderStart > *l2EndHeight {
+				cp.logger.Debug("reach the end height of this batch info", "batch_header_start", lastBatchHeaderStart, "l2_end_height", *l2EndHeight)
 				return nil
 			}
 
+			height = nextHeight
+			nextHeight = height + cp.cfg.BatchChainQueryHeightRange
 			page = 1
 		}
 	}
 }
 
-func (cp *CelestiaProvider) searchBatchTxs(ctx context.Context, page int, height int64, nextHeight int64, txIndexMap map[int64][]uint32) (bool, error) {
-	txsPerPage := int(cp.cfg.TxsPerPage)
-	queryStr := fmt.Sprintf("tx.height >= %d AND tx.height < %d AND message.action='/celestia.blob.v1.MsgPayForBlobs' AND message.sender='%s'", height, nextHeight, cp.submitter)
+func (cp *CelestiaProvider) FirstTxHeight(ctx context.Context) (int64, error) {
+	page := 1
+	txsPerPage := 1
+	queryStr := fmt.Sprintf("celestia.blob.v1.EventPayForBlobs.signer='\"%s\"'", cp.submitter)
 	res, err := cp.client.TxSearch(ctx, queryStr, false, &page, &txsPerPage, "asc")
 	if err != nil {
-		return false, err
+		return 0, err
+	} else if len(res.Txs) == 0 {
+		return 0, errors.New("no batch txs found")
 	}
-
-	cp.logger.Debug("Fetch batch", "height", height, "next_height", nextHeight, "page", page, "num_txs", len(res.Txs))
-
-	for _, tx := range res.Txs {
-		if _, ok := txIndexMap[tx.Height]; !ok {
-			txIndexMap[tx.Height] = make([]uint32, 0)
-		}
-
-		// only need tx index to fetch blob data from tx bytes in a block
-		txIndexMap[tx.Height] = append(txIndexMap[tx.Height], tx.Index)
-	}
-
-	return res.TotalCount <= page*txsPerPage, nil
+	return res.Txs[0].Height, nil
 }
 
-func (cp *CelestiaProvider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.BatchChanInfo, txIndexMap map[int64][]uint32) error {
-	heights := make([]int64, 0)
-	for height := range txIndexMap {
-		heights = append(heights, height)
+func (cp *CelestiaProvider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.BatchChanInfo, page int, height int64, nextHeight int64) (bool, uint64, error) {
+	txsPerPage := int(cp.cfg.TxsPerPage)
+	queryStr := fmt.Sprintf("tx.height >= %d AND tx.height < %d AND celestia.blob.v1.EventPayForBlobs.signer='\"%s\"'", height, nextHeight, cp.submitter)
+	res, err := cp.client.TxSearch(ctx, queryStr, false, &page, &txsPerPage, "asc")
+	if err != nil {
+		return false, 0, err
 	}
-	slices.Sort(heights)
 
-	for _, height := range heights {
-		res, err := cp.client.Block(ctx, &height)
-		if err != nil {
-			return err
-		}
-
-		slices.Sort(txIndexMap[height])
-
-		for _, index := range txIndexMap[height] {
-			txBytes := res.Block.Txs[index]
-			blobTx, err := unmarshalCelestiaBlobTx(txBytes)
+	lastBatchHeaderStart := uint64(0)
+	for _, tx := range res.Txs {
+		if cp.cachedBlock == nil || cp.cachedBlock.Block.Height != tx.Height {
+			res, err := cp.client.Block(ctx, &tx.Height)
 			if err != nil {
-				return err
+				return false, 0, err
 			}
-
-			for _, blob := range blobTx.Blobs {
-				batchCh <- rstypes.BatchChanInfo{
-					Batch: blob.Data(),
-				}
-			}
+			cp.cachedBlock = res
 		}
 
-		delete(txIndexMap, height)
+		txBytes := cp.cachedBlock.Block.Txs[tx.Index]
+		blobTx, err := unmarshalCelestiaBlobTx(txBytes)
+		if err != nil {
+			return false, 0, err
+		}
+
+		for _, blob := range blobTx.Blobs {
+			_, start, _, err := rstypes.UnmarshalPartialHeader(blob.Data())
+			if err != nil {
+				return false, 0, err
+			}
+			lastBatchHeaderStart = start
+			batchCh <- rstypes.BatchChanInfo{
+				Batch:            blob.Data(),
+				BatchChainHeight: tx.Height,
+			}
+		}
 	}
-	return nil
+	return res.TotalCount <= page*txsPerPage, lastBatchHeaderStart, nil
 }
 
 func (cp CelestiaProvider) GetLastHeight(ctx context.Context) (int64, error) {

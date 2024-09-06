@@ -43,7 +43,10 @@ func calcABCIResponsesKey(height int64) []byte {
 
 var lastABCIResponseKey = []byte("lastABCIResponseKey")
 var offlineStateSyncHeight = []byte("offlineStateSyncHeightKey")
-var rollupSyncBatchChainHeight = []byte("rollupSyncBatchChainHeight")
+
+func calcRollupSyncBatchChainHeightKey(batchInfoIndex int64) []byte {
+	return []byte(fmt.Sprintf("rollupSyncBatchChainHeight:%v", batchInfoIndex))
+}
 
 //go:generate ../scripts/mockery_generate.sh Store
 
@@ -70,8 +73,8 @@ type Store interface {
 	LoadConsensusParams(int64) (types.ConsensusParams, error)
 
 	// initia custom, it is to save last rollup sync height to avoid starting sync at 1
-	GetRollupSyncBatchChainHeight() (int64, error)
-	SetRollupSyncBatchChainHeight(int64) error
+	GetRollupSyncBatchChainHeight(int64) (int64, error)
+	SetRollupSyncBatchChainHeight(int64, int64) error
 
 	// initia custom, it is to save current validators when executor is changed
 	SaveValidators(int64, int64, *types.ValidatorSet) error
@@ -753,8 +756,8 @@ func (store dbStore) saveConsensusParamsInfo(nextHeight, changeHeight int64, par
 	return nil
 }
 
-func (store dbStore) SetRollupSyncBatchChainHeight(height int64) error {
-	err := store.db.SetSync(rollupSyncBatchChainHeight, int64ToBytes(height))
+func (store dbStore) SetRollupSyncBatchChainHeight(batchInfoIndex int64, height int64) error {
+	err := store.db.SetSync(calcRollupSyncBatchChainHeightKey(batchInfoIndex), int64ToBytes(height))
 	if err != nil {
 		return err
 	}
@@ -763,8 +766,8 @@ func (store dbStore) SetRollupSyncBatchChainHeight(height int64) error {
 }
 
 // Gets the height at which the store is bootstrapped after out of band statesync
-func (store dbStore) GetRollupSyncBatchChainHeight() (int64, error) {
-	buf, err := store.db.Get(rollupSyncBatchChainHeight)
+func (store dbStore) GetRollupSyncBatchChainHeight(batchInfoIndex int64) (int64, error) {
+	buf, err := store.db.Get(calcRollupSyncBatchChainHeightKey(batchInfoIndex))
 	if err != nil {
 		return 0, err
 	}

@@ -68,23 +68,23 @@ func (_m *Store) GetOfflineStateSyncHeight() (int64, error) {
 	return r0, r1
 }
 
-// GetRollupSyncBatchChainHeight provides a mock function with given fields:
-func (_m *Store) GetRollupSyncBatchChainHeight() (int64, error) {
-	ret := _m.Called()
+// GetRollupSyncBatchChainHeight provides a mock function with given fields: _a0
+func (_m *Store) GetRollupSyncBatchChainHeight(_a0 int64) (int64, error) {
+	ret := _m.Called(_a0)
 
 	var r0 int64
 	var r1 error
-	if rf, ok := ret.Get(0).(func() (int64, error)); ok {
-		return rf()
+	if rf, ok := ret.Get(0).(func(int64) (int64, error)); ok {
+		return rf(_a0)
 	}
-	if rf, ok := ret.Get(0).(func() int64); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(int64) int64); ok {
+		r0 = rf(_a0)
 	} else {
 		r0 = ret.Get(0).(int64)
 	}
 
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
+	if rf, ok := ret.Get(1).(func(int64) error); ok {
+		r1 = rf(_a0)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -336,13 +336,13 @@ func (_m *Store) SetOfflineStateSyncHeight(height int64) error {
 	return r0
 }
 
-// SetRollupSyncBatchChainHeight provides a mock function with given fields: _a0
-func (_m *Store) SetRollupSyncBatchChainHeight(_a0 int64) error {
-	ret := _m.Called(_a0)
+// SetRollupSyncBatchChainHeight provides a mock function with given fields: _a0, _a1
+func (_m *Store) SetRollupSyncBatchChainHeight(_a0 int64, _a1 int64) error {
+	ret := _m.Called(_a0, _a1)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(int64) error); ok {
-		r0 = rf(_a0)
+	if rf, ok := ret.Get(0).(func(int64, int64) error); ok {
+		r0 = rf(_a0, _a1)
 	} else {
 		r0 = ret.Error(0)
 	}
