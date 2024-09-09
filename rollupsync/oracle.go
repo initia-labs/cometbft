@@ -20,6 +20,11 @@ func (rs *RollupSyncer) fillOracleData(ctx context.Context, block *types.Block) 
 		}
 
 		for _, anyMsg := range body.Messages {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+			}
 			if anyMsg.TypeUrl != "/opinit.opchild.v1.MsgUpdateOracle" {
 				continue
 			}
@@ -30,7 +35,7 @@ func (rs *RollupSyncer) fillOracleData(ctx context.Context, block *types.Block) 
 				return err
 			}
 
-			oracleTx, err := rs.fetchOracleTx(ctx, block.Height)
+			oracleTx, err := rs.fetchOracleTx(ctx, int64(msg.Height))
 			if err != nil {
 				return errors.Join(errors.New("failed to fetch oracle tx"), err)
 			}
@@ -60,7 +65,7 @@ func (rs *RollupSyncer) fetchOracleTx(ctx context.Context, height int64) ([]byte
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, nil
 		case <-ticker.C:
 			oracleTx, err := rs.l1Provider.GetOracleTx(ctx, height)
 			if err != nil {

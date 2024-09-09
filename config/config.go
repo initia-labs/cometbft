@@ -983,6 +983,7 @@ func (cfg *BlockSyncConfig) ValidateBasic() error {
 
 type RollupSyncConfig struct {
 	Enable                     bool                  `mapstructure:"enable"`
+	Mode                       string                `mapstructure:"mode"`
 	BridgeID                   uint64                `mapstructure:"bridge_id"`
 	MaxBatchChunkSize          int64                 `mapstructure:"max_batch_chunk_size"`
 	MaxBatchChunks             int64                 `mapstructure:"max_batch_chunks"`
@@ -1002,6 +1003,7 @@ type RollupSyncRPCConfig struct {
 func DefaultRollupSyncConfig() *RollupSyncConfig {
 	return &RollupSyncConfig{
 		Enable:                     false,
+		Mode:                       "sync",
 		BridgeID:                   0,
 		MaxBatchChunkSize:          300_000, // 300KB
 		MaxBatchChunks:             10,
@@ -1010,7 +1012,7 @@ func DefaultRollupSyncConfig() *RollupSyncConfig {
 		BlocksPerPage:              10,
 		BatchChainQueryHeightRange: 1000,
 		RPCServers: []RollupSyncRPCConfig{
-			{Chain: rstypes.CHAIN_NAME_L1, Address: "tcp://0.0.0.0:26657"},
+			{Chain: rstypes.ChainNameL1, Address: "tcp://0.0.0.0:26657"},
 		},
 	}
 }
@@ -1028,7 +1030,7 @@ func (cfg *RollupSyncConfig) ValidateBasic() error {
 		}
 
 		if idx := slices.IndexFunc(cfg.RPCServers, func(elem RollupSyncRPCConfig) bool {
-			return elem.Chain == rstypes.CHAIN_NAME_L1
+			return elem.Chain == rstypes.ChainNameL1
 		}); idx < 0 {
 			return errors.New("l1 rpc server is required")
 		}

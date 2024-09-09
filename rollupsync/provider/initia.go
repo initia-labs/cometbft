@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"time"
 
 	"github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/libs/log"
@@ -18,22 +17,18 @@ import (
 	ophostv1 "github.com/initia-labs/OPinit/api/opinit/ophost/v1"
 )
 
-var _ rstypes.BatchProvider = (*L1Provider)(nil)
-
 type L1Provider struct {
 	logger log.Logger
 	cfg    *config.RollupSyncConfig
 	client *rpchttp.HTTP
-
-	submitter string
 }
 
 func NewL1Provider(logger log.Logger, cfg *config.RollupSyncConfig) (*L1Provider, error) {
 	idx := slices.IndexFunc(cfg.RPCServers, func(elem config.RollupSyncRPCConfig) bool {
-		return elem.Chain == rstypes.CHAIN_NAME_L1
+		return elem.Chain == rstypes.ChainNameL1
 	})
 	if idx < 0 {
-		return nil, fmt.Errorf("%s rpc address is not provided", rstypes.CHAIN_NAME_L1)
+		return nil, fmt.Errorf("%s rpc address is not provided", rstypes.ChainNameL1)
 	}
 	client, err := newRpcClient(cfg.RPCServers[idx].Address)
 	if err != nil {
@@ -45,100 +40,6 @@ func NewL1Provider(logger log.Logger, cfg *config.RollupSyncConfig) (*L1Provider
 		cfg:    cfg,
 		client: client,
 	}, nil
-}
-
-func (lp *L1Provider) SetSubmitter(submitter string) {
-	lp.submitter = submitter
-}
-
-func (lp L1Provider) BatchFetcher(ctx context.Context, batchCh chan<- rstypes.BatchChanInfo, batchChainStartHeight int64, l2EndHeight *uint64) error {
-	if lp.submitter == "" {
-		return errors.New("submitter is not provided")
-	}
-
-	timer := time.NewTicker(time.Duration(lp.cfg.FetchInterval) * time.Millisecond)
-	defer timer.Stop()
-
-	page := 1
-	height := batchChainStartHeight
-	nextHeight := height + lp.cfg.BatchChainQueryHeightRange
-
-	for {
-		select {
-		case <-ctx.Done():
-			lp.logger.Info("Closing batch fetcher")
-			return nil
-		case <-timer.C:
-			if isEnd, lastBatchHeaderStart, err := lp.fetchBatch(ctx, batchCh, page, height, nextHeight); err != nil {
-				lp.logger.Debug("Failed fetching batch", "height", height, "page", page, "error", err)
-				continue
-			} else if !isEnd {
-				page++
-				continue
-			} else if lastBatchHeaderStart != 0 && *l2EndHeight != 0 && lastBatchHeaderStart > *l2EndHeight {
-				lp.logger.Debug("reach the end height of this batch info", "batch_header_start", lastBatchHeaderStart, "l2_end_height", *l2EndHeight)
-				return nil
-			}
-
-			height = nextHeight
-			nextHeight = height + lp.cfg.BatchChainQueryHeightRange
-			page = 1
-		}
-	}
-}
-
-func (lp L1Provider) FirstTxHeight(ctx context.Context) (int64, error) {
-	page := 1
-	txsPerPage := 1
-	queryStr := fmt.Sprintf("record_batch.submitter='%s'", lp.submitter)
-	res, err := lp.client.TxSearch(ctx, queryStr, false, &page, &txsPerPage, "asc")
-	if err != nil {
-		return 0, err
-	} else if len(res.Txs) == 0 {
-		return 0, errors.New("no batch txs found")
-	}
-	return res.Txs[0].Height, nil
-}
-
-func (lp L1Provider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.BatchChanInfo, page int, height int64, nextHeight int64) (bool, uint64, error) {
-	txsPerPage := int(lp.cfg.TxsPerPage)
-	queryStr := fmt.Sprintf("tx.height >= %d AND tx.height < %d AND record_batch.submitter='%s'", height, nextHeight, lp.submitter)
-	res, err := lp.client.TxSearch(ctx, queryStr, false, &page, &txsPerPage, "asc")
-	if err != nil {
-		return false, 0, err
-	}
-
-	lastBatchHeaderStart := uint64(0)
-	for _, tx := range res.Txs {
-		_, body, err := UnmarshalCosmosTx(tx.Tx)
-		messages := body.Messages
-		if err != nil {
-			return false, 0, err
-		}
-
-		for _, anyMsg := range messages {
-			if anyMsg.TypeUrl != "/opinit.ophost.v1.MsgRecordBatch" {
-				continue
-			}
-
-			msg := new(ophostv1.MsgRecordBatch)
-			err := anyMsg.UnmarshalTo(msg)
-			if err != nil {
-				return false, 0, err
-			}
-
-			_, start, _, err := rstypes.UnmarshalPartialHeader(msg.BatchBytes)
-			if err != nil {
-				return false, 0, err
-			}
-			lastBatchHeaderStart = start
-			batchCh <- rstypes.BatchChanInfo{
-				Batch:            msg.BatchBytes,
-				BatchChainHeight: tx.Height,
-			}
-		}
-	}
-	return res.TotalCount <= page*txsPerPage, lastBatchHeaderStart, nil
 }
 
 func (lp L1Provider) GetLastFinalizedBlock(ctx context.Context) (uint64, error) {
@@ -241,7 +142,7 @@ func (lp L1Provider) GetBatchInfos(ctx context.Context) ([]*ophostv1.BatchInfoWi
 		batchInfos = append(batchInfos, msg.BatchInfos...)
 		batchInfoIndex += uint64(len(msg.BatchInfos))
 
-		if msg.Pagination.Total == batchInfoIndex {
+		if msg.Pagination.Total <= 100 {
 			break
 		}
 	}

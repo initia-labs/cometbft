@@ -15,8 +15,9 @@ import (
 )
 
 type RollupSyncer struct {
-	logger log.Logger
-	cfg    *config.RollupSyncConfig
+	logger   log.Logger
+	cfg      *config.RollupSyncConfig
+	syncMode rstypes.SyncMode
 
 	targetBlockHeight uint64
 
@@ -26,45 +27,47 @@ type RollupSyncer struct {
 	blockExec *sm.BlockExecutor
 	store     *store.BlockStore
 	proxyApp  proxy.AppConns
-	syncMode  rstypes.SyncMode
 
 	l1Provider *provider.L1Provider
 
-	batchCh chan rstypes.BatchChanInfo
-	blockCh chan rstypes.BlockChanInfo
+	batchChClosed chan struct{}
+	batchCh       chan rstypes.BatchChanInfo
+	blockChClosed chan struct{}
+	blockCh       chan rstypes.BlockChanInfo
 }
 
-func NewRollupSyncer(cfg *config.RollupSyncConfig, logger log.Logger, state sm.State, blockExec *sm.BlockExecutor, store *store.BlockStore, proxyApp proxy.AppConns, syncMode rstypes.SyncMode) (*RollupSyncer, error) {
+func NewRollupSyncer(cfg *config.RollupSyncConfig, logger log.Logger, state sm.State, blockExec *sm.BlockExecutor, store *store.BlockStore, proxyApp proxy.AppConns) (*RollupSyncer, error) {
 	l1Provider, err := provider.NewL1Provider(logger, cfg)
 	if err != nil {
 		return nil, err
 	}
+	syncMode := rstypes.SyncModeFromString(cfg.Mode)
 
 	return &RollupSyncer{
-		logger: logger,
-		cfg:    cfg,
+		logger:   logger,
+		cfg:      cfg,
+		syncMode: syncMode,
 
 		state:     state,
 		blockExec: blockExec,
 		store:     store,
 		proxyApp:  proxyApp,
-		syncMode:  syncMode,
 
 		l1Provider: l1Provider,
 
-		batchCh: make(chan rstypes.BatchChanInfo, 100),
-		blockCh: make(chan rstypes.BlockChanInfo, 1000),
+		batchChClosed: make(chan struct{}),
+		batchCh:       make(chan rstypes.BatchChanInfo, 100),
+		blockChClosed: make(chan struct{}),
+		blockCh:       make(chan rstypes.BlockChanInfo, 1000),
 	}, nil
 }
 
-func (rs *RollupSyncer) Start(ctx context.Context) (stateResult sm.State, err error) {
-	ctx, done := context.WithCancel(ctx)
-	errGrp, ctx := errgroup.WithContext(ctx)
-
+func (rs *RollupSyncer) Start(baseCtx context.Context) (sm.State, error) {
+	errGrp, ctx := errgroup.WithContext(baseCtx)
 	// fetch last finalized block height
 	targetL2BlockHeight, err := rs.l1Provider.GetLastFinalizedBlock(ctx)
 	if err != nil {
-		return sm.State{}, err
+		return rs.state, err
 	}
 	rs.targetBlockHeight = targetL2BlockHeight
 
@@ -73,30 +76,41 @@ func (rs *RollupSyncer) Start(ctx context.Context) (stateResult sm.State, err er
 		return rs.state, err
 	}
 
-	rs.logger.Info("start rollup sync", "initialHeight", rs.state.LastBlockHeight+1, "target", targetL2BlockHeight)
+	rs.logger.Info("start rollup sync", "initialHeight", rs.state.LastBlockHeight+1, "target", targetL2BlockHeight, "mode", rs.syncMode.String())
+
+	batchCtx, done := context.WithCancel(ctx)
+	errGrp.Go(func() (err error) {
+		defer func() {
+			rs.logger.Info("block processor stopped")
+			done()
+		}()
+		return rs.blockProcessor(ctx)
+	})
 
 	errGrp.Go(func() (err error) {
 		defer func() {
 			rs.logger.Info("batch fetcher stopped")
 		}()
-		return rs.batchFetcher(ctx)
+		return rs.batchFetcher(batchCtx)
 	})
 
 	errGrp.Go(func() (err error) {
 		defer func() {
 			rs.logger.Info("batch processor stopped")
 		}()
-		return rs.batchProcessor(ctx, targetL2BlockHeight)
+		return rs.batchProcessor(batchCtx)
 	})
 
-	errGrp.Go(func() (err error) {
-		defer func() {
-			rs.logger.Info("block processor stopped")
-			done()
-		}()
-		stateResult, err = rs.blockProcessor(ctx)
-		return err
-	})
+	err = errGrp.Wait()
+	if err != nil {
+		return rs.state, err
+	}
 
-	return stateResult, errGrp.Wait()
+	select {
+	case <-baseCtx.Done():
+		return rs.state, baseCtx.Err()
+	default:
+	}
+
+	return rs.state, nil
 }

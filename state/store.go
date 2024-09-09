@@ -773,7 +773,7 @@ func (store dbStore) GetRollupSyncBatchChainHeight(batchInfoIndex int64) (int64,
 	}
 
 	if len(buf) == 0 {
-		return 0, errors.New("value empty")
+		return 0, nil
 	}
 
 	height := int64FromBytes(buf)

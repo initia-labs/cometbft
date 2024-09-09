@@ -1,9 +1,10 @@
 package types
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
-	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/cometbft/cometbft/types"
 	ophostv1 "github.com/initia-labs/OPinit/api/opinit/ophost/v1"
@@ -14,7 +15,7 @@ const chainTypePrefix = "CHAIN_TYPE_"
 
 // BatchChainTypeToString converts string batch chain type to BatchInfo_ChainType
 func BatchChainTypeFromString(str string) ophostv1.BatchInfo_ChainType {
-	return ophostv1.BatchInfo_ChainType(ophostv1.BatchInfo_ChainType_value[chainTypePrefix+str])
+	return ophostv1.BatchInfo_ChainType(ophostv1.BatchInfo_ChainType_value[chainTypePrefix+strings.ToUpper(str)])
 }
 
 // BatchChainTypeToString converts BatchInfo_ChainType to string batch chain type
@@ -53,8 +54,6 @@ type BatchChanInfo struct {
 	// BatchChainHeight is the height that has already been checked to
 	// search for the batch submitter's transaction.
 	BatchChainHeight int64
-	// TxIndex is the index of the transaction in the block
-	TxIndex int64
 	// Batch is the batch data
 	Batch []byte
 }
@@ -95,13 +94,20 @@ type BatchDataChunk struct {
 
 func UnmarshalPartialHeader(data []byte) (BatchDataType, uint64, uint64, error) {
 	if len(data) < 18 {
-		err := errors.New("invalid data length")
+		err := fmt.Errorf("invalid data length: %d, expected > 18", len(data))
 		return 0, 0, 0, err
 	}
-	start, _ := binary.Uvarint(data[1:9])
-	end, _ := binary.Uvarint(data[9:17])
+	start := binary.BigEndian.Uint64(data[1:9])
+	end := binary.BigEndian.Uint64(data[9:17])
+	if start > end {
+		return 0, 0, 0, fmt.Errorf("invalid start: %d, end: %d", start, end)
+	}
 
 	return BatchDataType(data[0]), start, end, nil
+}
+
+func GetChecksumFromChunk(chunk []byte) [32]byte {
+	return sha256.Sum256(chunk)
 }
 
 func MarshalBatchDataHeader(
@@ -111,9 +117,9 @@ func MarshalBatchDataHeader(
 ) []byte {
 	data := make([]byte, 1)
 	data[0] = byte(BatchDataTypeHeader)
-	data = binary.AppendUvarint(data, start)
-	data = binary.AppendUvarint(data, end)
-	data = binary.AppendUvarint(data, uint64(len(checksums)))
+	data = binary.BigEndian.AppendUint64(data, start)
+	data = binary.BigEndian.AppendUint64(data, end)
+	data = binary.BigEndian.AppendUint64(data, uint64(len(checksums)))
 	for _, checksum := range checksums {
 		data = append(data, checksum...)
 	}
@@ -122,19 +128,22 @@ func MarshalBatchDataHeader(
 
 func UnmarshalBatchDataHeader(data []byte) (BatchDataHeader, error) {
 	if len(data) < 25 {
-		err := errors.New("invalid data length")
+		err := fmt.Errorf("invalid data length: %d, expected > 25", len(data))
 		return BatchDataHeader{}, err
 	}
-	start, _ := binary.Uvarint(data[1:9])
-	end, _ := binary.Uvarint(data[9:17])
-	length, _ := binary.Uvarint(data[17:25])
+	start := binary.BigEndian.Uint64(data[1:9])
+	end := binary.BigEndian.Uint64(data[9:17])
+	if start > end {
+		return BatchDataHeader{}, fmt.Errorf("invalid start: %d, end: %d", start, end)
+	}
+
+	length := binary.BigEndian.Uint64(data[17:25])
+	if (len(data)-25)%32 != 0 || (uint64(len(data)-25)/32) != length {
+		err := fmt.Errorf("invalid checksum length: %d, data length: %d", length, len(data)-25)
+		return BatchDataHeader{}, err
+	}
+
 	checksums := make([][]byte, 0, length)
-
-	if len(data)-25%32 != 0 || (uint64(len(data)-25)/32) != length {
-		err := errors.New("invalid checksum data")
-		return BatchDataHeader{}, err
-	}
-
 	for i := 25; i < len(data); i += 32 {
 		checksums = append(checksums, data[i:i+32])
 	}
@@ -155,23 +164,26 @@ func MarshalBatchDataChunk(
 ) []byte {
 	data := make([]byte, 1)
 	data[0] = byte(BatchDataTypeChunk)
-	data = binary.AppendUvarint(data, start)
-	data = binary.AppendUvarint(data, end)
-	data = binary.AppendUvarint(data, index)
-	data = binary.AppendUvarint(data, length)
+	data = binary.BigEndian.AppendUint64(data, start)
+	data = binary.BigEndian.AppendUint64(data, end)
+	data = binary.BigEndian.AppendUint64(data, index)
+	data = binary.BigEndian.AppendUint64(data, length)
 	data = append(data, chunkData...)
 	return data
 }
 
 func UnmarshalBatchDataChunk(data []byte) (BatchDataChunk, error) {
 	if len(data) < 33 {
-		err := errors.New("invalid data length")
+		err := fmt.Errorf("invalid data length: %d, expected > 33", len(data))
 		return BatchDataChunk{}, err
 	}
-	start, _ := binary.Uvarint(data[1:9])
-	end, _ := binary.Uvarint(data[9:17])
-	index, _ := binary.Uvarint(data[17:25])
-	length, _ := binary.Uvarint(data[25:33])
+	start := binary.BigEndian.Uint64(data[1:9])
+	end := binary.BigEndian.Uint64(data[9:17])
+	if start > end {
+		return BatchDataChunk{}, fmt.Errorf("invalid start: %d, end: %d", start, end)
+	}
+	index := binary.BigEndian.Uint64(data[17:25])
+	length := binary.BigEndian.Uint64(data[25:33])
 	chunkData := data[33:]
 
 	return BatchDataChunk{

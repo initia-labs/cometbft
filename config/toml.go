@@ -475,6 +475,12 @@ version = "{{ .BlockSync.Version }}"
 [rollupsync]
 enable = {{ .RollupSync.Enable }}
 
+# The mode of the rollup sync.
+# Options:
+#   1) "sync" (default) - sync the rollup chain from the batch chain until the finalized l2 height.
+#   2) "challenge" - sync the rollup chain from the batch chain continuously.
+mode = {{ .RollupSync.Mode }}
+
 # The bridge id of the rollup chain, which is registered in l1's bridge config.
 bridge_id = {{ .RollupSync.BridgeID }}
 
@@ -504,7 +510,7 @@ batch_chain_query_height_range = {{ .RollupSync.BatchChainQueryHeightRange }}
 # You should provide l1 RPC info for rollup sync, event your batch chain is not l1.
 #
 # supported chains:
-# - l1
+# - initia
 # - celestia
 rpc_servers = [
 {{- range .RollupSync.RPCServers }}
