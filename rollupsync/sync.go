@@ -2,6 +2,7 @@ package rollupsync
 
 import (
 	"context"
+	"errors"
 
 	"golang.org/x/sync/errgroup"
 
@@ -65,18 +66,22 @@ func NewRollupSyncer(cfg *config.RollupSyncConfig, logger log.Logger, state sm.S
 func (rs *RollupSyncer) Start(baseCtx context.Context) (sm.State, error) {
 	errGrp, ctx := errgroup.WithContext(baseCtx)
 	// fetch last finalized block height
-	targetL2BlockHeight, err := rs.l1Provider.GetLastFinalizedBlock(ctx)
-	if err != nil {
-		return rs.state, err
-	}
-	rs.targetBlockHeight = targetL2BlockHeight
+	rs.logger.Info("rollup sync mode", "mode", rs.syncMode.String())
 
-	// if the target block height is already reached, return the current state
-	if rs.state.LastBlockHeight >= int64(targetL2BlockHeight) {
-		return rs.state, err
+	if rs.syncMode == rstypes.SyncModeDefault {
+		targetL2BlockHeight, err := rs.l1Provider.GetLastFinalizedBlock(ctx)
+		if err != nil {
+			return rs.state, err
+		}
+		rs.targetBlockHeight = targetL2BlockHeight
+		// if the target block height is already reached, return the current state
+		if rs.state.LastBlockHeight >= int64(targetL2BlockHeight) {
+			rs.logger.Info("pass rollup sync", "last_block_height", rs.state.LastBlockHeight, "target", targetL2BlockHeight)
+			return rs.state, nil
+		}
 	}
 
-	rs.logger.Info("start rollup sync", "initialHeight", rs.state.LastBlockHeight+1, "target", targetL2BlockHeight, "mode", rs.syncMode.String())
+	rs.logger.Info("start rollup sync", "initial_height", rs.state.LastBlockHeight+1, "target", rs.targetBlockHeight)
 
 	batchCtx, done := context.WithCancel(ctx)
 	errGrp.Go(func() (err error) {
@@ -90,6 +95,9 @@ func (rs *RollupSyncer) Start(baseCtx context.Context) (sm.State, error) {
 	errGrp.Go(func() (err error) {
 		defer func() {
 			rs.logger.Info("batch fetcher stopped")
+			if errors.Is(err, context.Canceled) {
+				err = nil
+			}
 		}()
 		return rs.batchFetcher(batchCtx)
 	})
@@ -97,20 +105,12 @@ func (rs *RollupSyncer) Start(baseCtx context.Context) (sm.State, error) {
 	errGrp.Go(func() (err error) {
 		defer func() {
 			rs.logger.Info("batch processor stopped")
+			if errors.Is(err, context.Canceled) {
+				err = nil
+			}
 		}()
 		return rs.batchProcessor(batchCtx)
 	})
 
-	err = errGrp.Wait()
-	if err != nil {
-		return rs.state, err
-	}
-
-	select {
-	case <-baseCtx.Done():
-		return rs.state, baseCtx.Err()
-	default:
-	}
-
-	return rs.state, nil
+	return rs.state, errGrp.Wait()
 }

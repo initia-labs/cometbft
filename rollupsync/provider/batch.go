@@ -66,6 +66,25 @@ func (bp *BatchProvider) BatchFetcher(ctx context.Context, batchCh chan<- rstype
 			bp.logger.Info("Closing batch fetcher")
 			return
 		case <-timer.C:
+			if height == 1 {
+				firstHeight, err := bp.FirstTxHeight(ctx)
+				if err != nil {
+					bp.logger.Debug("Failed fetching first height", "error", err)
+					continue
+				}
+				height = firstHeight
+			}
+
+			if page == 1 {
+				latestHeight, err := bp.GetLatestHeight(ctx)
+				if err != nil {
+					bp.logger.Debug("Failed fetching last height", "error", err)
+					continue
+				} else if latestHeight < nextHeight {
+					nextHeight = latestHeight
+				}
+			}
+
 			if isEnd, err := bp.fetchBatch(ctx, batchCh, batchChClosed, page, height, nextHeight); err != nil {
 				bp.logger.Debug("Failed fetching batch", "height", height, "page", page, "error", err)
 				continue
@@ -108,12 +127,18 @@ func (bp *BatchProvider) FirstTxHeight(ctx context.Context) (int64, error) {
 }
 
 func (bp *BatchProvider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.BatchChanInfo, batchChClosed <-chan struct{}, page int, height int64, nextHeight int64) (bool, error) {
+	if height == nextHeight {
+		return true, nil
+	}
+
 	txsPerPage := int(bp.cfg.TxsPerPage)
 	queryStr := fmt.Sprintf("tx.height >= %d AND tx.height < %d AND %s", height, nextHeight, rstypes.QueryEventTypeWithSubmitterFromChainType(bp.chainType, bp.submitter))
 	res, err := bp.client.TxSearch(ctx, queryStr, false, &page, &txsPerPage, "asc")
 	if err != nil {
 		return false, err
 	}
+
+	bp.logger.Debug("batch chain query range", "chain", rstypes.BatchChainTypeToString(bp.chainType), "range", fmt.Sprintf("%d ~ %d", height, nextHeight), "txs", len(res.Txs))
 
 	for _, tx := range res.Txs {
 		batches, err := bp.batchesFromTx(ctx, tx)
@@ -192,7 +217,7 @@ func (bp *BatchProvider) batchesFromCelestiaTx(ctx context.Context, tx *coretype
 	return data, nil
 }
 
-func (bp BatchProvider) GetLastHeight(ctx context.Context) (int64, error) {
+func (bp BatchProvider) GetLatestHeight(ctx context.Context) (int64, error) {
 	resBlock, err := bp.client.Block(ctx, nil)
 	if err != nil {
 		return 0, err

@@ -41,7 +41,12 @@ func (rs *RollupSyncer) batchFetcher(ctx context.Context) error {
 		batchInfoUpdateTicker := time.NewTicker(time.Duration(rs.cfg.FetchInterval) * time.Millisecond)
 		defer batchInfoUpdateTicker.Stop()
 
-		for range batchInfoUpdateTicker.C {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-batchInfoUpdateTicker.C:
+			}
 			nextInfo, err := rs.l1Provider.GetNextBatchInfo(ctx, uint64(index))
 			if err != nil {
 				continue
@@ -55,6 +60,12 @@ func (rs *RollupSyncer) batchFetcher(ctx context.Context) error {
 	}
 
 	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		if batchInfoIndex >= len(batchInfos) {
 			break
 		}
@@ -73,15 +84,14 @@ func (rs *RollupSyncer) batchFetcher(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if batchChainStartHeight == 1 {
-			batchChainStartHeight, err = batchProvider.FirstTxHeight(ctx)
-			if err != nil {
-				return err
-			}
-		}
 
-		rs.logger.Info("batch info", "start_l2_block_number", batchInfo.Output.L2BlockNumber+1, "chain", batchInfo.BatchInfo.ChainType, "submitter", batchInfo.BatchInfo.Submitter, "batch_info_index", batchInfoIndex)
-		rs.logger.Info("batch chain query range", "chain", batchInfo.BatchInfo.ChainType, "range", fmt.Sprintf("%d ~ ", batchChainStartHeight))
+		rs.logger.Info(
+			"batch info",
+			"start_l2_block_number", batchInfo.Output.L2BlockNumber+1,
+			"chain", batchInfo.BatchInfo.ChainType,
+			"submitter", batchInfo.BatchInfo.Submitter,
+			"index", batchInfoIndex,
+		)
 
 		fetchCtx, done := context.WithCancel(ctx)
 		go batchProvider.BatchFetcher(fetchCtx, rs.batchCh, rs.batchChClosed, batchChainStartHeight)
@@ -93,18 +103,12 @@ func (rs *RollupSyncer) batchFetcher(ctx context.Context) error {
 			case <-fetchCtx.Done():
 				break CTXLOOP
 			case <-endChecker.C:
-				if uint64(rs.state.LastBlockHeight) >= lastL2Height {
+				if lastL2Height != 0 && uint64(rs.state.LastBlockHeight) >= lastL2Height {
 					done()
 				}
 			}
 		}
 		endChecker.Stop()
-
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-		}
 
 		batchChainStartHeight = 1
 		batchInfoIndex++
@@ -122,7 +126,7 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		case batchInfo := <-rs.batchCh:
 			switch rstypes.BatchDataType(batchInfo.Batch[0]) {
 			case rstypes.BatchDataTypeHeader:
@@ -211,12 +215,6 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 	rawCommit := rawData[dataLength-1]
 
 	for i, blockBytes := range rawBlocks {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-		}
-
 		block, err := unmarshalBlock(blockBytes)
 		if err != nil {
 			rs.logger.Debug("failed to unmarshal block", "index", i, "length", len(rawBlocks), "error", err.Error())

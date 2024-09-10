@@ -15,7 +15,7 @@ LOOP:
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return ctx.Err()
 		case blockInfo := <-rs.blockCh:
 			if blockInfo.Block != nil {
 				block := blockInfo.Block
@@ -26,7 +26,7 @@ LOOP:
 				}
 
 				lastCommit = block.LastCommit
-				if block.Height == int64(rs.targetBlockHeight)+1 {
+				if rs.targetBlockHeight != 0 && block.Height == int64(rs.targetBlockHeight)+1 {
 					break LOOP
 				}
 
@@ -48,15 +48,15 @@ LOOP:
 				}
 			} else if blockInfo.Commit != nil {
 				lastCommit = blockInfo.Commit
-				if rs.state.LastBlockHeight == int64(rs.targetBlockHeight) {
+				if rs.targetBlockHeight != 0 && rs.state.LastBlockHeight == int64(rs.targetBlockHeight) {
 					break LOOP
 				}
 			}
 
-			if lastBatchInfoIndex == 0 && lastBatchChainHeight == 0 {
+			if lastBatchInfoIndex != blockInfo.BatchInfoIndex || lastBatchChainHeight != blockInfo.BatchChainHeight-1 {
 				lastBatchInfoIndex = blockInfo.BatchInfoIndex
-				lastBatchChainHeight = blockInfo.BatchChainHeight
-			} else if lastBatchInfoIndex != blockInfo.BatchInfoIndex || lastBatchChainHeight != blockInfo.BatchChainHeight {
+				lastBatchChainHeight = blockInfo.BatchChainHeight - 1
+
 				err := rs.blockExec.Store().SetRollupSyncBatchChainHeight(lastBatchInfoIndex, lastBatchChainHeight)
 				if err != nil {
 					return err
