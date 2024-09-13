@@ -66,6 +66,21 @@ func RollbackState(config *cfg.Config, removeBlock bool) (int64, []byte, error) 
 	return state.Rollback(blockStore, stateStore, removeBlock)
 }
 
+func RollbackMultipleState(config *cfg.Config, height int64) (int64, []byte, error) {
+	// use the parsed config to load the block and state store
+	blockStore, stateStore, err := loadStateAndBlockStore(config)
+	if err != nil {
+		return -1, nil, err
+	}
+	defer func() {
+		_ = blockStore.Close()
+		_ = stateStore.Close()
+	}()
+
+	// rollback the last state
+	return state.MultipleRollback(blockStore, stateStore, height)
+}
+
 func loadStateAndBlockStore(config *cfg.Config) (*store.BlockStore, state.Store, error) {
 	dbType := dbm.BackendType(config.DBBackend)
 

@@ -286,7 +286,7 @@ func (blockExec *BlockExecutor) applyBlock(state State, blockID types.BlockID, b
 		return state, fmt.Errorf("commit failed for application: %v", err)
 	}
 
-	if checkExecutorChanged(state.Validators, state.NextValidators) {
+	if CheckExecutorChanged(state.Validators, state.NextValidators) {
 		// force update validator set to be available that new validator make next block
 		state.LastHeightValidatorsChanged--
 		state.Validators = state.NextValidators.Copy()
@@ -574,7 +574,7 @@ func BuildExtendedCommitInfo(ec *types.ExtendedCommit, valSet *types.ValidatorSe
 }
 
 // check if all current validators changed
-func checkExecutorChanged(validators *types.ValidatorSet, nextValidators *types.ValidatorSet) bool {
+func CheckExecutorChanged(validators *types.ValidatorSet, nextValidators *types.ValidatorSet) bool {
 	check := true
 	validators.Iterate(func(_ int, val *types.Validator) bool {
 		if nextValidators.HasAddress(val.Address) {

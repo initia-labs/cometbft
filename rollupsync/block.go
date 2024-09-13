@@ -2,6 +2,7 @@ package rollupsync
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/cometbft/cometbft/types"
 )
@@ -19,8 +20,16 @@ LOOP:
 		case blockInfo := <-rs.blockCh:
 			if blockInfo.Block != nil {
 				block := blockInfo.Block
-				if rs.state.LastBlockHeight+1 != block.Height {
-					rs.logger.Debug("block height mismatch", "expected", rs.state.LastBlockHeight+1, "got", block.Height)
+				if block.Height <= rs.state.LastBlockHeight {
+					if block.Height == 1 {
+						rs.logger.Info("ignore genesis block")
+						continue
+					}
+
+					// end rollup syncer
+					return fmt.Errorf("need to rollback to height %d", block.Height-1)
+				} else if rs.state.LastBlockHeight+1 < block.Height {
+					// rs.logger.Info("block height mismatch", "expected", rs.state.LastBlockHeight+1, "got", block.Height)
 					// ignore invalid block
 					continue
 				}
@@ -32,20 +41,23 @@ LOOP:
 
 				blockParts, err := block.MakePartSet(types.BlockPartSizeBytes)
 				if err != nil {
-					rs.logger.Error("failed to make ",
+					rs.logger.Info("failed to make block parts",
 						"height", block.Height,
 						"err", err.Error())
-					return err
+					continue
 				}
 				blockPartSetHeader := blockParts.Header()
 				blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockPartSetHeader}
 
-				// we don't need to save seen commit here, seen commit is used only in consensus.
-				rs.store.SaveBlock(block, blockParts, nil)
 				rs.state, err = rs.blockExec.ApplyBlock(rs.state, blockID, block)
 				if err != nil {
-					return err
+					rs.logger.Error("failed to apply block",
+						"height", block.Height,
+						"err", err.Error())
+					continue
 				}
+				// we don't need to save seen commit here, seen commit is used only in consensus.
+				rs.blockStore.SaveBlock(block, blockParts, nil)
 			} else if blockInfo.Commit != nil {
 				lastCommit = blockInfo.Commit
 				if rs.targetBlockHeight != 0 && rs.state.LastBlockHeight == int64(rs.targetBlockHeight) {
@@ -65,7 +77,7 @@ LOOP:
 		}
 	}
 
-	err := rs.store.SaveSeenCommit(rs.state.LastBlockHeight, lastCommit)
+	err := rs.blockStore.SaveSeenCommit(rs.state.LastBlockHeight, lastCommit)
 	if err != nil {
 		return err
 	}

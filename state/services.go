@@ -42,6 +42,7 @@ type BlockStore interface {
 	LoadRawCommit(height int64) ([]byte, error)
 
 	DeleteLatestBlock() error
+	DeleteBlocksFromHeight(height int64) error
 
 	Close() error
 }

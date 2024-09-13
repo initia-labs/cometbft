@@ -11,7 +11,7 @@ import (
 	"github.com/cometbft/cometbft/proxy"
 	"github.com/cometbft/cometbft/rollupsync/provider"
 	rstypes "github.com/cometbft/cometbft/rollupsync/types"
-	sm "github.com/cometbft/cometbft/state"
+	"github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/store"
 )
 
@@ -23,11 +23,12 @@ type RollupSyncer struct {
 	targetBlockHeight uint64
 
 	// immutable
-	state sm.State
+	state state.State
 
-	blockExec *sm.BlockExecutor
-	store     *store.BlockStore
-	proxyApp  proxy.AppConns
+	blockExec  *state.BlockExecutor
+	blockStore *store.BlockStore
+	stateStore state.Store
+	proxyApp   proxy.AppConns
 
 	l1Provider *provider.L1Provider
 
@@ -37,7 +38,15 @@ type RollupSyncer struct {
 	blockCh       chan rstypes.BlockChanInfo
 }
 
-func NewRollupSyncer(cfg *config.RollupSyncConfig, logger log.Logger, state sm.State, blockExec *sm.BlockExecutor, store *store.BlockStore, proxyApp proxy.AppConns) (*RollupSyncer, error) {
+func NewRollupSyncer(
+	cfg *config.RollupSyncConfig,
+	logger log.Logger,
+	state state.State,
+	blockExec *state.BlockExecutor,
+	blockStore *store.BlockStore,
+	stateStore state.Store,
+	proxyApp proxy.AppConns,
+) (*RollupSyncer, error) {
 	l1Provider, err := provider.NewL1Provider(logger, cfg)
 	if err != nil {
 		return nil, err
@@ -49,10 +58,11 @@ func NewRollupSyncer(cfg *config.RollupSyncConfig, logger log.Logger, state sm.S
 		cfg:      cfg,
 		syncMode: syncMode,
 
-		state:     state,
-		blockExec: blockExec,
-		store:     store,
-		proxyApp:  proxyApp,
+		state:      state,
+		blockExec:  blockExec,
+		blockStore: blockStore,
+		stateStore: stateStore,
+		proxyApp:   proxyApp,
 
 		l1Provider: l1Provider,
 
@@ -63,7 +73,7 @@ func NewRollupSyncer(cfg *config.RollupSyncConfig, logger log.Logger, state sm.S
 	}, nil
 }
 
-func (rs *RollupSyncer) Start(baseCtx context.Context) (sm.State, error) {
+func (rs *RollupSyncer) Start(baseCtx context.Context) (state.State, error) {
 	errGrp, ctx := errgroup.WithContext(baseCtx)
 	// fetch last finalized block height
 	rs.logger.Info("rollup sync mode", "mode", rs.syncMode.String())

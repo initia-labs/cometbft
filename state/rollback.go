@@ -55,7 +55,7 @@ func Rollback(bs BlockStore, ss Store, removeBlock bool) (int64, []byte, error) 
 		return -1, nil, fmt.Errorf("block at height %d not found", invalidState.LastBlockHeight)
 	}
 
-	previousLastValidatorSet, err := ss.LoadValidators(rollbackHeight)
+	previousLastValidatorSet, valLastHeightChanged, err := ss.LoadValidatorsWithLastHeightChanged(rollbackHeight)
 	if err != nil {
 		return -1, nil, err
 	}
@@ -63,13 +63,6 @@ func Rollback(bs BlockStore, ss Store, removeBlock bool) (int64, []byte, error) 
 	previousParams, err := ss.LoadConsensusParams(rollbackHeight + 1)
 	if err != nil {
 		return -1, nil, err
-	}
-
-	nextHeight := rollbackHeight + 1
-	valChangeHeight := invalidState.LastHeightValidatorsChanged
-	// this can only happen if the validator set changed since the last block
-	if valChangeHeight > nextHeight+1 {
-		valChangeHeight = nextHeight + 1
 	}
 
 	paramsChangeHeight := invalidState.LastHeightConsensusParamsChanged
@@ -98,7 +91,7 @@ func Rollback(bs BlockStore, ss Store, removeBlock bool) (int64, []byte, error) 
 		NextValidators:              invalidState.Validators,
 		Validators:                  invalidState.LastValidators,
 		LastValidators:              previousLastValidatorSet,
-		LastHeightValidatorsChanged: valChangeHeight,
+		LastHeightValidatorsChanged: valLastHeightChanged,
 
 		ConsensusParams:                  previousParams,
 		LastHeightConsensusParamsChanged: paramsChangeHeight,
@@ -122,5 +115,86 @@ func Rollback(bs BlockStore, ss Store, removeBlock bool) (int64, []byte, error) 
 		}
 	}
 
+	return rolledBackState.LastBlockHeight, rolledBackState.AppHash, nil
+}
+
+// MultipleRollback overwrites the current CometBFT state with the
+// previous state of the given height.
+// Note that this function does not affect application state.
+func MultipleRollback(bs BlockStore, ss Store, rollbackHeight int64) (int64, []byte, error) {
+	invalidState, err := ss.Load()
+	if err != nil {
+		return -1, nil, err
+	}
+	if invalidState.IsEmpty() {
+		return -1, nil, errors.New("no state found")
+	}
+
+	// state store height is equal to blockstore height. We're good to proceed with rolling back state
+	rollbackBlock := bs.LoadBlockMeta(rollbackHeight)
+	if rollbackBlock == nil {
+		return -1, nil, fmt.Errorf("block at height %d not found", rollbackHeight)
+	}
+	// We also need to retrieve the latest block because the app hash and last
+	// results hash is only agreed upon in the following block.
+	nextBlock := bs.LoadBlockMeta(rollbackHeight + 1)
+	if nextBlock == nil {
+		return -1, nil, fmt.Errorf("block at height %d not found", rollbackHeight+1)
+	}
+
+	lastValidatorSet, err := ss.LoadValidators(rollbackHeight)
+	if err != nil {
+		return -1, nil, err
+	}
+
+	validatorSet, valLastHeightChanged, err := ss.LoadValidatorsWithLastHeightChanged(rollbackHeight + 1)
+	if err != nil {
+		return -1, nil, err
+	}
+	nextValidatorSet := validatorSet.Copy()
+	nextValidatorSet.IncrementProposerPriority(1)
+
+	previousParams, paramsLastHeightChanged, err := ss.LoadConsensusParamsWithLastHeightChanged(rollbackHeight + 1)
+	if err != nil {
+		return -1, nil, err
+	}
+
+	err = bs.DeleteBlocksFromHeight(rollbackHeight + 1)
+	if err != nil {
+		return -1, nil, err
+	}
+
+	rolledBackState := State{
+		Version: cmtstate.Version{
+			Consensus: cmtversion.Consensus{
+				Block: version.BlockProtocol,
+				App:   previousParams.Version.App,
+			},
+			Software: version.TMCoreSemVer,
+		},
+		// immutable fields
+		ChainID:       invalidState.ChainID,
+		InitialHeight: invalidState.InitialHeight,
+
+		LastBlockHeight: rollbackBlock.Header.Height,
+		LastBlockID:     rollbackBlock.BlockID,
+		LastBlockTime:   rollbackBlock.Header.Time,
+
+		NextValidators:              nextValidatorSet,
+		Validators:                  validatorSet,
+		LastValidators:              lastValidatorSet,
+		LastHeightValidatorsChanged: valLastHeightChanged,
+
+		ConsensusParams:                  previousParams,
+		LastHeightConsensusParamsChanged: paramsLastHeightChanged,
+
+		AppHash:         nextBlock.Header.AppHash,
+		LastResultsHash: nextBlock.Header.LastResultsHash,
+	}
+
+	err = ss.Save(rolledBackState)
+	if err != nil {
+		return -1, nil, err
+	}
 	return rolledBackState.LastBlockHeight, rolledBackState.AppHash, nil
 }

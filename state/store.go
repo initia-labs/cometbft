@@ -65,12 +65,17 @@ type Store interface {
 	Load() (State, error)
 	// LoadValidators loads the validator set at a given height
 	LoadValidators(int64) (*types.ValidatorSet, error)
+
+	// LoadValidatorsWithLastHeightChanged loads the validator set at a given height and the last height changed
+	LoadValidatorsWithLastHeightChanged(int64) (*types.ValidatorSet, int64, error)
 	// LoadFinalizeBlockResponse loads the abciResponse for a given height
 	LoadFinalizeBlockResponse(int64) (*abci.ResponseFinalizeBlock, error)
 	// LoadLastFinalizeBlockResponse loads the last abciResponse for a given height
 	LoadLastFinalizeBlockResponse(int64) (*abci.ResponseFinalizeBlock, error)
 	// LoadConsensusParams loads the consensus params for a given height
 	LoadConsensusParams(int64) (types.ConsensusParams, error)
+	// LoadValidatorsWithLastHeightChanged loads the validator set at a given height and the last height changed
+	LoadConsensusParamsWithLastHeightChanged(int64) (types.ConsensusParams, int64, error)
 
 	// initia custom, it is to save last rollup sync height to avoid starting sync at 1
 	GetRollupSyncBatchChainHeight(int64) (int64, error)
@@ -79,6 +84,8 @@ type Store interface {
 	// initia custom, it is to save current validators when executor is changed
 	SaveValidators(int64, int64, *types.ValidatorSet) error
 
+	// Save overwrites the previous state with the updated one
+	Delete() error
 	// Save overwrites the previous state with the updated one
 	Save(State) error
 	// SaveFinalizeBlockResponse saves ABCIResponses for a given height
@@ -209,6 +216,10 @@ func (store dbStore) SaveValidators(height int64, changedHeight int64, validator
 		panic(err)
 	}
 	return nil
+}
+
+func (store dbStore) Delete() error {
+	return store.db.Delete(stateKey)
 }
 
 // Save persists the State, the ValidatorsInfo, and the ConsensusParamsInfo to the database.
@@ -616,6 +627,15 @@ func (store dbStore) LoadValidators(height int64) (*types.ValidatorSet, error) {
 	return vip, nil
 }
 
+func (store dbStore) LoadValidatorsWithLastHeightChanged(height int64) (*types.ValidatorSet, int64, error) {
+	valInfo, err := loadValidatorsInfo(store.db, height)
+	if err != nil {
+		return nil, 0, ErrNoValSetForHeight{height}
+	}
+	vip, err := store.LoadValidators(height)
+	return vip, valInfo.LastHeightChanged, err
+}
+
 func lastStoredHeightFor(height, lastHeightChanged int64) int64 {
 	checkpointHeight := height - height%valSetCheckpointInterval
 	return cmtmath.MaxInt64(checkpointHeight, lastHeightChanged)
@@ -709,6 +729,19 @@ func (store dbStore) LoadConsensusParams(height int64) (types.ConsensusParams, e
 	}
 
 	return types.ConsensusParamsFromProto(paramsInfo.ConsensusParams), nil
+}
+
+func (store dbStore) LoadConsensusParamsWithLastHeightChanged(height int64) (types.ConsensusParams, int64, error) {
+	var (
+		empty = types.ConsensusParams{}
+	)
+	paramsInfo, err := store.loadConsensusParamsInfo(height)
+	if err != nil {
+		return empty, 0, fmt.Errorf("could not find consensus params for height #%d: %w", height, err)
+	}
+
+	params, err := store.LoadConsensusParams(height)
+	return params, paramsInfo.LastHeightChanged, err
 }
 
 func (store dbStore) loadConsensusParamsInfo(height int64) (*cmtstate.ConsensusParamsInfo, error) {

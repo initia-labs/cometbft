@@ -132,7 +132,7 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 			case rstypes.BatchDataTypeHeader:
 				dataHeader, err := rstypes.UnmarshalBatchDataHeader(batchInfo.Batch)
 				if err != nil {
-					rs.logger.Debug("failed to unmarshal batch data header", "error", err.Error())
+					rs.logger.Info("failed to unmarshal batch data header", "error", err.Error())
 					// ignore invalid header
 					continue
 				}
@@ -169,10 +169,10 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 				checksum := rstypes.GetChecksumFromChunk(chunk)
 				if uint64(len(batchDataHeader.Checksums)) <= dataWithHeader.Index {
 					// ignore invalid chunk
-					rs.logger.Debug("invalid chunk index", "checksums", len(batchDataHeader.Checksums), "index", dataWithHeader.Index)
+					rs.logger.Info("invalid chunk index", "checksums", len(batchDataHeader.Checksums), "index", dataWithHeader.Index)
 				} else if !bytes.Equal(checksum[:], batchDataHeader.Checksums[dataWithHeader.Index]) {
 					// ignore invalid chunk
-					rs.logger.Debug("invalid chunk checksum", "header", batchDataHeader.Checksums[dataWithHeader.Index], "chunk", checksum)
+					rs.logger.Info("invalid chunk checksum", "header", batchDataHeader.Checksums[dataWithHeader.Index], "chunk", checksum)
 				} else {
 					chunks[dataWithHeader.Index] = chunk
 					chunkSize += len(chunk)
@@ -193,12 +193,12 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 }
 
 func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength int, chunks map[uint64][]byte, chunkSize int, batchChainHeight int64, batchInfoIndex int64) error {
-	rs.logger.Debug("handle complete chunks", "chunks", chunkLength, "chunk_size", chunkSize)
+	rs.logger.Info("handle complete chunks", "chunks", chunkLength, "chunk_size", chunkSize)
 	batchBytes := make([]byte, 0, chunkSize)
 	for index := range chunks {
 		chunk, ok := chunks[index]
 		if !ok {
-			rs.logger.Debug("missing chunks", "index", index, "length", chunkLength)
+			rs.logger.Info("missing chunks", "index", index, "length", chunkLength)
 			return nil
 		}
 		batchBytes = append(batchBytes, chunk...)
@@ -206,7 +206,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 
 	rawData, err := decompressBatch(batchBytes)
 	if err != nil {
-		rs.logger.Debug("failed to decompress batch", "error", err.Error())
+		rs.logger.Info("failed to decompress batch", "error", err.Error())
 		return nil
 	}
 
@@ -217,7 +217,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 	for i, blockBytes := range rawBlocks {
 		block, err := unmarshalBlock(blockBytes)
 		if err != nil {
-			rs.logger.Debug("failed to unmarshal block", "index", i, "length", len(rawBlocks), "error", err.Error())
+			rs.logger.Info("failed to unmarshal block", "index", i, "length", len(rawBlocks), "error", err.Error())
 			// ignore invalid block
 			continue
 		}
@@ -244,7 +244,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 
 	commit, err := unmarshalCommit(rawCommit)
 	if err != nil {
-		rs.logger.Debug("failed to unmarshal commit", "error", err.Error())
+		rs.logger.Info("failed to unmarshal commit", "error", err.Error())
 	} else {
 		select {
 		case <-rs.blockChClosed:

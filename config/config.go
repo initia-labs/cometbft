@@ -985,11 +985,8 @@ type RollupSyncConfig struct {
 	Enable                     bool                  `mapstructure:"enable"`
 	Mode                       string                `mapstructure:"mode"`
 	BridgeID                   uint64                `mapstructure:"bridge_id"`
-	MaxBatchChunkSize          int64                 `mapstructure:"max_batch_chunk_size"`
-	MaxBatchChunks             int64                 `mapstructure:"max_batch_chunks"`
 	FetchInterval              int64                 `mapstructure:"fetch_interval"`
 	TxsPerPage                 int64                 `mapstructure:"txs_per_page"`
-	BlocksPerPage              int64                 `mapstructure:"blocks_per_page"`
 	BatchChainQueryHeightRange int64                 `mapstructure:"batch_chain_query_height_range"`
 	RPCServers                 []RollupSyncRPCConfig `mapstructure:"rpc_servers"`
 }
@@ -1005,11 +1002,8 @@ func DefaultRollupSyncConfig() *RollupSyncConfig {
 		Enable:                     false,
 		Mode:                       "sync",
 		BridgeID:                   0,
-		MaxBatchChunkSize:          300_000, // 300KB
-		MaxBatchChunks:             10,
 		FetchInterval:              10, // 10 milliseconds
 		TxsPerPage:                 1000,
-		BlocksPerPage:              10,
 		BatchChainQueryHeightRange: 1000,
 		RPCServers: []RollupSyncRPCConfig{
 			{Chain: rstypes.ChainNameL1, Address: "tcp://0.0.0.0:26657"},

@@ -44,6 +44,20 @@ func (_m *Store) Close() error {
 	return r0
 }
 
+// Delete provides a mock function with given fields:
+func (_m *Store) Delete() error {
+	ret := _m.Called()
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // GetOfflineStateSyncHeight provides a mock function with given fields:
 func (_m *Store) GetOfflineStateSyncHeight() (int64, error) {
 	ret := _m.Called()
@@ -138,6 +152,37 @@ func (_m *Store) LoadConsensusParams(_a0 int64) (types.ConsensusParams, error) {
 	}
 
 	return r0, r1
+}
+
+// LoadConsensusParamsWithLastHeightChanged provides a mock function with given fields: _a0
+func (_m *Store) LoadConsensusParamsWithLastHeightChanged(_a0 int64) (types.ConsensusParams, int64, error) {
+	ret := _m.Called(_a0)
+
+	var r0 types.ConsensusParams
+	var r1 int64
+	var r2 error
+	if rf, ok := ret.Get(0).(func(int64) (types.ConsensusParams, int64, error)); ok {
+		return rf(_a0)
+	}
+	if rf, ok := ret.Get(0).(func(int64) types.ConsensusParams); ok {
+		r0 = rf(_a0)
+	} else {
+		r0 = ret.Get(0).(types.ConsensusParams)
+	}
+
+	if rf, ok := ret.Get(1).(func(int64) int64); ok {
+		r1 = rf(_a0)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+
+	if rf, ok := ret.Get(2).(func(int64) error); ok {
+		r2 = rf(_a0)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
 }
 
 // LoadFinalizeBlockResponse provides a mock function with given fields: _a0
@@ -264,6 +309,39 @@ func (_m *Store) LoadValidators(_a0 int64) (*types.ValidatorSet, error) {
 	}
 
 	return r0, r1
+}
+
+// LoadValidatorsWithLastHeightChanged provides a mock function with given fields: _a0
+func (_m *Store) LoadValidatorsWithLastHeightChanged(_a0 int64) (*types.ValidatorSet, int64, error) {
+	ret := _m.Called(_a0)
+
+	var r0 *types.ValidatorSet
+	var r1 int64
+	var r2 error
+	if rf, ok := ret.Get(0).(func(int64) (*types.ValidatorSet, int64, error)); ok {
+		return rf(_a0)
+	}
+	if rf, ok := ret.Get(0).(func(int64) *types.ValidatorSet); ok {
+		r0 = rf(_a0)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*types.ValidatorSet)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(int64) int64); ok {
+		r1 = rf(_a0)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+
+	if rf, ok := ret.Get(2).(func(int64) error); ok {
+		r2 = rf(_a0)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
 }
 
 // PruneStates provides a mock function with given fields: _a0, _a1, _a2
