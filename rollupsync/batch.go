@@ -9,6 +9,8 @@ import (
 
 	"github.com/cometbft/cometbft/rollupsync/provider"
 	rstypes "github.com/cometbft/cometbft/rollupsync/types"
+
+	comettypes "github.com/cometbft/cometbft/types"
 )
 
 func (rs *RollupSyncer) batchFetcher(ctx context.Context) error {
@@ -214,6 +216,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 	rawBlocks := rawData[:dataLength-1]
 	rawCommit := rawData[dataLength-1]
 
+	var lastBlock *comettypes.Block
 	for i, blockBytes := range rawBlocks {
 		block, err := unmarshalBlock(blockBytes)
 		if err != nil {
@@ -221,6 +224,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 			// ignore invalid block
 			continue
 		}
+		lastBlock = block
 
 		err = rs.fillOracleData(ctx, block)
 		if err != nil {
@@ -245,6 +249,8 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 	commit, err := unmarshalCommit(rawCommit)
 	if err != nil {
 		rs.logger.Info("failed to unmarshal commit", "error", err.Error())
+	} else if lastBlock != nil && lastBlock.Height != commit.Height {
+		rs.logger.Info("invalid commit height", "error", fmt.Sprintf("last block height: %d, commit height: %d", lastBlock.Height, commit.Height))
 	} else {
 		select {
 		case <-rs.blockChClosed:
