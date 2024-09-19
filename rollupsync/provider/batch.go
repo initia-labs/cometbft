@@ -197,6 +197,17 @@ func (bp *BatchProvider) batchesFromL1Tx(tx *coretypes.ResultTx) ([][]byte, erro
 }
 
 func (bp *BatchProvider) batchesFromCelestiaTx(ctx context.Context, tx *coretypes.ResultTx) ([][]byte, error) {
+	_, body, err := UnmarshalCosmosTx(tx.Tx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, anyMsg := range body.Messages {
+		if anyMsg.TypeUrl != "/celestia.blob.v1.MsgPayForBlobs" {
+			return nil, nil
+		}
+	}
+
 	if bp.cachedBlock == nil || bp.cachedBlock.Block.Height != tx.Height {
 		res, err := bp.client.Block(ctx, &tx.Height)
 		if err != nil {
