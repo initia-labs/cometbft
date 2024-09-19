@@ -11,7 +11,7 @@ func QueryEventTypeWithSubmitterFromChainType(chainType ophostv1.BatchInfo_Chain
 	case ophostv1.BatchInfo_CHAIN_TYPE_INITIA:
 		return fmt.Sprintf("record_batch.submitter='%s'", submitter)
 	case ophostv1.BatchInfo_CHAIN_TYPE_CELESTIA:
-		return fmt.Sprintf("celestia.blob.v1.EventPayForBlobs.signer='\"%s\"'", submitter)
+		return fmt.Sprintf("message.sender='%s' AND message.action='/celestia.blob.v1.MsgPayForBlobs'", submitter)
 	}
 	return ""
 }

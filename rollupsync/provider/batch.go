@@ -73,6 +73,7 @@ func (bp *BatchProvider) BatchFetcher(ctx context.Context, batchCh chan<- rstype
 					continue
 				}
 				height = firstHeight
+				nextHeight = height + bp.cfg.BatchChainQueryHeightRange
 			}
 
 			if page == 1 {
