@@ -49,7 +49,6 @@ require (
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/initia-labs/OPinit/api v0.4.3
 	github.com/oasisprotocol/curve25519-voi v0.0.0-20220708102147-0a8a51822cae
 	github.com/vektra/mockery/v2 v2.23.1
 	golang.org/x/sync v0.7.0
@@ -62,6 +61,7 @@ require (
 	cosmossdk.io/api v0.7.5
 	github.com/celestiaorg/go-square/v2 v2.0.0-rc0
 	github.com/cosmos/cosmos-proto v1.0.0-beta.5
+	github.com/initia-labs/OPinit/api v0.4.4
 )
 
 require (

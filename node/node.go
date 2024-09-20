@@ -408,7 +408,7 @@ func NewNodeWithContext(ctx context.Context,
 	// start rollup sync first during offline
 	// rollup sync doesn't need p2p
 	if rollupSync {
-		rollupSyncer, err := rollupsync.NewRollupSyncer(config.RollupSync, logger.With("module", "rollupsync"), state, blockExec, blockStore, proxyApp)
+		rollupSyncer, err := rollupsync.NewRollupSyncer(config.RollupSync, logger.With("module", "rollupsync"), state, blockExec, blockStore, stateStore, proxyApp)
 		if err != nil {
 			return nil, err
 		}

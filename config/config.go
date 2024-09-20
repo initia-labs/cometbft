@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,6 +9,8 @@ import (
 	"regexp"
 	"slices"
 	"time"
+
+	"github.com/pkg/errors"
 
 	rstypes "github.com/cometbft/cometbft/rollupsync/types"
 	"github.com/cometbft/cometbft/version"
@@ -983,12 +984,10 @@ func (cfg *BlockSyncConfig) ValidateBasic() error {
 
 type RollupSyncConfig struct {
 	Enable                     bool                  `mapstructure:"enable"`
-	BridgeID                   int64                 `mapstructure:"bridge_id"`
-	MaxBatchChunkSize          int64                 `mapstructure:"max_batch_chunk_size"`
-	MaxBatchChunks             int64                 `mapstructure:"max_batch_chunks"`
+	Mode                       string                `mapstructure:"mode"`
+	BridgeID                   uint64                `mapstructure:"bridge_id"`
 	FetchInterval              int64                 `mapstructure:"fetch_interval"`
 	TxsPerPage                 int64                 `mapstructure:"txs_per_page"`
-	BlocksPerPage              int64                 `mapstructure:"blocks_per_page"`
 	BatchChainQueryHeightRange int64                 `mapstructure:"batch_chain_query_height_range"`
 	RPCServers                 []RollupSyncRPCConfig `mapstructure:"rpc_servers"`
 }
@@ -1002,15 +1001,13 @@ type RollupSyncRPCConfig struct {
 func DefaultRollupSyncConfig() *RollupSyncConfig {
 	return &RollupSyncConfig{
 		Enable:                     false,
+		Mode:                       "sync",
 		BridgeID:                   0,
-		MaxBatchChunkSize:          300_000, // 300KB
-		MaxBatchChunks:             10,
 		FetchInterval:              10, // 10 milliseconds
 		TxsPerPage:                 1000,
-		BlocksPerPage:              10,
 		BatchChainQueryHeightRange: 1000,
 		RPCServers: []RollupSyncRPCConfig{
-			{Chain: rstypes.CHAIN_NAME_L1, Address: "tcp://0.0.0.0:26657"},
+			{Chain: rstypes.ChainNameL1, Address: "tcp://0.0.0.0:26657"},
 		},
 	}
 }
@@ -1024,13 +1021,17 @@ func TestRollupSyncConfig() *RollupSyncConfig {
 func (cfg *RollupSyncConfig) ValidateBasic() error {
 	if cfg.Enable {
 		if cfg.BridgeID == 0 {
-			return errors.New("bridge id is required")
+			return errors.Wrap(errors.New("invalid rollup sync config"), "bridge id is required")
+		}
+
+		if cfg.Mode != rstypes.SyncModeDefault.String() && cfg.Mode != rstypes.SyncModeChallenge.String() {
+			return errors.Wrap(errors.New("invalid rollup sync config"), "mode must be either 'sync' or 'challenge'")
 		}
 
 		if idx := slices.IndexFunc(cfg.RPCServers, func(elem RollupSyncRPCConfig) bool {
-			return elem.Chain == rstypes.CHAIN_NAME_L1
+			return elem.Chain == rstypes.ChainNameL1
 		}); idx < 0 {
-			return errors.New("l1 rpc server is required")
+			return errors.Wrap(errors.New("invalid rollup sync config"), "l1 rpc server is required")
 		}
 	}
 	return nil

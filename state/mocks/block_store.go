@@ -42,6 +42,20 @@ func (_m *BlockStore) Close() error {
 	return r0
 }
 
+// DeleteBlocksFromHeight provides a mock function with given fields: height
+func (_m *BlockStore) DeleteBlocksFromHeight(height int64) error {
+	ret := _m.Called(height)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64) error); ok {
+		r0 = rf(height)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // DeleteLatestBlock provides a mock function with given fields:
 func (_m *BlockStore) DeleteLatestBlock() error {
 	ret := _m.Called()
