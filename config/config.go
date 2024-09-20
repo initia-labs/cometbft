@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,6 +9,8 @@ import (
 	"regexp"
 	"slices"
 	"time"
+
+	"github.com/pkg/errors"
 
 	rstypes "github.com/cometbft/cometbft/rollupsync/types"
 	"github.com/cometbft/cometbft/version"
@@ -1020,13 +1021,17 @@ func TestRollupSyncConfig() *RollupSyncConfig {
 func (cfg *RollupSyncConfig) ValidateBasic() error {
 	if cfg.Enable {
 		if cfg.BridgeID == 0 {
-			return errors.New("bridge id is required")
+			return errors.Wrap(errors.New("invalid rollup sync config"), "bridge id is required")
+		}
+
+		if cfg.Mode != rstypes.SyncModeDefault.String() && cfg.Mode != rstypes.SyncModeChallenge.String() {
+			return errors.Wrap(errors.New("invalid rollup sync config"), "mode must be either 'sync' or 'challenge'")
 		}
 
 		if idx := slices.IndexFunc(cfg.RPCServers, func(elem RollupSyncRPCConfig) bool {
 			return elem.Chain == rstypes.ChainNameL1
 		}); idx < 0 {
-			return errors.New("l1 rpc server is required")
+			return errors.Wrap(errors.New("invalid rollup sync config"), "l1 rpc server is required")
 		}
 	}
 	return nil

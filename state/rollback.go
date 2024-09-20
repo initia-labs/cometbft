@@ -135,7 +135,7 @@ func MultipleRollback(bs BlockStore, ss Store, rollbackHeight int64) (int64, []b
 	if rollbackBlock == nil {
 		return -1, nil, fmt.Errorf("block at height %d not found", rollbackHeight)
 	}
-	// We also need to retrieve the latest block because the app hash and last
+	// We also need to retrieve the next block because the app hash and last
 	// results hash is only agreed upon in the following block.
 	nextBlock := bs.LoadBlockMeta(rollbackHeight + 1)
 	if nextBlock == nil {

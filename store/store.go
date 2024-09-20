@@ -828,7 +828,7 @@ func (bs *BlockStore) DeleteBlocksFromHeight(height int64) error {
 	batch := bs.db.NewBatch()
 	defer batch.Close()
 	flush := func(batch dbm.Batch, h int64) error {
-		// We can't trust batches to be atomic, so update base first to make sure noone
+		// We can't trust batches to be atomic, so update last height first to make sure noone
 		// tries to access missing blocks.
 		bs.mtx.Lock()
 		defer batch.Close()

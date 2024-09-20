@@ -71,8 +71,8 @@ const defaultConfigTemplate = `# This is a TOML config file.
 
 # NOTE: Any path below can be absolute (e.g. "/var/myawesomeapp/data") or
 # relative to the home directory (e.g. "data"). The home directory is
-# "$HOME/.cometbft" by default, but could be changed via $CMTHOME env variable
-# or --home cmd flag.
+# "$HOME/.cometbft" by default, but can be changed via the $CMTHOME environment variable
+# or the --home command-line flag.
 
 # The version of the CometBFT binary that created or
 # last modified the config file. Do not modify this.
@@ -99,7 +99,7 @@ moniker = "{{ .BaseConfig.Moniker }}"
 #   - use cleveldb build tag (go build -tags cleveldb)
 # * boltdb (uses etcd's fork of bolt - github.com/etcd-io/bbolt)
 #   - EXPERIMENTAL
-#   - may be faster is some use-cases (random reads - indexer)
+#   - may be faster in some use-cases (random reads - indexer)
 #   - use boltdb build tag (go build -tags boltdb)
 # * rocksdb (uses github.com/tecbot/gorocksdb)
 #   - EXPERIMENTAL
@@ -477,8 +477,8 @@ enable = {{ .RollupSync.Enable }}
 
 # The mode of the rollup sync.
 # Options:
-#   1) "sync" (default) - sync the rollup chain from the batch chain until the finalized l2 height.
-#   2) "challenge" - sync the rollup chain from the batch chain continuously.
+#   1) "sync" (default) - sync the rollup chain from the batch data back to the normal sync mode after reaching the finalized height.
+#   2) "challenge" - sync the rollup chain from the batch data without switching back to the normal sync mode.
 mode = {{ .RollupSync.Mode }}
 
 # The bridge id of the rollup chain, which is registered in l1's bridge config.
