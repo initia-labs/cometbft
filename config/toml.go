@@ -479,7 +479,7 @@ enable = {{ .RollupSync.Enable }}
 # Options:
 #   1) "sync" (default) - sync the rollup chain from the batch data back to the normal sync mode after reaching the finalized height.
 #   2) "challenge" - sync the rollup chain from the batch data without switching back to the normal sync mode.
-mode = {{ .RollupSync.Mode }}
+mode = "{{ .RollupSync.Mode }}"
 
 # The bridge id of the rollup chain, which is registered in l1's bridge config.
 bridge_id = {{ .RollupSync.BridgeID }}
