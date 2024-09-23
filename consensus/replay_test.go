@@ -1233,8 +1233,10 @@ func (bs *mockBlockStore) PruneBlocks(height int64, _ sm.State) (uint64, int64, 
 	return pruned, evidencePoint, nil
 }
 
-func (bs *mockBlockStore) DeleteLatestBlock() error { return nil }
-func (bs *mockBlockStore) Close() error             { return nil }
+func (bs *mockBlockStore) DeleteLatestBlock() error                  { return nil }
+func (bs *mockBlockStore) DeleteBlocksFromHeight(height int64) error { return nil }
+
+func (bs *mockBlockStore) Close() error { return nil }
 
 func (bs *mockBlockStore) SaveInvalidBlock(_ string, _ int64) {
 }
