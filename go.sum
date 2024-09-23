@@ -149,8 +149,8 @@ github.com/bufbuild/protocompile v0.5.1/go.mod h1:G5iLmavmF4NsYtpZFvE3B/zFch2GIY
 github.com/butuzov/ireturn v0.1.1 h1:QvrO2QF2+/Cx1WA/vETCIYBKtRjc30vesdoPUNo1EbY=
 github.com/butuzov/ireturn v0.1.1/go.mod h1:Wh6Zl3IMtTpaIKbmwzqi6olnM9ptYQxxVacMsOEFPoc=
 github.com/bwesterb/go-ristretto v1.2.3/go.mod h1:fUIoIZaG73pV5biE2Blr2xEzDoMj7NFEuV9ekS419A0=
-github.com/celestiaorg/go-square/v2 v2.0.0-rc0 h1:BNV50WdCcDhIhkgbZ3DGeVYuFePZ5Hu6AxjPWX7XVoI=
-github.com/celestiaorg/go-square/v2 v2.0.0-rc0/go.mod h1:eeaU8f8jBpk3ZS/gaDZIlTesJR2F51QAmveNzWH6aEU=
+github.com/celestiaorg/go-square/v2 v2.0.0 h1:U5QV8/de5lc7glosfgyHhcxbFwNuwU4+6aYZ2RgjM04=
+github.com/celestiaorg/go-square/v2 v2.0.0/go.mod h1:y0BolG0tRM7UN1sAQyDDUkT+aMJPwFIjviVvnCB62C0=
 github.com/cenkalti/backoff v2.2.1+incompatible h1:tNowT99t7UNflLxfYYSlKYsBpXdEet03Pg2g16Swow4=
 github.com/cenkalti/backoff v2.2.1+incompatible/go.mod h1:90ReRw6GdpyfrHakVjL/QHaoyV4aDUVVkXQJJJ3NXXM=
 github.com/cenkalti/backoff/v4 v4.1.3 h1:cFAlzYUlVYDysBEH2T5hyJZMh3+5+WCBvSnK6Q8UtC4=
