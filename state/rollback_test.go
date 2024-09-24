@@ -347,9 +347,9 @@ func TestRollback_To(t *testing.T) {
 	}
 
 	// rollback the state
-	rollbackHeight, rollbackHash, err := state.RollbackTo(blockStore, stateStore, 100, false)
+	rollbackHeight, rollbackHash, err := state.RollbackTo(blockStore, stateStore, height, false)
 	require.NoError(t, err)
-	require.EqualValues(t, 100, rollbackHeight)
+	require.EqualValues(t, height, rollbackHeight)
 	require.EqualValues(t, initialState.AppHash, rollbackHash)
 	blockStore.AssertExpectations(t)
 
