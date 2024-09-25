@@ -292,6 +292,7 @@ func (blockExec *BlockExecutor) applyBlock(state State, blockID types.BlockID, b
 		state.Validators = state.NextValidators.Copy()
 		state.NextValidators.IncrementProposerPriority(1)
 
+		// save the new validator set
 		blockExec.store.SaveValidators(state.LastBlockHeight+1, state.LastHeightValidatorsChanged, state.Validators)
 	}
 
