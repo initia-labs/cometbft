@@ -31,9 +31,9 @@ require (
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.9.0
-	golang.org/x/crypto v0.26.0
-	golang.org/x/net v0.28.0
-	google.golang.org/grpc v1.65.0
+	golang.org/x/crypto v0.27.0
+	golang.org/x/net v0.29.0
+	google.golang.org/grpc v1.66.2
 )
 
 require (
@@ -63,7 +63,7 @@ require (
 	cosmossdk.io/api v0.7.5
 	github.com/celestiaorg/go-square/v2 v2.0.0
 	github.com/cosmos/cosmos-proto v1.0.0-beta.5
-	github.com/initia-labs/OPinit/api v0.4.4
+	github.com/initia-labs/OPinit/api v0.5.0
 )
 
 require (
@@ -297,12 +297,12 @@ require (
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20230307190834-24139beb5833 // indirect
 	golang.org/x/mod v0.17.0 // indirect
-	golang.org/x/sys v0.23.0 // indirect
-	golang.org/x/term v0.23.0 // indirect
-	golang.org/x/text v0.17.0 // indirect
+	golang.org/x/sys v0.25.0 // indirect
+	golang.org/x/term v0.24.0 // indirect
+	golang.org/x/text v0.18.0 // indirect
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20240528184218-531527333157 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240709173604-40e1e62336c5 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20240903143218-8af14fe29dc1 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
