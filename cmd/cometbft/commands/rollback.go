@@ -66,7 +66,7 @@ func RollbackState(config *cfg.Config, removeBlock bool) (int64, []byte, error) 
 	return state.Rollback(blockStore, stateStore, removeBlock)
 }
 
-func RollbackMultipleState(config *cfg.Config, height int64) (int64, []byte, error) {
+func RollbackStateTo(config *cfg.Config, height int64, removeBlock bool) (int64, []byte, error) {
 	// use the parsed config to load the block and state store
 	blockStore, stateStore, err := loadStateAndBlockStore(config)
 	if err != nil {
@@ -78,7 +78,7 @@ func RollbackMultipleState(config *cfg.Config, height int64) (int64, []byte, err
 	}()
 
 	// rollback the last state
-	return state.MultipleRollback(blockStore, stateStore, height)
+	return state.RollbackTo(blockStore, stateStore, height, removeBlock)
 }
 
 func loadStateAndBlockStore(config *cfg.Config) (*store.BlockStore, state.Store, error) {
