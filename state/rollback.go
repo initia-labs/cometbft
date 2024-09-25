@@ -67,6 +67,10 @@ func Rollback(bs BlockStore, ss Store, removeBlock bool) (int64, []byte, error) 
 		valChangeHeight = nextHeight + 1
 	}
 
+	if CheckExecutorChanged(previousLastValidatorSet, invalidState.LastValidators) {
+		valChangeHeight = nextHeight
+	}
+
 	previousParams, err := ss.LoadConsensusParams(rollbackHeight + 1)
 	if err != nil {
 		return -1, nil, err
@@ -175,6 +179,10 @@ func RollbackTo(bs BlockStore, ss Store, rollbackHeight int64, removeBlock bool)
 	valLastHeightChanged, err := ss.LoadLastHeightValidatorsChanged(nextHeight + 1)
 	if err != nil {
 		return -1, nil, err
+	}
+
+	if CheckExecutorChanged(lastValidatorSet, validatorSet) {
+		valLastHeightChanged = nextHeight
 	}
 
 	previousParams, err := ss.LoadConsensusParams(nextHeight)
