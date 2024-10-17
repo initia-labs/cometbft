@@ -179,21 +179,30 @@ func (bp *BatchProvider) batchesFromL1Tx(tx *coretypes.ResultTx) ([][]byte, erro
 		return nil, err
 	}
 
+	res := make([][]byte, 0)
 	for _, anyMsg := range body.Messages {
-		if anyMsg.TypeUrl != "/opinit.ophost.v1.MsgRecordBatch" {
-			continue
+		switch anyMsg.TypeUrl {
+		case "/opinit.ophost.v1.MsgRecordBatch":
+			batchBytes, err := unmarshalMsgRecordBatch(anyMsg)
+			if err != nil {
+				return nil, err
+			}
+			res = append(res, batchBytes)
+		case "/cosmos.authz.v1beta1.MsgExec":
+			msgs, err := unmarshalAuthzMsgExec(anyMsg)
+			if err != nil {
+				return nil, err
+			}
+			for _, msg := range msgs {
+				batchBytes, err := unmarshalMsgRecordBatch(msg)
+				if err != nil {
+					return nil, err
+				}
+				res = append(res, batchBytes)
+			}
 		}
-
-		msg := new(ophostv1.MsgRecordBatch)
-		err := anyMsg.UnmarshalTo(msg)
-		if err != nil {
-			return nil, err
-		}
-
-		return [][]byte{msg.BatchBytes}, nil
 	}
-
-	return nil, errors.New("no batch data found in the tx")
+	return res, nil
 }
 
 func (bp *BatchProvider) batchesFromCelestiaTx(ctx context.Context, tx *coretypes.ResultTx) ([][]byte, error) {
