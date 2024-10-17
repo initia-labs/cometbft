@@ -4,10 +4,13 @@ import (
 	"errors"
 	"strings"
 
+	authzv1beta1 "cosmossdk.io/api/cosmos/authz/v1beta1"
 	txv1beta1 "cosmossdk.io/api/cosmos/tx/v1beta1"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	ophostv1 "github.com/initia-labs/OPinit/api/opinit/ophost/v1"
 
 	"github.com/celestiaorg/go-square/v2/tx"
 )
@@ -60,4 +63,20 @@ func unmarshalCelestiaBlobTx(txbytes []byte) (*tx.BlobTx, error) {
 		return nil, errors.New("fail unmarshaling celestia blobtx")
 	}
 	return blobTx, nil
+}
+
+func unmarshalMsgRecordBatch(msg *anypb.Any) ([]byte, error) {
+	recordBatch := new(ophostv1.MsgRecordBatch)
+	if err := msg.UnmarshalTo(recordBatch); err != nil {
+		return nil, err
+	}
+	return recordBatch.BatchBytes, nil
+}
+
+func unmarshalAuthzMsgExec(msg *anypb.Any) ([]*anypb.Any, error) {
+	authzMsgExec := new(authzv1beta1.MsgExec)
+	if err := msg.UnmarshalTo(authzMsgExec); err != nil {
+		return nil, err
+	}
+	return authzMsgExec.Msgs, nil
 }
