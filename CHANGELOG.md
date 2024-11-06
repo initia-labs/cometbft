@@ -1,5 +1,78 @@
 # CHANGELOG
 
+## v0.38.15
+
+*November 6, 2024*
+
+This release supersedes [`v0.38.14`](#v03814), which mistakenly updated the Go version to
+`1.23`, introducing an unintended breaking change. It sets the Go version back
+to `1.22.7` by reverting [\#4297](https://github.com/cometbft/cometbft/pull/4297).
+
+The release includes the bug fixes, performance improvements, and importantly,
+the fix for the security vulnerability in the vote extensions (VE) validation
+logic that were part of `v0.38.14`. For more details, please refer to [ASA-2024-011](https://github.com/cometbft/cometbft/security/advisories/GHSA-p7mv-53f2-4cwj).
+
+## v0.38.14
+
+*November 6, 2024*
+
+This release fixes a security vulnerability in the vote extensions (VE)
+validation logic. For more details, please refer to
+[ASA-2024-011](https://github.com/cometbft/cometbft/security/advisories/GHSA-p7mv-53f2-4cwj).
+
+We recommend upgrading ASAP if you’re using vote extensions (VE).
+
+### BUG FIXES
+
+- `[consensus]` Do not panic if the validator index of a `Vote` message is out
+  of bounds, when vote extensions are enabled
+  ([\#ABC-0021](https://github.com/cometbft/cometbft/security/advisories/GHSA-p7mv-53f2-4cwj))
+
+### DEPENDENCIES
+
+- Bump cometbft-db version to v0.15.0
+  ([\#4297](https://github.com/cometbft/cometbft/pull/4297))
+- `[go/runtime]` Bump Go version to 1.23
+  ([\#4297](https://github.com/cometbft/cometbft/pull/4297))
+
+### IMPROVEMENTS
+
+- `[p2p]` fix exponential backoff logic to increase reconnect retries close to 24 hours
+ ([\#3519](https://github.com/cometbft/cometbft/issues/3519))
+
+## v0.38.13
+
+*October 24, 2024*
+
+This patch release addresses the issue where tx_search was not returning all results, which only arises when upgrading
+to CometBFT-DB version 0.13 or later. It includes a fix in the state indexer to resolve this problem. We recommend
+upgrading to this patch release if you are affected by this issue.
+
+### BUG FIXES
+
+- `[metrics]` Call unused `rejected_txs` metric in mempool
+  ([\#4019](https://github.com/cometbft/cometbft/pull/4019))
+- `[state/indexer]` Fix the tx_search results not returning all results by changing the logic in the indexer to copy the key and values instead of reusing an iterator. This issue only arises when upgrading to cometbft-db v0.13 or later.
+  ([\#4295](https://github.com/cometbft/cometbft/issues/4295)). Special thanks to @faddat for reporting the issue.
+
+### DEPENDENCIES
+
+- `[go/runtime]` Bump Go version to 1.22
+  ([\#4073](https://github.com/cometbft/cometbft/pull/4073))
+- Bump cometbft-db version to v0.14.1
+  ([\#4321](https://github.com/cometbft/cometbft/pull/4321))
+
+### FEATURES
+
+- `[crypto]` use decred secp256k1 directly ([#4294](https://github.com/cometbft/cometbft/pull/4294))
+
+### IMPROVEMENTS
+
+- `[metrics]` Add `evicted_txs` metric to mempool
+  ([\#4019](https://github.com/cometbft/cometbft/pull/4019))
+- `[log]` Change "mempool is full" log to debug level
+  ([\#4123](https://github.com/cometbft/cometbft/pull/4123)) Special thanks to @yihuang.
+
 ## v0.38.12
 
 *September 3, 2024*
@@ -359,7 +432,7 @@ gossip.
   ([\#1584](https://github.com/cometbft/cometbft/pull/1584))
 - `[config]` Add mempool parameters `experimental_max_gossip_connections_to_persistent_peers` and
   `experimental_max_gossip_connections_to_non_persistent_peers` for limiting the number of peers to
-  which the node gossip transactions. 
+  which the node gossip transactions.
   ([\#1558](https://github.com/cometbft/cometbft/pull/1558))
   ([\#1584](https://github.com/cometbft/cometbft/pull/1584))
 
