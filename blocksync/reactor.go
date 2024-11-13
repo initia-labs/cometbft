@@ -509,6 +509,9 @@ FOR_LOOP:
 
 				// INITIA CUSTOM
 				if err != nil {
+					// cometbft is verifying the received block is signed by +2/3 of the validators
+					// with `VerifyCommitLight` before validating the block. so it is safe to kill
+					// the node if the block is invalid.
 					if bcR.exitOnInvalidBlock {
 						panic(err)
 					}
