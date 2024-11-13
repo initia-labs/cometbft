@@ -66,6 +66,8 @@ type Reactor struct {
 	switchToConsensusMs int
 
 	metrics *Metrics
+
+	exitOnInvalidBlock bool
 }
 
 // NewReactor returns new reactor instance.
@@ -121,6 +123,11 @@ func NewReactorWithAddr(state sm.State, blockExec *sm.BlockExecutor, store *stor
 	}
 	bcR.BaseReactor = *p2p.NewBaseReactor("Reactor", bcR)
 	return bcR
+}
+
+// SetExitOnInvalidBlock sets the flag to exit on invalid block.
+func (bcR *Reactor) SetExitOnInvalidBlock() {
+	bcR.exitOnInvalidBlock = true
 }
 
 // SetLogger implements service.Service by setting the logger on reactor and pool.
@@ -502,6 +509,10 @@ FOR_LOOP:
 
 				// INITIA CUSTOM
 				if err != nil {
+					if bcR.exitOnInvalidBlock {
+						panic(err)
+					}
+
 					bcR.store.SaveInvalidBlock(err.Error(), first.Height)
 				}
 			}

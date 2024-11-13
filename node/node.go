@@ -299,11 +299,6 @@ func NewNodeWithContext(ctx context.Context,
 		return nil, err
 	}
 
-	// set a flag to exit on invalid blocks
-	if config.BlockSync.ExitOnInvalidBlock {
-		blockStore.ExitOnInvalidBlock()
-	}
-
 	stateStore := sm.NewStore(stateDB, sm.StoreOptions{
 		DiscardABCIResponses: config.Storage.DiscardABCIResponses,
 	})
