@@ -953,6 +953,8 @@ func (cfg *StateSyncConfig) ValidateBasic() error {
 // BlockSyncConfig (formerly known as FastSync) defines the configuration for the CometBFT block sync service
 type BlockSyncConfig struct {
 	Version string `mapstructure:"version"`
+
+	ExitOnInvalidBlock bool `mapstructure:"exit_on_invalid_block"`
 }
 
 // DefaultBlockSyncConfig returns a default configuration for the block sync service

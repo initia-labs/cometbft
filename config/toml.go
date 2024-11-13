@@ -469,6 +469,9 @@ chunk_fetchers = "{{ .StateSync.ChunkFetchers }}"
 #   1) "v0" - the default block sync implementation
 version = "{{ .BlockSync.Version }}"
 
+# The flag to exit the node when an invalid block is received.
+exit_on_invalid_block = {{ .BlockSync.ExitOnInvalidBlock }}
+
 #######################################################
 ###         Rollup Sync Configuration Options       ###
 #######################################################

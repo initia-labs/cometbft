@@ -64,6 +64,7 @@ type BlockStore struct {
 	// invalid block
 	invalidBlockReason string
 	invalidBlockHeight int64
+	exitOnInvalidBlock bool
 }
 
 // NewBlockStore returns a new BlockStore with the given DB,
@@ -659,13 +660,16 @@ func (bs *BlockStore) SaveSeenCommit(height int64, seenCommit *types.Commit) err
 	return bs.db.Set(calcSeenCommitKey(height), seenCommitBytes)
 }
 
+// INITIA CUSTOM
 func (bs *BlockStore) SaveInvalidBlock(reason string, height int64) {
 	bs.invalidBlockHeight = height
 	bs.invalidBlockReason = reason
 }
-
 func (bs *BlockStore) LoadInvalidBlock() (string, int64) {
 	return bs.invalidBlockReason, bs.invalidBlockHeight
+}
+func (bs *BlockStore) ExitOnInvalidBlock() {
+	bs.exitOnInvalidBlock = true
 }
 
 func (bs *BlockStore) Close() error {
