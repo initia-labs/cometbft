@@ -1726,12 +1726,13 @@ func (cs *State) finalizeCommit(height int64) {
 	}
 
 	if err := cs.blockExec.ValidateBlock(cs.state, block); err != nil {
+		err = fmt.Errorf("+2/3 committed an invalid block: %w", err)
 		cs.blockStore.SaveInvalidBlock(err.Error(), block.Height)
 		if cs.config.ExitOnInvalidBlock {
 			cmtos.Exit(err.Error())
 		}
 
-		panic(fmt.Errorf("+2/3 committed an invalid block: %w", err))
+		panic(err)
 	}
 
 	logger.Info(
