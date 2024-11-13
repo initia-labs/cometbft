@@ -659,6 +659,7 @@ func (bs *BlockStore) SaveSeenCommit(height int64, seenCommit *types.Commit) err
 	return bs.db.Set(calcSeenCommitKey(height), seenCommitBytes)
 }
 
+// INITIA CUSTOM
 func (bs *BlockStore) SaveInvalidBlock(reason string, height int64) {
 	bs.invalidBlockHeight = height
 	bs.invalidBlockReason = reason

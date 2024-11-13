@@ -953,12 +953,17 @@ func (cfg *StateSyncConfig) ValidateBasic() error {
 // BlockSyncConfig (formerly known as FastSync) defines the configuration for the CometBFT block sync service
 type BlockSyncConfig struct {
 	Version string `mapstructure:"version"`
+
+	// ExitOnInvalidBlock determines if CometBFT should exit when it encounters an invalid block
+	ExitOnInvalidBlock bool `mapstructure:"exit_on_invalid_block"`
 }
 
 // DefaultBlockSyncConfig returns a default configuration for the block sync service
 func DefaultBlockSyncConfig() *BlockSyncConfig {
 	return &BlockSyncConfig{
 		Version: "v0",
+
+		ExitOnInvalidBlock: false,
 	}
 }
 
@@ -1077,6 +1082,9 @@ type ConsensusConfig struct {
 	PeerQueryMaj23SleepDuration time.Duration `mapstructure:"peer_query_maj23_sleep_duration"`
 
 	DoubleSignCheckHeight int64 `mapstructure:"double_sign_check_height"`
+
+	// ExitOnInvalidBlock determines if CometBFT should exit when it encounters an invalid block
+	ExitOnInvalidBlock bool `mapstructure:"exit_on_invalid_block"`
 }
 
 // DefaultConsensusConfig returns a default configuration for the consensus service
@@ -1096,6 +1104,8 @@ func DefaultConsensusConfig() *ConsensusConfig {
 		PeerGossipSleepDuration:     100 * time.Millisecond,
 		PeerQueryMaj23SleepDuration: 2000 * time.Millisecond,
 		DoubleSignCheckHeight:       int64(0),
+
+		ExitOnInvalidBlock: false,
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/cometbft/cometbft/crypto"
 	"github.com/cometbft/cometbft/libs/log"
+	cmtos "github.com/cometbft/cometbft/libs/os"
 	"github.com/cometbft/cometbft/p2p"
 	bcproto "github.com/cometbft/cometbft/proto/tendermint/blocksync"
 	sm "github.com/cometbft/cometbft/state"
@@ -66,6 +67,8 @@ type Reactor struct {
 	switchToConsensusMs int
 
 	metrics *Metrics
+
+	exitOnInvalidBlock bool
 }
 
 // NewReactor returns new reactor instance.
@@ -121,6 +124,11 @@ func NewReactorWithAddr(state sm.State, blockExec *sm.BlockExecutor, store *stor
 	}
 	bcR.BaseReactor = *p2p.NewBaseReactor("Reactor", bcR)
 	return bcR
+}
+
+// SetExitOnInvalidBlock sets the flag to exit on invalid block.
+func (bcR *Reactor) SetExitOnInvalidBlock() {
+	bcR.exitOnInvalidBlock = true
 }
 
 // SetLogger implements service.Service by setting the logger on reactor and pool.
@@ -503,6 +511,13 @@ FOR_LOOP:
 				// INITIA CUSTOM
 				if err != nil {
 					bcR.store.SaveInvalidBlock(err.Error(), first.Height)
+
+					// cometbft is verifying that the received block is signed by +2/3 of the validators
+					// with `VerifyCommitLight` before validating the block. so it is safe to kill the node
+					// if the block is invalid.
+					if bcR.exitOnInvalidBlock {
+						cmtos.Exit(fmt.Sprintf("Invalid block received: %v", err))
+					}
 				}
 			}
 			presentExtCommit := extCommit != nil

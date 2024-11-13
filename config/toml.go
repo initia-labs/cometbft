@@ -469,6 +469,9 @@ chunk_fetchers = "{{ .StateSync.ChunkFetchers }}"
 #   1) "v0" - the default block sync implementation
 version = "{{ .BlockSync.Version }}"
 
+# ExitOnInvalidBlock defines if the node should exit when it receives an invalid block.
+exit_on_invalid_block = {{ .BlockSync.ExitOnInvalidBlock }}
+
 #######################################################
 ###         Rollup Sync Configuration Options       ###
 #######################################################
@@ -544,6 +547,9 @@ create_empty_blocks_interval = "{{ .Consensus.CreateEmptyBlocksInterval }}"
 # Reactor sleep duration parameters
 peer_gossip_sleep_duration = "{{ .Consensus.PeerGossipSleepDuration }}"
 peer_query_maj23_sleep_duration = "{{ .Consensus.PeerQueryMaj23SleepDuration }}"
+
+# ExitOnInvalidBlock defines if the node should exit when it receives an invalid block.
+exit_on_invalid_block = {{ .Consensus.ExitOnInvalidBlock }}
 
 #######################################################
 ###         Storage Configuration Options           ###
