@@ -815,6 +815,27 @@ func (txi *TxIndex) Prune(curHeight int64) error {
 		}
 	}
 
+	// delete tx height index keys
+	startKey = keyForHeightRange(1)
+	endKey = keyForHeightRange(minHeight + 1)
+	iter, err = txi.store.Iterator(startKey, endKey)
+	if err != nil {
+		return err
+	}
+
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		// delete tx height index keys
+		if err := pruneBatch.Delete(iter.Key()); err != nil {
+			return err
+		}
+
+		// delete tx hash index keys
+		if err := pruneBatch.Delete(iter.Value()); err != nil {
+			return err
+		}
+	}
+
 	return pruneBatch.WriteSync()
 }
 
@@ -827,4 +848,11 @@ func keyForReverse(height int64, eventKey []byte) []byte {
 	binary.BigEndian.PutUint64(heightBz, uint64(height))
 
 	return append(append(types.ReverseTxIndexPrefix, heightBz...), eventKey...)
+}
+
+func keyForHeightRange(height int64) []byte {
+	return []byte(fmt.Sprintf("%s/%d/",
+		types.TxHeightKey,
+		height,
+	))
 }
