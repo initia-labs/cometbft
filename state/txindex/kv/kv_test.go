@@ -815,9 +815,11 @@ func TestTxIndexPruning(t *testing.T) {
 		successAfterPrune bool
 	}{
 		// search by hash
-		{fmt.Sprintf("tx.hash = '%X'", hash), true},
+		{fmt.Sprintf("tx.hash = '%X'", hash), false},
 		// search by hash (lower)
-		{fmt.Sprintf("tx.hash = '%x'", hash), true},
+		{fmt.Sprintf("tx.hash = '%x'", hash), false},
+		// search by height
+		{"tx.height = '1'", false},
 		// search by exact match (one key)
 		{"account.number = 1", false},
 		{"account.owner = '/Ivan/'", false},

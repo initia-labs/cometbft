@@ -482,7 +482,7 @@ func TestTxIndexPruning(t *testing.T) {
 		successAfterPrune bool
 	}{
 		//search by height
-		{"block.height = 1", true},
+		{"block.height = 1", false},
 		// search by exact match (one key)
 		{"account.number = 1", false},
 		{"account.owner = '/Ivan/'", false},
