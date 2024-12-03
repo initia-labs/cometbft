@@ -663,6 +663,27 @@ func (idx *BlockerIndexer) Prune(curHeight int64) error {
 		}
 	}
 
+	// delete block height index keys
+	startKey, err = keyForHeightRange(1)
+	if err != nil {
+		return err
+	}
+	endKey, err = keyForHeightRange(minHeight + 1)
+	if err != nil {
+		return err
+	}
+	iter, err = idx.store.Iterator(startKey, endKey)
+	if err != nil {
+		return err
+	}
+
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		if err := pruneBatch.Delete(iter.Key()); err != nil {
+			return err
+		}
+	}
+
 	return pruneBatch.WriteSync()
 }
 
@@ -675,4 +696,12 @@ func keyForReverse(height int64, eventKey []byte) []byte {
 	binary.BigEndian.PutUint64(heightBz, uint64(height))
 
 	return append(append(types.ReverseBlockIndexPrefix, heightBz...), eventKey...)
+}
+
+func keyForHeightRange(height int64) ([]byte, error) {
+	return orderedcode.Append(
+		nil,
+		types.BlockHeightKey,
+		height,
+	)
 }
