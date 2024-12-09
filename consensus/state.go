@@ -1539,7 +1539,11 @@ func (cs *State) enterPrecommit(height int64, round int32) {
 
 		// Validate the block.
 		if err := cs.blockExec.ValidateBlock(cs.state, cs.ProposalBlock); err != nil {
-			panic(fmt.Sprintf("precommit step; +2/3 prevoted for an invalid block: %v", err))
+			err = fmt.Errorf("precommit step; +2/3 prevoted for an invalid block: %v", err)
+			cs.blockStore.SaveInvalidBlock(err.Error(), cs.ProposalBlock.Height)
+			if cs.config.ExitOnInvalidBlock {
+				cmtos.Exit(err.Error())
+			}
 		}
 
 		cs.LockedRound = round
