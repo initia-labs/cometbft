@@ -164,9 +164,9 @@ func (bp *BatchProvider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.
 
 func (bp *BatchProvider) batchesFromTx(ctx context.Context, tx *coretypes.ResultTx) ([][]byte, error) {
 	switch bp.chainType {
-	case ophostv1.BatchInfo_CHAIN_TYPE_INITIA:
+	case ophostv1.BatchInfo_INITIA:
 		return bp.batchesFromL1Tx(tx)
-	case ophostv1.BatchInfo_CHAIN_TYPE_CELESTIA:
+	case ophostv1.BatchInfo_CELESTIA:
 		return bp.batchesFromCelestiaTx(ctx, tx)
 	default:
 		return nil, errors.New("unsupported chain type")

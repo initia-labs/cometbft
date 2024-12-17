@@ -230,8 +230,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/informalsystems/tm-load-test v1.3.0 h1:FGjKy7vBw6mXNakt+wmNWKggQZRsKkEYpaFk/zR64VA=
 github.com/informalsystems/tm-load-test v1.3.0/go.mod h1:OQ5AQ9TbT5hKWBNIwsMjn6Bf4O0U4b1kRc+0qZlQJKw=
-github.com/initia-labs/OPinit/api v0.5.1 h1:zwyJf7HtKJCKvLJ1R9PjVfJO1L+d/jKoeFyT7WTLHFI=
-github.com/initia-labs/OPinit/api v0.5.1/go.mod h1:gHK6DEWb3/DqQD5LjKirUx9jilAh2UioXanoQdgqVfU=
+github.com/initia-labs/OPinit/api v0.6.2 h1:nU9Rv5s/6WbV3CfmNnW3MSSmqpk7Avgfd68qMWjYD08=
+github.com/initia-labs/OPinit/api v0.6.2/go.mod h1:gHK6DEWb3/DqQD5LjKirUx9jilAh2UioXanoQdgqVfU=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 h1:BQSFePA1RWJOlocH6Fxy8MmwDt+yVQYULKfN0RoTN8A=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99/go.mod h1:1lJo3i6rXxKeerYnT8Nvf0QmHCRC1n8sfWVwXF2Frvo=
 github.com/jessevdk/go-flags v0.0.0-20141203071132-1679536dcc89/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=

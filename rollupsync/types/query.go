@@ -8,9 +8,9 @@ import (
 
 func QueryEventTypeWithSubmitterFromChainType(chainType ophostv1.BatchInfo_ChainType, submitter string) string {
 	switch chainType {
-	case ophostv1.BatchInfo_CHAIN_TYPE_INITIA:
+	case ophostv1.BatchInfo_INITIA:
 		return fmt.Sprintf("record_batch.submitter='%s'", submitter)
-	case ophostv1.BatchInfo_CHAIN_TYPE_CELESTIA:
+	case ophostv1.BatchInfo_CELESTIA:
 		return fmt.Sprintf("message.sender='%s'", submitter)
 	}
 	return ""
