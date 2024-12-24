@@ -46,6 +46,9 @@ func (rs *RollupSyncer) fillOracleData(ctx context.Context, block *types.Block) 
 				if err != nil {
 					return err
 				}
+				if len(authzMsg.Msgs) != 1 || authzMsg.Msgs[0].TypeUrl != "/opinit.opchild.v1.MsgUpdateOracle" {
+					continue
+				}
 				msg := new(opchildv1.MsgUpdateOracle)
 				err = authzMsg.Msgs[0].UnmarshalTo(msg)
 				if err != nil {
