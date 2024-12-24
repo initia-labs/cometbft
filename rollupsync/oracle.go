@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	authzv1beta1 "cosmossdk.io/api/cosmos/authz/v1beta1"
 	"github.com/cometbft/cometbft/rollupsync/provider"
 	"github.com/cometbft/cometbft/types"
 	"github.com/cosmos/cosmos-proto/anyutil"
@@ -20,29 +21,60 @@ func (rs *RollupSyncer) fillOracleData(ctx context.Context, block *types.Block) 
 		}
 
 		for _, anyMsg := range body.Messages {
-			if anyMsg.TypeUrl != "/opinit.opchild.v1.MsgUpdateOracle" {
+			switch anyMsg.TypeUrl {
+			case "/opinit.opchild.v1.MsgUpdateOracle":
+				msg := new(opchildv1.MsgUpdateOracle)
+				err := anyMsg.UnmarshalTo(msg)
+				if err != nil {
+					return err
+				}
+
+				oracleTx, err := rs.fetchOracleTx(ctx, int64(msg.Height))
+				if err != nil {
+					return errors.Join(errors.New("failed to fetch oracle tx"), err)
+				}
+				msg.Data = oracleTx
+
+				// https://github.com/cosmos/cosmos-sdk/blob/main/docs/learn/advanced/05-encoding.md#anys-typeurl
+				err = anyutil.MarshalFrom(anyMsg, msg, proto.MarshalOptions{})
+				if err != nil {
+					return errors.Join(errors.New("failed to marshal oracle msg"), err)
+				}
+			case "/cosmos.authz.v1beta1.MsgExec":
+				authzMsg := new(authzv1beta1.MsgExec)
+				err := anyMsg.UnmarshalTo(authzMsg)
+				if err != nil {
+					return err
+				}
+				if len(authzMsg.Msgs) != 1 || authzMsg.Msgs[0].TypeUrl != "/opinit.opchild.v1.MsgUpdateOracle" {
+					continue
+				}
+				msg := new(opchildv1.MsgUpdateOracle)
+				err = authzMsg.Msgs[0].UnmarshalTo(msg)
+				if err != nil {
+					return err
+				}
+
+				oracleTx, err := rs.fetchOracleTx(ctx, int64(msg.Height))
+				if err != nil {
+					return errors.Join(errors.New("failed to fetch oracle tx"), err)
+				}
+				msg.Data = oracleTx
+
+				// https://github.com/cosmos/cosmos-sdk/blob/main/docs/learn/advanced/05-encoding.md#anys-typeurl
+				err = anyutil.MarshalFrom(authzMsg.Msgs[0], msg, proto.MarshalOptions{})
+				if err != nil {
+					return errors.Join(errors.New("failed to marshal oracle msg"), err)
+				}
+
+				err = anyutil.MarshalFrom(anyMsg, authzMsg, proto.MarshalOptions{})
+				if err != nil {
+					return errors.Join(errors.New("failed to marshal oracle msg"), err)
+				}
+			default:
 				continue
 			}
-
-			msg := new(opchildv1.MsgUpdateOracle)
-			err := anyMsg.UnmarshalTo(msg)
-			if err != nil {
-				return err
-			}
-
-			oracleTx, err := rs.fetchOracleTx(ctx, int64(msg.Height))
-			if err != nil {
-				return errors.Join(errors.New("failed to fetch oracle tx"), err)
-			}
-			msg.Data = oracleTx
-
-			// https://github.com/cosmos/cosmos-sdk/blob/main/docs/learn/advanced/05-encoding.md#anys-typeurl
-			err = anyutil.MarshalFrom(anyMsg, msg, proto.MarshalOptions{})
-			if err != nil {
-				return errors.Join(errors.New("failed to marshal oracle msg"), err)
-			}
 		}
-
 		convertedTxBytes, err := provider.MarshalCosmosTx(raw, body)
 		if err != nil {
 			return errors.Join(errors.New("failed to marshal cosmos tx"), err)
