@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	// chunkTimeout is the timeout while waiting for the next chunk from the chunk queue.
-	chunkTimeout = 2 * time.Minute
+	// fetchChunkRetry is the number of times to retry fetching a chunk before giving up.
+	fetchChunkRetry = 5
 
 	// minimumDiscoveryTime is the lowest allowable time for a
 	// SyncAny discovery time.
@@ -59,6 +59,7 @@ type syncer struct {
 	tempDir       string
 	chunkFetchers int32
 	retryTimeout  time.Duration
+	trustHeight   int64
 
 	mtx    cmtsync.RWMutex
 	chunks *chunkQueue
@@ -73,7 +74,6 @@ func newSyncer(
 	stateProvider StateProvider,
 	tempDir string,
 ) *syncer {
-
 	return &syncer{
 		logger:        logger,
 		stateProvider: stateProvider,
@@ -83,6 +83,7 @@ func newSyncer(
 		tempDir:       tempDir,
 		chunkFetchers: cfg.ChunkFetchers,
 		retryTimeout:  cfg.ChunkRequestTimeout,
+		trustHeight:   cfg.TrustHeight,
 	}
 }
 
@@ -252,7 +253,15 @@ func (s *syncer) Sync(snapshot *snapshot, chunks *chunkQueue) (sm.State, *types.
 		s.mtx.Unlock()
 	}()
 
-	hctx, cancel := context.WithTimeout(context.TODO(), 30*time.Second)
+	// give a warning if the trusted height is significantly different from the snapshot height
+	if s.trustHeight > int64(snapshot.Height+500) || s.trustHeight < int64(snapshot.Height-500) {
+		s.logger.Info(
+			"Trusted height is significantly different from the snapshot height, which may cause state sync to fail",
+			"trusted_height", s.trustHeight, "snapshot_height", snapshot.Height,
+		)
+	}
+
+	hctx, cancel := context.WithTimeout(context.TODO(), 5*time.Minute)
 	defer cancel()
 
 	appHash, err := s.stateProvider.AppHash(hctx, snapshot.Height)
@@ -357,7 +366,7 @@ func (s *syncer) offerSnapshot(snapshot *snapshot) error {
 // response, or nil once the snapshot is fully restored.
 func (s *syncer) applyChunks(chunks *chunkQueue) error {
 	for {
-		chunk, err := chunks.Next()
+		chunk, err := chunks.NextWithTimeout(s.retryTimeout*fetchChunkRetry + fetchChunkRetry*2*time.Second)
 		if err == errDone {
 			return nil
 		} else if err != nil {
