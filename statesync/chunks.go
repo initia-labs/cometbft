@@ -224,6 +224,12 @@ func (q *chunkQueue) load(index uint32) (*chunk, error) {
 // Next returns the next chunk from the queue, or errDone if all chunks have been returned. It
 // blocks until the chunk is available. Concurrent Next() calls may return the same chunk.
 func (q *chunkQueue) Next() (*chunk, error) {
+	return q.NextWithTimeout(2 * time.Minute)
+}
+
+// NextWithTimeout is like Next, but returns errTimeout if the chunk is not available after the
+// given timeout.
+func (q *chunkQueue) NextWithTimeout(chunkTimeout time.Duration) (*chunk, error) {
 	q.Lock()
 	var chunk *chunk
 	index, err := q.nextUp()
