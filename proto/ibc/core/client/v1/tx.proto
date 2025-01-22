@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package ibc.core.client.v1;
+
+option go_package = "github.com/cometbft/cometbft/proto/ibc/core/client/v1";
+
+import "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
+
+// MsgUpdateClient defines an sdk.Msg to update a IBC client state using
+// the given client message.
+message MsgUpdateClient {
+  // option (gogoproto.goproto_getters) = false;
+
+  // client unique identifier
+  string client_id = 1;
+  // client message to update the light client
+  CustomAny client_message = 2;
+  // signer address
+  string signer = 3;
+}
+
+// MsgUpdateClientResponse defines the Msg/UpdateClient response type.
+message MsgUpdateClientResponse {}
+
+message CustomAny {
+  string type_url = 1;
+  bytes value = 2;
+}

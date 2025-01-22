@@ -226,7 +226,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 		}
 		lastBlock = block
 
-		err = rs.fillOracleData(ctx, block)
+		err = rs.fillData(ctx, block)
 		if err != nil {
 			return errors.Join(errors.New("failed to fill oracle data to block"), err)
 		}

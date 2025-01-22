@@ -15,6 +15,8 @@ import (
 	v1beta1 "cosmossdk.io/api/cosmos/base/query/v1beta1"
 	rstypes "github.com/cometbft/cometbft/rollupsync/types"
 	ophostv1 "github.com/initia-labs/OPinit/api/opinit/ophost/v1"
+
+	cmttypes "github.com/cometbft/cometbft/types"
 )
 
 type L1Provider struct {
@@ -155,4 +157,39 @@ func (lp L1Provider) GetOracleTx(ctx context.Context, height int64) ([]byte, err
 		return nil, err
 	}
 	return resBlock.Block.Txs[0], nil
+}
+
+func (lp L1Provider) GetAllValidators(ctx context.Context, height int64) ([]*cmttypes.Validator, error) {
+	validators := make([]*cmttypes.Validator, 0)
+	page := 1
+	perPage := 100
+	for {
+		res, err := lp.client.Validators(ctx, &height, &page, &perPage)
+		if err != nil {
+			return nil, err
+		}
+		validators = append(validators, res.Validators...)
+
+		if len(validators) == res.Total {
+			break
+		}
+		page++
+	}
+	return validators, nil
+}
+
+func (lp L1Provider) GetBlock(ctx context.Context, height int64) (*cmttypes.Block, error) {
+	resBlock, err := lp.client.Block(ctx, &height)
+	if err != nil {
+		return nil, err
+	}
+	return resBlock.Block, nil
+}
+
+func (lp L1Provider) GetHeader(ctx context.Context, height int64) (*cmttypes.Header, error) {
+	resHeader, err := lp.client.Header(ctx, &height)
+	if err != nil {
+		return nil, err
+	}
+	return resHeader.Header, nil
 }
