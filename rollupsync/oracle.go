@@ -12,7 +12,6 @@ import (
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/cometbft/cometbft/rollupsync/provider"
 	"github.com/cometbft/cometbft/types"
-	cmttypes "github.com/cometbft/cometbft/types"
 	"github.com/cosmos/cosmos-proto/anyutil"
 	opchildv1 "github.com/initia-labs/OPinit/api/opinit/opchild/v1"
 	"google.golang.org/protobuf/proto"
@@ -195,7 +194,7 @@ func (rs *RollupSyncer) fetchOracleTx(ctx context.Context, height int64) ([]byte
 	}
 }
 
-func (rs *RollupSyncer) getAllValidators(ctx context.Context, height int64) ([]*cmttypes.Validator, error) {
+func (rs *RollupSyncer) getAllValidators(ctx context.Context, height int64) ([]*types.Validator, error) {
 	ticker := time.NewTicker(time.Duration(rs.cfg.FetchInterval) * time.Millisecond)
 	defer ticker.Stop()
 
@@ -216,7 +215,7 @@ func (rs *RollupSyncer) getAllValidators(ctx context.Context, height int64) ([]*
 	}
 }
 
-func toCmtProtoValidators(validators []*cmttypes.Validator) ([]*cmtproto.Validator, int, error) {
+func toCmtProtoValidators(validators []*types.Validator) ([]*cmtproto.Validator, int, error) {
 	cmtValidators := make([]*cmtproto.Validator, 0)
 	for _, val := range validators {
 		protoVal, err := val.ToProto()

@@ -4,9 +4,6 @@ package ibc.core.client.v1;
 
 option go_package = "github.com/cometbft/cometbft/proto/ibc/core/client/v1";
 
-import "gogoproto/gogo.proto";
-import "google/protobuf/any.proto";
-
 // MsgUpdateClient defines an sdk.Msg to update a IBC client state using
 // the given client message.
 message MsgUpdateClient {
