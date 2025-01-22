@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package ibc.core.client.v1;
+package tmibc.core.client.v1;
 
-option go_package = "github.com/cometbft/cometbft/proto/ibc/core/client/v1";
+option go_package = "github.com/cometbft/cometbft/proto/tmibc/core/client/v1";
 
 // MsgUpdateClient defines an sdk.Msg to update a IBC client state using
 // the given client message.

@@ -10,17 +10,14 @@ import (
 	ophostv1 "github.com/initia-labs/OPinit/api/opinit/ophost/v1"
 )
 
-// prefix for chain type enum
-const chainTypePrefix = "CHAIN_TYPE_"
-
 // BatchChainTypeToString converts string batch chain type to BatchInfo_ChainType
 func BatchChainTypeFromString(str string) ophostv1.BatchInfo_ChainType {
-	return ophostv1.BatchInfo_ChainType(ophostv1.BatchInfo_ChainType_value[chainTypePrefix+strings.ToUpper(str)])
+	return ophostv1.BatchInfo_ChainType(ophostv1.BatchInfo_ChainType_value[strings.ToUpper(str)])
 }
 
 // BatchChainTypeToString converts BatchInfo_ChainType to string batch chain type
 func BatchChainTypeToString(chainType ophostv1.BatchInfo_ChainType) string {
-	return chainType.String()[len(chainTypePrefix):]
+	return chainType.String()
 }
 
 // BatchInfoUpdates is a list of BatchInfoUpdate

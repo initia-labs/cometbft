@@ -1,12 +1,12 @@
 syntax = "proto3";
 
-package ibc.lightclients.tendermint.v1;
+package tmibc.lightclients.tendermint.v1;
 
-option go_package = "github.com/cometbft/cometbft/proto/ibc/lightclients/tendermint/v1";
+option go_package = "github.com/cometbft/cometbft/proto/tmibc/lightclients/tendermint/v1";
 
 import "tendermint/types/validator.proto";
 import "tendermint/types/types.proto";
-import "ibc/core/client/v1/client.proto";
+import "tmibc/core/client/v1/client.proto";
 import "gogoproto/gogo.proto";
 
 // Header defines the Tendermint client consensus Header.
@@ -25,6 +25,6 @@ message Header {
   .tendermint.types.SignedHeader signed_header = 1 [(gogoproto.embed) = true];
 
   .tendermint.types.ValidatorSet validator_set      = 2;
-  ibc.core.client.v1.Height      trusted_height     = 3 [(gogoproto.nullable) = false];
+  tmibc.core.client.v1.Height      trusted_height     = 3 [(gogoproto.nullable) = false];
   .tendermint.types.ValidatorSet trusted_validators = 4;
 }

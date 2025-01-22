@@ -7,9 +7,9 @@ import (
 	"time"
 
 	authzv1beta1 "cosmossdk.io/api/cosmos/authz/v1beta1"
-	ibcprotoclient "github.com/cometbft/cometbft/proto/ibc/core/client/v1"
-	ibcprotopmlcs "github.com/cometbft/cometbft/proto/ibc/lightclients/tendermint/v1"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
+	ibcprotoclient "github.com/cometbft/cometbft/proto/tmibc/core/client/v1"
+	ibcprotopmlcs "github.com/cometbft/cometbft/proto/tmibc/lightclients/tendermint/v1"
 	"github.com/cometbft/cometbft/rollupsync/provider"
 	"github.com/cometbft/cometbft/types"
 	"github.com/cosmos/cosmos-proto/anyutil"
