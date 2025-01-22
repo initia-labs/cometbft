@@ -7,8 +7,6 @@ option go_package = "github.com/cometbft/cometbft/proto/ibc/core/client/v1";
 // MsgUpdateClient defines an sdk.Msg to update a IBC client state using
 // the given client message.
 message MsgUpdateClient {
-  // option (gogoproto.goproto_getters) = false;
-
   // client unique identifier
   string client_id = 1;
   // client message to update the light client
