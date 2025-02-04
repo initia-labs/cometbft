@@ -46,7 +46,11 @@ Verify that you have the latest version of Go installed (refer to the [official 
 
 ```bash
 $ go version
+<<<<<<< HEAD
 go version go1.22.7 darwin/amd64
+=======
+go version go1.22.11 darwin/amd64
+>>>>>>> v0.38.17
 ```
 
 ## 1.2 Creating a new Go project

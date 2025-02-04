@@ -14,7 +14,7 @@ type BlockStore struct {
 	mock.Mock
 }
 
-// Base provides a mock function with given fields:
+// Base provides a mock function with no fields
 func (_m *BlockStore) Base() int64 {
 	ret := _m.Called()
 
@@ -32,7 +32,7 @@ func (_m *BlockStore) Base() int64 {
 	return r0
 }
 
-// Close provides a mock function with given fields:
+// Close provides a mock function with no fields
 func (_m *BlockStore) Close() error {
 	ret := _m.Called()
 
@@ -68,7 +68,7 @@ func (_m *BlockStore) DeleteBlocksFromHeight(height int64) error {
 	return r0
 }
 
-// DeleteLatestBlock provides a mock function with given fields:
+// DeleteLatestBlock provides a mock function with no fields
 func (_m *BlockStore) DeleteLatestBlock() error {
 	ret := _m.Called()
 
@@ -86,7 +86,7 @@ func (_m *BlockStore) DeleteLatestBlock() error {
 	return r0
 }
 
-// Height provides a mock function with given fields:
+// Height provides a mock function with no fields
 func (_m *BlockStore) Height() int64 {
 	ret := _m.Called()
 
@@ -104,7 +104,7 @@ func (_m *BlockStore) Height() int64 {
 	return r0
 }
 
-// LoadBaseMeta provides a mock function with given fields:
+// LoadBaseMeta provides a mock function with no fields
 func (_m *BlockStore) LoadBaseMeta() *types.BlockMeta {
 	ret := _m.Called()
 
@@ -284,7 +284,7 @@ func (_m *BlockStore) LoadBlockPart(height int64, index int) *types.Part {
 	return r0
 }
 
-// LoadInvalidBlock provides a mock function with given fields:
+// LoadInvalidBlock provides a mock function with no fields
 func (_m *BlockStore) LoadInvalidBlock() (string, int64) {
 	ret := _m.Called()
 
@@ -412,7 +412,7 @@ func (_m *BlockStore) SaveInvalidBlock(reason string, height int64) {
 	_m.Called(reason, height)
 }
 
-// Size provides a mock function with given fields:
+// Size provides a mock function with no fields
 func (_m *BlockStore) Size() int64 {
 	ret := _m.Called()
 
