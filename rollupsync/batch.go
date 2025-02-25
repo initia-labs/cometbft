@@ -26,12 +26,12 @@ func (rs *RollupSyncer) batchFetcher(ctx context.Context) error {
 	}
 
 	batchInfoIndex := 0
-	for i := range batchInfos {
-		if i == len(batchInfos)-1 || batchInfos[i+1].Output.L2BlockNumber >= uint64(height) {
-			batchInfoIndex = i
+	for ; batchInfoIndex < len(batchInfos); batchInfoIndex++ {
+		if batchInfos[batchInfoIndex].Output.L2BlockNumber > uint64(height) {
 			break
 		}
 	}
+	batchInfoIndex--
 
 	batchChainStartHeight, err := rs.blockExec.Store().GetRollupSyncBatchChainHeight(int64(batchInfoIndex))
 	if err != nil {
