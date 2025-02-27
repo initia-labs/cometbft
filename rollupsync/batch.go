@@ -32,7 +32,7 @@ func (rs *RollupSyncer) batchFetcher(ctx context.Context) error {
 		}
 	}
 	// There is always first batch info with Output.L2BlockNumber == 0,
-	// to batchInfoIndex is always greater than 0
+	// so batchInfoIndex is always greater than 0
 	batchInfoIndex--
 
 	batchChainStartHeight, err := rs.blockExec.Store().GetRollupSyncBatchChainHeight(int64(batchInfoIndex))
@@ -98,6 +98,8 @@ func (rs *RollupSyncer) batchFetcher(ctx context.Context) error {
 		)
 
 		fetchCtx, done := context.WithCancel(ctx)
+		defer done()
+
 		go batchProvider.BatchFetcher(fetchCtx, rs.batchCh, rs.batchChClosed, batchChainStartHeight)
 
 		endChecker := time.NewTicker(time.Duration(rs.cfg.FetchInterval) * time.Millisecond)
