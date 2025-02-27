@@ -33,6 +33,8 @@ func FetchGenesis(ctx context.Context, logger log.Logger, cfg *config.RollupSync
 			break
 		}
 	}
+	// There is always first batch info with Output.L2BlockNumber == 0,
+	// to batchInfoIndex is always greater than 0
 	batchInfoIndex--
 	batchInfo := batchInfos[batchInfoIndex]
 
