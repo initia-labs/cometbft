@@ -45,6 +45,8 @@ func FetchGenesis(ctx context.Context, logger log.Logger, cfg *config.RollupSync
 
 	batchCh := make(chan rstypes.BatchChanInfo)
 	batchChClosed := make(chan struct{})
+	defer close(batchChClosed)
+
 	go batchProvider.BatchFetcher(ctx, batchCh, batchChClosed, 1)
 
 	genesisChunks := make(map[int]rstypes.BatchDataGenesis)
