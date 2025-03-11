@@ -594,7 +594,7 @@ FOR_LOOP:
 				bcR.store.SaveBlock(first, firstParts, lastCommit)
 
 				// store the last commit of the previous block
-				bcR.store.SaveSeenCommit(first.Height-1, lastCommit)
+				bcR.store.SaveSeenCommit(first.Height-1, first.LastCommit)
 			}
 
 			// TODO: same thing for app - but we would need a way to
