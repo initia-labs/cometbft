@@ -245,7 +245,7 @@ func (pool *BlockPool) PeekTwoBlocks() (first, second *types.Block, firstExtComm
 		first = r.getBlock()
 
 		// If the block is from a trusted peer, set the Trusted flag to true
-		if slices.Contains(pool.trustedPeerIDs, r.peerID) {
+		if first != nil && slices.Contains(pool.trustedPeerIDs, r.peerID) {
 			first.Trusted = true
 		}
 
