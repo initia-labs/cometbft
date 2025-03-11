@@ -36,6 +36,9 @@ type consensusReactor interface {
 	// for when we switch from blocksync reactor and block sync to
 	// the consensus machine
 	SwitchToConsensus(state sm.State, skipWAL bool)
+
+	// IsValidator returns true if the node is a validator
+	IsValidator(state sm.State) bool
 }
 
 type peerError struct {
@@ -430,11 +433,18 @@ FOR_LOOP:
 				continue FOR_LOOP
 			}
 			if bcR.pool.IsCaughtUp() || bcR.localNodeBlocksTheChain(state) {
+				conR, ok := bcR.Switch.Reactor("CONSENSUS").(consensusReactor)
+				if conR != nil && !conR.IsValidator(state) {
+					// if the node is not a validator, we don't need to switch to consensus
+					bcR.Logger.Info("Not a validator, skipping switch to consensus")
+					continue FOR_LOOP
+				}
+
 				bcR.Logger.Info("Time to switch to consensus reactor!", "height", height)
 				if err := bcR.pool.Stop(); err != nil {
 					bcR.Logger.Error("Error stopping pool", "err", err)
 				}
-				conR, ok := bcR.Switch.Reactor("CONSENSUS").(consensusReactor)
+
 				if ok {
 					conR.SwitchToConsensus(state, blocksSynced > 0 || stateSynced)
 				}
