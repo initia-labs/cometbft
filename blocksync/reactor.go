@@ -26,8 +26,8 @@ const (
 	// within this much of the system time.
 	// stopSyncingDurationMinutes = 10
 
-	// ask for best height every 300ms
-	statusUpdateIntervalSeconds = 300
+	// ask for best height every 250ms
+	statusUpdateIntervalMilliseconds = 250
 	// check if we should switch to consensus reactor
 	switchToConsensusIntervalSeconds = 1
 )
@@ -338,7 +338,7 @@ func (bcR *Reactor) poolRoutine(stateSynced bool) {
 	trySyncTicker := time.NewTicker(trySyncIntervalMS * time.Millisecond)
 	defer trySyncTicker.Stop()
 
-	statusUpdateTicker := time.NewTicker(statusUpdateIntervalSeconds * time.Millisecond)
+	statusUpdateTicker := time.NewTicker(statusUpdateIntervalMilliseconds * time.Millisecond)
 	defer statusUpdateTicker.Stop()
 
 	if bcR.switchToConsensusMs == 0 {
