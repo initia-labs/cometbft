@@ -29,6 +29,7 @@ type BlockStore interface {
 	SaveBlock(block *types.Block, blockParts *types.PartSet, seenCommit *types.Commit)
 	SaveBlockWithExtendedCommit(block *types.Block, blockParts *types.PartSet, seenCommit *types.ExtendedCommit)
 	SaveInvalidBlock(reason string, height int64)
+	SaveSeenCommit(height int64, seenCommit *types.Commit) error
 
 	PruneBlocks(height int64, state State) (uint64, int64, error)
 

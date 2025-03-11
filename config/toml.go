@@ -300,6 +300,9 @@ max_num_outbound_peers = {{ .P2P.MaxNumOutboundPeers }}
 # List of node IDs, to which a connection will be (re)established ignoring any existing limits
 unconditional_peer_ids = "{{ .P2P.UnconditionalPeerIDs }}"
 
+# Comma separated list of peer IDs to trust
+trusted_peer_ids = "{{ .P2P.TrustedPeerIDs }}"
+
 # Maximum pause when redialing a persistent peer (if zero, exponential backoff is used)
 persistent_peers_max_dial_period = "{{ .P2P.PersistentPeersMaxDialPeriod }}"
 

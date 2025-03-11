@@ -48,6 +48,9 @@ type Block struct {
 	Data         `json:"data"`
 	Evidence     EvidenceData `json:"evidence"`
 	LastCommit   *Commit      `json:"last_commit"`
+
+	// Trusted is true if the block is provided by a trusted peer
+	Trusted bool
 }
 
 // ValidateBasic performs basic validation that doesn't involve state data.

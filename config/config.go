@@ -577,6 +577,9 @@ type P2PConfig struct { //nolint: maligned
 	// List of node IDs, to which a connection will be (re)established ignoring any existing limits
 	UnconditionalPeerIDs string `mapstructure:"unconditional_peer_ids"`
 
+	// Comma separated list of peer IDs to trust
+	TrustedPeerIDs string `mapstructure:"trusted_peer_ids"`
+
 	// Maximum pause when redialing a persistent peer (if zero, exponential backoff is used)
 	PersistentPeersMaxDialPeriod time.Duration `mapstructure:"persistent_peers_max_dial_period"`
 
