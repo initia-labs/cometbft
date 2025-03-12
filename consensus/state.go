@@ -2484,7 +2484,7 @@ func (cs *State) signAddVote(
 	vote, err := cs.signVote(msgType, hash, header, block)
 	if err != nil {
 		cs.Logger.Error("failed signing vote", "height", cs.Height, "round", cs.Round, "vote", vote, "err", err)
-		return
+		panic(err)
 	}
 	hasExt := len(vote.ExtensionSignature) > 0
 	extEnabled := cs.state.ConsensusParams.ABCI.VoteExtensionsEnabled(vote.Height)
