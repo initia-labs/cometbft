@@ -543,7 +543,7 @@ FOR_LOOP:
 			}
 			presentExtCommit := extCommit != nil
 			extensionsEnabled := state.ConsensusParams.ABCI.VoteExtensionsEnabled(first.Height)
-			if presentExtCommit != extensionsEnabled {
+			if (extensionsEnabled && !presentExtCommit) || (!extensionsEnabled && presentExtCommit && !first.Trusted) {
 				err = fmt.Errorf("non-nil extended commit must be received iff vote extensions are enabled for its height "+
 					"(height %d, non-nil extended commit %t, extensions enabled %t)",
 					first.Height, presentExtCommit, extensionsEnabled,
