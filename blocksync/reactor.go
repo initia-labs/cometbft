@@ -445,7 +445,7 @@ FOR_LOOP:
 				conR, ok := bcR.Switch.Reactor("CONSENSUS").(consensusReactor)
 				if conR != nil && !conR.IsValidator(state) {
 					// if the node is not a validator, we don't need to switch to consensus
-					bcR.Logger.Info("Not a validator, skipping switch to consensus")
+					bcR.Logger.Debug("Not a validator, skipping switch to consensus")
 					continue FOR_LOOP
 				}
 
@@ -543,11 +543,16 @@ FOR_LOOP:
 			}
 			presentExtCommit := extCommit != nil
 			extensionsEnabled := state.ConsensusParams.ABCI.VoteExtensionsEnabled(first.Height)
-			if (extensionsEnabled && !presentExtCommit) || (!extensionsEnabled && presentExtCommit && !first.Trusted) {
+			if extensionsEnabled && !presentExtCommit {
 				err = fmt.Errorf("non-nil extended commit must be received iff vote extensions are enabled for its height "+
 					"(height %d, non-nil extended commit %t, extensions enabled %t)",
 					first.Height, presentExtCommit, extensionsEnabled,
 				)
+			} else if !extensionsEnabled && presentExtCommit && !first.Trusted {
+				// if the block is not trusted and vote extensions are not enabled,
+				// ignore the custom extCommit and make it nil
+				extCommit = nil
+				presentExtCommit = false
 			}
 			if err == nil && extensionsEnabled {
 				// if vote extensions were required at this height, ensure they exist.
@@ -564,7 +569,7 @@ FOR_LOOP:
 				}
 
 				// if the first block is trusted, we did not conduct any verification with the second block
-				// so we can skip the rest of the loop
+				// so we should skip the rest of the loop
 				if first.Trusted {
 					continue FOR_LOOP
 				}
