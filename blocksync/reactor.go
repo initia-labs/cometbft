@@ -608,10 +608,6 @@ FOR_LOOP:
 				// Currently, the peer should provide an extCommit even if the vote extension data are absent
 				// but this may change so using second.LastCommit is safer.
 				bcR.store.SaveBlock(first, firstParts, lastCommit)
-				err := bcR.store.SaveSeenCommit(first.Height-1, first.LastCommit)
-				if err != nil {
-					panic(err)
-				}
 			}
 
 			// TODO: same thing for app - but we would need a way to
