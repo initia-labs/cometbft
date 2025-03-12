@@ -247,6 +247,10 @@ func (bcR *Reactor) respondToPeer(msg *bcproto.BlockRequest, src p2p.Peer) (queu
 			bcR.Logger.Error("found block in store with no extended commit", "block", block)
 			return false
 		}
+	} else if blockCommit := bcR.store.LoadBlockCommit(msg.Height); blockCommit != nil {
+		extCommit = blockCommit.WrappedExtendedCommit()
+	} else if seenCommit := bcR.store.LoadSeenCommit(msg.Height); seenCommit != nil {
+		extCommit = seenCommit.WrappedExtendedCommit()
 	}
 
 	bl, err := block.ToProto()
@@ -585,6 +589,18 @@ FOR_LOOP:
 				var lastCommit *types.Commit
 				if second != nil {
 					lastCommit = second.LastCommit
+				} else if extCommit != nil {
+					lastCommit = extCommit.ToCommit()
+
+					vs := lastCommit.ToVoteSet(state.ChainID, state.LastValidators)
+					if !vs.HasTwoThirdsMajority() {
+						bcR.Logger.Error("received seen commits from the trusted peer, but it does not have +2/3 majority",
+							"height", first.Height)
+						continue FOR_LOOP
+					}
+				} else {
+					// this is from trusted peer, but we dont't receive extCommit
+					continue FOR_LOOP
 				}
 
 				// We use LastCommit here instead of extCommit. extCommit is not
@@ -592,9 +608,10 @@ FOR_LOOP:
 				// Currently, the peer should provide an extCommit even if the vote extension data are absent
 				// but this may change so using second.LastCommit is safer.
 				bcR.store.SaveBlock(first, firstParts, lastCommit)
-
-				// store the last commit of the previous block
-				bcR.store.SaveSeenCommit(first.Height-1, first.LastCommit)
+				err := bcR.store.SaveSeenCommit(first.Height-1, first.LastCommit)
+				if err != nil {
+					panic(err)
+				}
 			}
 
 			// TODO: same thing for app - but we would need a way to
