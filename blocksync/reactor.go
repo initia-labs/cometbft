@@ -26,8 +26,8 @@ const (
 	// within this much of the system time.
 	// stopSyncingDurationMinutes = 10
 
-	// ask for best height every 10s
-	statusUpdateIntervalSeconds = 10
+	// ask for best height every 250ms
+	statusUpdateIntervalMilliseconds = 250
 	// check if we should switch to consensus reactor
 	switchToConsensusIntervalSeconds = 1
 )
@@ -36,6 +36,9 @@ type consensusReactor interface {
 	// for when we switch from blocksync reactor and block sync to
 	// the consensus machine
 	SwitchToConsensus(state sm.State, skipWAL bool)
+
+	// IsValidator returns true if the node is a validator
+	IsValidator(state sm.State) bool
 }
 
 type peerError struct {
@@ -129,6 +132,11 @@ func NewReactorWithAddr(state sm.State, blockExec *sm.BlockExecutor, store *stor
 // SetExitOnInvalidBlock sets the flag to exit on invalid block.
 func (bcR *Reactor) SetExitOnInvalidBlock() {
 	bcR.exitOnInvalidBlock = true
+}
+
+// SetTrustedPeerIDs sets the list of trusted peer IDs.
+func (bcR *Reactor) SetTrustedPeerIDs(peerIDs []p2p.ID) {
+	bcR.pool.SetTrustedPeerIDs(peerIDs)
 }
 
 // SetLogger implements service.Service by setting the logger on reactor and pool.
@@ -239,6 +247,10 @@ func (bcR *Reactor) respondToPeer(msg *bcproto.BlockRequest, src p2p.Peer) (queu
 			bcR.Logger.Error("found block in store with no extended commit", "block", block)
 			return false
 		}
+	} else if blockCommit := bcR.store.LoadBlockCommit(msg.Height); blockCommit != nil {
+		extCommit = blockCommit.WrappedExtendedCommit()
+	} else if seenCommit := bcR.store.LoadSeenCommit(msg.Height); seenCommit != nil {
+		extCommit = seenCommit.WrappedExtendedCommit()
 	}
 
 	bl, err := block.ToProto()
@@ -330,7 +342,7 @@ func (bcR *Reactor) poolRoutine(stateSynced bool) {
 	trySyncTicker := time.NewTicker(trySyncIntervalMS * time.Millisecond)
 	defer trySyncTicker.Stop()
 
-	statusUpdateTicker := time.NewTicker(statusUpdateIntervalSeconds * time.Second)
+	statusUpdateTicker := time.NewTicker(statusUpdateIntervalMilliseconds * time.Millisecond)
 	defer statusUpdateTicker.Stop()
 
 	if bcR.switchToConsensusMs == 0 {
@@ -430,11 +442,18 @@ FOR_LOOP:
 				continue FOR_LOOP
 			}
 			if bcR.pool.IsCaughtUp() || bcR.localNodeBlocksTheChain(state) {
+				conR, ok := bcR.Switch.Reactor("CONSENSUS").(consensusReactor)
+				if conR != nil && !conR.IsValidator(state) {
+					// if the node is not a validator, we don't need to switch to consensus
+					bcR.Logger.Debug("Not a validator, skipping switch to consensus")
+					continue FOR_LOOP
+				}
+
 				bcR.Logger.Info("Time to switch to consensus reactor!", "height", height)
 				if err := bcR.pool.Stop(); err != nil {
 					bcR.Logger.Error("Error stopping pool", "err", err)
 				}
-				conR, ok := bcR.Switch.Reactor("CONSENSUS").(consensusReactor)
+
 				if ok {
 					conR.SwitchToConsensus(state, blocksSynced > 0 || stateSynced)
 				}
@@ -462,7 +481,7 @@ FOR_LOOP:
 
 			// See if there are any blocks to sync.
 			first, second, extCommit := bcR.pool.PeekTwoBlocks()
-			if first == nil || second == nil {
+			if first == nil || (!first.Trusted && second == nil) {
 				// we need to have fetched two consecutive blocks in order to
 				// perform blocksync verification
 				continue FOR_LOOP
@@ -472,7 +491,7 @@ FOR_LOOP:
 				// Panicking because the block pool's height  MUST keep consistent with the state; the block pool is totally under our control
 				panic(fmt.Errorf("peeked first block has unexpected height; expected %d, got %d", state.LastBlockHeight+1, first.Height))
 			}
-			if first.Height+1 != second.Height {
+			if !first.Trusted && first.Height+1 != second.Height {
 				// Panicking because this is an obvious bug in the block pool, which is totally under our control
 				panic(fmt.Errorf("heights of first and second block are not consecutive; expected %d, got %d", state.LastBlockHeight, first.Height))
 			}
@@ -501,8 +520,10 @@ FOR_LOOP:
 			// first.Hash() doesn't verify the tx contents, so MakePartSet() is
 			// currently necessary.
 			// TODO(sergio): Should we also validate against the extended commit?
-			err = state.Validators.VerifyCommitLight(
-				chainID, firstID, first.Height, second.LastCommit)
+			if !first.Trusted {
+				err = state.Validators.VerifyCommitLight(
+					chainID, firstID, first.Height, second.LastCommit)
+			}
 
 			if err == nil {
 				// validate the block before we persist it
@@ -522,11 +543,16 @@ FOR_LOOP:
 			}
 			presentExtCommit := extCommit != nil
 			extensionsEnabled := state.ConsensusParams.ABCI.VoteExtensionsEnabled(first.Height)
-			if presentExtCommit != extensionsEnabled {
+			if extensionsEnabled && !presentExtCommit {
 				err = fmt.Errorf("non-nil extended commit must be received iff vote extensions are enabled for its height "+
 					"(height %d, non-nil extended commit %t, extensions enabled %t)",
 					first.Height, presentExtCommit, extensionsEnabled,
 				)
+			} else if !extensionsEnabled && presentExtCommit && !first.Trusted {
+				// if the block is not trusted and vote extensions are not enabled,
+				// ignore the custom extCommit and make it nil
+				extCommit = nil
+				presentExtCommit = false
 			}
 			if err == nil && extensionsEnabled {
 				// if vote extensions were required at this height, ensure they exist.
@@ -541,6 +567,14 @@ FOR_LOOP:
 					// still need to clean up the rest.
 					bcR.Switch.StopPeerForError(peer, ErrReactorValidation{Err: err})
 				}
+
+				// if the first block is trusted, we did not conduct any verification with the second block
+				// so we should skip the rest of the loop
+				if first.Trusted {
+					continue FOR_LOOP
+				}
+
+				// remove the second block peer and redo all its requests
 				peerID2 := bcR.pool.RemovePeerAndRedoAllPeerRequests(second.Height)
 				peer2 := bcR.Switch.Peers().Get(peerID2)
 				if peer2 != nil && peer2 != peer {
@@ -557,11 +591,28 @@ FOR_LOOP:
 			if extensionsEnabled {
 				bcR.store.SaveBlockWithExtendedCommit(first, firstParts, extCommit)
 			} else {
+				var lastCommit *types.Commit
+				if second != nil {
+					lastCommit = second.LastCommit
+				} else if extCommit != nil {
+					lastCommit = extCommit.ToCommit()
+
+					vs := lastCommit.ToVoteSet(state.ChainID, state.LastValidators)
+					if !vs.HasTwoThirdsMajority() {
+						bcR.Logger.Error("received seen commits from the trusted peer, but it does not have +2/3 majority",
+							"height", first.Height)
+						continue FOR_LOOP
+					}
+				} else {
+					// this is from trusted peer, but we dont't receive extCommit
+					continue FOR_LOOP
+				}
+
 				// We use LastCommit here instead of extCommit. extCommit is not
 				// guaranteed to be populated by the peer if extensions are not enabled.
 				// Currently, the peer should provide an extCommit even if the vote extension data are absent
 				// but this may change so using second.LastCommit is safer.
-				bcR.store.SaveBlock(first, firstParts, second.LastCommit)
+				bcR.store.SaveBlock(first, firstParts, lastCommit)
 			}
 
 			// TODO: same thing for app - but we would need a way to

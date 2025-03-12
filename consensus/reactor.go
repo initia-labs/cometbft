@@ -102,6 +102,11 @@ func (conR *Reactor) OnStop() {
 	}
 }
 
+// IsValidator returns true if the node is a validator based on the given state
+func (conR *Reactor) IsValidator(state sm.State) bool {
+	return conR.conS.IsValidator(state)
+}
+
 // SwitchToConsensus switches from block_sync mode to consensus mode.
 // It resets the state, turns off block_sync, and starts the consensus state-machine
 func (conR *Reactor) SwitchToConsensus(state sm.State, skipWAL bool) {

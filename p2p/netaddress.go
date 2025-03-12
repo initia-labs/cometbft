@@ -418,3 +418,8 @@ func validateID(id ID) error {
 	}
 	return nil
 }
+
+// ValidateID validates an ID.
+func ValidateID(id ID) error {
+	return validateID(id)
+}

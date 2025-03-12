@@ -412,6 +412,24 @@ func (_m *BlockStore) SaveInvalidBlock(reason string, height int64) {
 	_m.Called(reason, height)
 }
 
+// SaveSeenCommit provides a mock function with given fields: height, seenCommit
+func (_m *BlockStore) SaveSeenCommit(height int64, seenCommit *types.Commit) error {
+	ret := _m.Called(height, seenCommit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SaveSeenCommit")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64, *types.Commit) error); ok {
+		r0 = rf(height, seenCommit)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // Size provides a mock function with no fields
 func (_m *BlockStore) Size() int64 {
 	ret := _m.Called()

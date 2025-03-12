@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -88,6 +89,8 @@ type BlockPool struct {
 
 	requestsCh chan<- BlockRequest
 	errorsCh   chan<- peerError
+
+	trustedPeerIDs []p2p.ID
 }
 
 // NewBlockPool returns a new BlockPool with the height equal to start. Block
@@ -106,6 +109,11 @@ func NewBlockPool(start int64, requestsCh chan<- BlockRequest, errorsCh chan<- p
 	}
 	bp.BaseService = *service.NewBaseService(nil, "BlockPool", bp)
 	return bp
+}
+
+// SetTrustedPeerIDs sets the list of trusted peer IDs.
+func (pool *BlockPool) SetTrustedPeerIDs(peerIDs []p2p.ID) {
+	pool.trustedPeerIDs = peerIDs
 }
 
 // OnStart implements service.Service by spawning requesters routine and recording
@@ -235,6 +243,12 @@ func (pool *BlockPool) PeekTwoBlocks() (first, second *types.Block, firstExtComm
 
 	if r := pool.requesters[pool.height]; r != nil {
 		first = r.getBlock()
+
+		// If the block is from a trusted peer, set the Trusted flag to true
+		if first != nil && slices.Contains(pool.trustedPeerIDs, r.peerID) {
+			first.Trusted = true
+		}
+
 		firstExtCommit = r.getExtendedCommit()
 	}
 	if r := pool.requesters[pool.height+1]; r != nil {

@@ -1238,12 +1238,10 @@ func (bs *mockBlockStore) DeleteBlocksFromHeight(height int64) error { return ni
 
 func (bs *mockBlockStore) Close() error { return nil }
 
-func (bs *mockBlockStore) SaveInvalidBlock(_ string, _ int64) {
-}
+func (bs *mockBlockStore) LoadInvalidBlock() (string, int64)  { return "", 0 }
+func (bs *mockBlockStore) SaveInvalidBlock(_ string, _ int64) {}
 
-func (bs *mockBlockStore) LoadInvalidBlock() (string, int64) {
-	return "", 0
-}
+func (bs *mockBlockStore) SaveSeenCommit(height int64, seenCommit *types.Commit) error { return nil }
 
 func (bs *mockBlockStore) LoadBlockBytes(height int64) []byte {
 	return nil

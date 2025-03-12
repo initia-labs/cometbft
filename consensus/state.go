@@ -207,6 +207,16 @@ func NewState(
 	return cs
 }
 
+// IsValidator returns true if the node is a validator based on the given state
+func (cs *State) IsValidator(state sm.State) bool {
+	pubkey := cs.privValidatorPubKey
+	if pubkey == nil {
+		return false
+	}
+
+	return state.Validators.HasAddress(pubkey.Address())
+}
+
 // SetLogger implements Service.
 func (cs *State) SetLogger(l log.Logger) {
 	cs.BaseService.Logger = l

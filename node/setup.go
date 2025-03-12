@@ -297,6 +297,20 @@ func createBlocksyncReactor(config *cfg.Config,
 		if config.BlockSync.ExitOnInvalidBlock {
 			bcReactor.(*blocksync.Reactor).SetExitOnInvalidBlock()
 		}
+		if config.P2P.TrustedPeerIDs != "" {
+			ids := strings.Split(config.P2P.TrustedPeerIDs, ",")
+			trustedPeerIDs := make([]p2p.ID, len(ids))
+			for i, id := range ids {
+				err := p2p.ValidateID(p2p.ID(id))
+				if err != nil {
+					return nil, fmt.Errorf("wrong ID #%d: %w", i, err)
+				}
+
+				trustedPeerIDs[i] = p2p.ID(id)
+			}
+
+			bcReactor.(*blocksync.Reactor).SetTrustedPeerIDs(trustedPeerIDs)
+		}
 	case "v1", "v2":
 		return nil, fmt.Errorf("block sync version %s has been deprecated. Please use v0", config.BlockSync.Version)
 	default:
