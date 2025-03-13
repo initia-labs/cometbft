@@ -418,7 +418,7 @@ func SignAndCheckVote(
 	v := vote.ToProto()
 	if err := privVal.SignVote(chainID, v); err != nil {
 		// regression error is recoverable
-		if strings.Contains(err.Error(), "regression") {
+		if strings.Contains(err.Error(), "regression") || strings.Contains(err.Error(), "saving last sign state initiated") {
 			return true, err
 		}
 
