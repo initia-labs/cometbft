@@ -9,7 +9,6 @@ import (
 	"os"
 	"runtime/debug"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/cosmos/gogoproto/proto"
@@ -816,11 +815,7 @@ func (cs *State) receiveRoutine(maxSteps int) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			const signingError = "non-recoverable error when signing vote"
-			isSigningError := strings.Contains(fmt.Sprintf("%v", r), signingError)
-			if !isSigningError {
-				cs.Logger.Error("CONSENSUS FAILURE!!!", "err", r, "stack", string(debug.Stack()))
-			}
+			cs.Logger.Error("CONSENSUS FAILURE!!!", "err", r, "stack", string(debug.Stack()))
 
 			// stop gracefully
 			//
@@ -831,11 +826,6 @@ func (cs *State) receiveRoutine(maxSteps int) {
 			// some console or secure RPC system, but for now, halting the chain upon
 			// unexpected consensus bugs sounds like the better option.
 			onExit(cs)
-
-			if isSigningError {
-				// kill the process for restarting the node
-				cmtos.Exit(fmt.Sprintf("%v", r))
-			}
 		}
 	}()
 

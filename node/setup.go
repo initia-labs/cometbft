@@ -650,7 +650,7 @@ func createAndStartPrivValidatorSocketClient(
 	}
 
 	const (
-		retries = 50 // 50 * 100ms = 5s total
+		retries = 20 // 20 * 100ms = 2s total
 		timeout = 100 * time.Millisecond
 	)
 	pvscWithRetries := privval.NewRetrySignerClient(pvsc, retries, timeout)

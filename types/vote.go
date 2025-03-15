@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/cometbft/cometbft/crypto"
@@ -417,13 +416,9 @@ func SignAndCheckVote(
 ) (bool, error) {
 	v := vote.ToProto()
 	if err := privVal.SignVote(chainID, v); err != nil {
-		// regression error is recoverable
-		if strings.Contains(err.Error(), "regression") || strings.Contains(err.Error(), "saving last sign state initiated") {
-			return true, err
-		}
-
-		// other signing errors are not recoverable in single-validator case
-		return false, err
+		// Failing to sign a vote has always been a recoverable error, this
+		// function keeps it that way.
+		return true, err
 	}
 	vote.Signature = v.Signature
 
