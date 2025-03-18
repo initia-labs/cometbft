@@ -3,6 +3,7 @@ package blocksync
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -619,6 +620,15 @@ FOR_LOOP:
 			// get the hash without persisting the state
 			state, err = bcR.blockExec.ApplyVerifiedBlock(state, firstID, first)
 			if err != nil {
+				if strings.Contains(err.Error(), "UPGRADE") {
+					if err := bcR.pool.Stop(); err != nil {
+						bcR.Logger.Error("Error stopping pool", "err", err)
+					}
+
+					// for upgrade checker, we should not kill the node
+					break FOR_LOOP
+				}
+
 				// TODO This is bad, are we zombie?
 				panic(fmt.Sprintf("Failed to process committed block (%d:%X): %v", first.Height, first.Hash(), err))
 			}
