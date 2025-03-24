@@ -119,6 +119,18 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 		if err != nil {
 			return err
 		}
+
+		// store reverse key for tx height and tx hash
+		if txi.retainHeight != 0 {
+			err = storeBatch.Set(keyForReverse(result.Height, keyForHeight(result)), []byte{0x1})
+			if err != nil {
+				return err
+			}
+			err = storeBatch.Set(keyForReverse(result.Height, hash), []byte{0x1})
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return storeBatch.WriteSync()
@@ -172,6 +184,18 @@ func (txi *TxIndex) Index(result *abci.TxResult) error {
 	err = b.Set(hash, rawBytes)
 	if err != nil {
 		return err
+	}
+
+	// store reverse key for tx height and tx hash
+	if txi.retainHeight != 0 {
+		err = b.Set(keyForReverse(result.Height, keyForHeight(result)), []byte{0x1})
+		if err != nil {
+			return err
+		}
+		err = b.Set(keyForReverse(result.Height, hash), []byte{0x1})
+		if err != nil {
+			return err
+		}
 	}
 
 	return b.WriteSync()
@@ -815,27 +839,6 @@ func (txi *TxIndex) Prune(curHeight int64) error {
 		}
 	}
 
-	// delete tx height index keys
-	startKey = keyForHeightRange(1)
-	endKey = keyForHeightRange(minHeight + 1)
-	iter, err = txi.store.Iterator(startKey, endKey)
-	if err != nil {
-		return err
-	}
-
-	defer iter.Close()
-	for ; iter.Valid(); iter.Next() {
-		// delete tx height index keys
-		if err := pruneBatch.Delete(iter.Key()); err != nil {
-			return err
-		}
-
-		// delete tx hash index keys
-		if err := pruneBatch.Delete(iter.Value()); err != nil {
-			return err
-		}
-	}
-
 	return pruneBatch.WriteSync()
 }
 
@@ -848,11 +851,4 @@ func keyForReverse(height int64, eventKey []byte) []byte {
 	binary.BigEndian.PutUint64(heightBz, uint64(height))
 
 	return append(append(types.ReverseTxIndexPrefix, heightBz...), eventKey...)
-}
-
-func keyForHeightRange(height int64) []byte {
-	return []byte(fmt.Sprintf("%s/%d/",
-		types.TxHeightKey,
-		height,
-	))
 }
