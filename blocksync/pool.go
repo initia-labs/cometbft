@@ -55,7 +55,7 @@ const (
 	minBlocksForSingleRequest = 50
 )
 
-var peerTimeout = 15 * time.Second // not const so we can override with tests
+var peerTimeout = 60 * time.Second // not const so we can override with tests
 
 /*
 	Peers self report their heights when we join the block pool.
