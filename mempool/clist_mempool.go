@@ -454,7 +454,9 @@ func (mem *CListMempool) resCbFirstTime(
 				"height", mem.height.Load(),
 				"total", mem.Size(),
 			)
-			mem.notifyTxsAvailable()
+			if r.CheckTx.Codespace != "txqueue" {
+				mem.notifyTxsAvailable()
+			}
 		} else {
 			// ignore bad transaction
 			mem.logger.Debug(
@@ -669,16 +671,22 @@ func (mem *CListMempool) recheckTxs() {
 	// because this function has the lock (via Update and Lock).
 	height := mem.height.Load()
 	for e := mem.txs.Front(); e != nil; e = e.Next() {
-		mempoolTx := e.Value.(*mempoolTx)
-		if mempoolTx.Height()+MaxQueuedTxRetainHeight > height {
-			mem.logger.Debug("tx is too old to be rechecked", "tx", mempoolTx.tx.Hash(), "height", mempoolTx.Height(), "max-height", height+MaxQueuedTxRetainHeight)
+
+		// check if the tx is too old to be in the mempool
+		if mempoolTx := e.Value.(*mempoolTx); height < mempoolTx.height+MaxQueuedTxRetainHeight {
+			mem.logger.Debug("tx is removed from mempool with timeout", "height", mempoolTx.height, "max-height", height+MaxQueuedTxRetainHeight)
 			if err := mem.RemoveTxByKey(mempoolTx.tx.Key()); err != nil {
 				mem.logger.Debug("Transaction could not be removed from mempool", "err", err)
 			}
+			if !mem.config.KeepInvalidTxsInCache {
+				mem.cache.Remove(mempoolTx.tx)
+				mem.metrics.EvictedTxs.Add(1)
+			}
+
 			continue
 		}
 
-		tx := mempoolTx.tx
+		tx := e.Value.(*mempoolTx).tx
 		mem.recheck.numPendingTxs.Add(1)
 
 		// Send a CheckTx request to the app. If we're using a sync client, the resCbRecheck
