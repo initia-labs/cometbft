@@ -673,7 +673,7 @@ func (mem *CListMempool) recheckTxs() {
 	for e := mem.txs.Front(); e != nil; e = e.Next() {
 
 		// check if the tx is too old to be in the mempool
-		if mempoolTx := e.Value.(*mempoolTx); height < mempoolTx.height+MaxQueuedTxRetainHeight {
+		if mempoolTx := e.Value.(*mempoolTx); height > mempoolTx.height+MaxQueuedTxRetainHeight {
 			mem.logger.Debug("tx is removed from mempool with timeout", "height", mempoolTx.height, "max-height", height+MaxQueuedTxRetainHeight)
 			if err := mem.RemoveTxByKey(mempoolTx.tx.Key()); err != nil {
 				mem.logger.Debug("Transaction could not be removed from mempool", "err", err)
