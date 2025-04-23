@@ -55,6 +55,10 @@ type CListMempool struct {
 
 	logger  log.Logger
 	metrics *Metrics
+
+	// hasValidRecheckTxs indicates whether any transaction has been successfully rechecked
+	// with a non-txqueue codespace response, meaning it's ready for inclusion in a block
+	hasValidRecheckTxs atomic.Bool
 }
 
 var _ Mempool = &CListMempool{}
@@ -489,6 +493,11 @@ func (mem *CListMempool) resCbRecheck(tx types.Tx, res *abci.ResponseCheckTx) {
 		postCheckErr = mem.postCheck(tx, res)
 	}
 
+	// if the tx is valid and non-txqueue codespace, and we haven't seen a valid recheck tx yet, set the flag
+	if res.Code == abci.CodeTypeOK && res.Codespace != "txqueue" && !mem.hasValidRecheckTxs.Load() {
+		mem.hasValidRecheckTxs.Store(true)
+	}
+
 	if (res.Code != abci.CodeTypeOK) || postCheckErr != nil {
 		// Tx became invalidated due to newly committed block.
 		mem.logger.Debug("tx is no longer valid", "tx", tx.Hash(), "res", res, "postCheckErr", postCheckErr)
@@ -591,6 +600,7 @@ func (mem *CListMempool) Update(
 	// Set height
 	mem.height.Store(height)
 	mem.notifiedTxsAvailable.Store(false)
+	mem.hasValidRecheckTxs.Store(false)
 
 	if preCheck != nil {
 		mem.preCheck = preCheck
@@ -630,8 +640,8 @@ func (mem *CListMempool) Update(
 		mem.recheckTxs()
 	}
 
-	// Notify if there are still txs left in the mempool.
-	if mem.Size() > 0 {
+	// Notify if there are still valid txs left in the mempool.
+	if mem.Size() > 0 && mem.hasValidRecheckTxs.Load() {
 		mem.notifyTxsAvailable()
 	}
 
