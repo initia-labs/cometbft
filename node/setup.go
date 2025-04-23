@@ -140,6 +140,7 @@ func createAndStartEventBus(logger log.Logger) (*types.EventBus, error) {
 
 func createAndStartIndexerService(
 	config *cfg.Config,
+	stateStore sm.Store,
 	chainID string,
 	dbProvider cfg.DBProvider,
 	eventBus *types.EventBus,
@@ -150,7 +151,7 @@ func createAndStartIndexerService(
 		blockIndexer indexer.BlockIndexer
 	)
 
-	txIndexer, blockIndexer, allIndexersDisabled, err := block.IndexerFromConfigWithDisabledIndexers(config, dbProvider, chainID)
+	txIndexer, blockIndexer, allIndexersDisabled, err := block.IndexerFromConfigWithDisabledIndexers(config, stateStore, dbProvider, chainID)
 	if err != nil {
 		return nil, nil, nil, err
 	}

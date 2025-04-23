@@ -68,27 +68,13 @@ func (_m *TxIndexer) Get(hash []byte) (*types.TxResult, error) {
 	return r0, r1
 }
 
-// Index provides a mock function with given fields: result
-func (_m *TxIndexer) Index(result *types.TxResult) error {
-	ret := _m.Called(result)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Index")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(*types.TxResult) error); ok {
-		r0 = rf(result)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
 // Prune provides a mock function with given fields: curHeight
 func (_m *TxIndexer) Prune(curHeight int64) error {
 	ret := _m.Called(curHeight)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Prune")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(int64) error); ok {
@@ -100,31 +86,33 @@ func (_m *TxIndexer) Prune(curHeight int64) error {
 	return r0
 }
 
-// Search provides a mock function with given fields: ctx, q
-func (_m *TxIndexer) Search(ctx context.Context, q *query.Query) ([]*types.TxResult, error) {
-	ret := _m.Called(ctx, q)
+// Search provides a mock function with given fields: ctx, q, latestHeight, maxCount
+func (_m *TxIndexer) Search(ctx context.Context, q *query.Query, latestHeight int64, maxCount int64) (chan types.TxResult, chan error) {
+	ret := _m.Called(ctx, q, latestHeight, maxCount)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Search")
 	}
 
-	var r0 []*types.TxResult
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) ([]*types.TxResult, error)); ok {
-		return rf(ctx, q)
+	var r0 chan types.TxResult
+	var r1 chan error
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64, int64) (chan types.TxResult, chan error)); ok {
+		return rf(ctx, q, latestHeight, maxCount)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) []*types.TxResult); ok {
-		r0 = rf(ctx, q)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64, int64) chan types.TxResult); ok {
+		r0 = rf(ctx, q, latestHeight, maxCount)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*types.TxResult)
+			r0 = ret.Get(0).(chan types.TxResult)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *query.Query) error); ok {
-		r1 = rf(ctx, q)
+	if rf, ok := ret.Get(1).(func(context.Context, *query.Query, int64, int64) chan error); ok {
+		r1 = rf(ctx, q, latestHeight, maxCount)
 	} else {
-		r1 = ret.Error(1)
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(chan error)
+		}
 	}
 
 	return r0, r1

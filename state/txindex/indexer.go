@@ -19,15 +19,12 @@ type TxIndexer interface {
 	// AddBatch analyzes, indexes and stores a batch of transactions.
 	AddBatch(b *Batch) error
 
-	// Index analyzes, indexes and stores a single transaction.
-	Index(result *abci.TxResult) error
-
 	// Get returns the transaction specified by hash or nil if the transaction is not indexed
 	// or stored.
 	Get(hash []byte) (*abci.TxResult, error)
 
 	// Search allows you to query for transactions.
-	Search(ctx context.Context, q *query.Query) ([]*abci.TxResult, error)
+	Search(ctx context.Context, q *query.Query, latestHeight int64, maxCount int64) (chan abci.TxResult, chan error)
 
 	//Set Logger
 	SetLogger(l log.Logger)

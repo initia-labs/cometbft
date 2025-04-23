@@ -89,7 +89,7 @@ func TestLoadEventSink(t *testing.T) {
 		{"", "", true},
 		{"NULL", "", true},
 		{"KV", "", false},
-		{"PSQL", "", true}, // true because empty connect url
+		// {"PSQL", "", true}, // true because empty connect url
 		// skip to test PSQL connect with correct url
 		{"UnsupportedSinkType", "wrongUrl", true},
 	}
@@ -97,8 +97,8 @@ func TestLoadEventSink(t *testing.T) {
 	for idx, tc := range testCases {
 		cfg := cmtcfg.TestConfig()
 		cfg.TxIndex.Indexer = tc.sinks
-		cfg.TxIndex.PsqlConn = tc.connURL
-		_, _, err := loadEventSinks(cfg, test.DefaultTestChainID)
+		// cfg.TxIndex.PsqlConn = tc.connURL
+		_, _, err := loadEventSinks(cfg, test.DefaultTestChainID, nil)
 		if tc.loadErr {
 			require.Error(t, err, idx)
 		} else {

@@ -31,8 +31,12 @@ func (txi *TxIndex) Index(_ *abci.TxResult) error {
 	return nil
 }
 
-func (txi *TxIndex) Search(_ context.Context, _ *query.Query) ([]*abci.TxResult, error) {
-	return []*abci.TxResult{}, nil
+func (txi *TxIndex) Search(_ context.Context, _ *query.Query, _ int64, _ int64) (chan abci.TxResult, chan error) {
+	txs := make(chan abci.TxResult)
+	errs := make(chan error)
+	close(txs)
+	close(errs)
+	return txs, errs
 }
 
 func (txi *TxIndex) SetLogger(log.Logger) {

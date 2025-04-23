@@ -2,9 +2,7 @@ package kv
 
 import (
 	"fmt"
-	"math/big"
 
-	idxutil "github.com/cometbft/cometbft/internal/indexer"
 	cmtsyntax "github.com/cometbft/cometbft/libs/pubsub/query/syntax"
 	"github.com/cometbft/cometbft/state/indexer"
 	"github.com/cometbft/cometbft/types"
@@ -48,7 +46,7 @@ func ParseEventSeqFromEventKey(key []byte) (int64, error) {
 	return eventSeq, nil
 }
 
-func dedupHeight(conditions []cmtsyntax.Condition) (dedupConditions []cmtsyntax.Condition, heightInfo HeightInfo) {
+func dedupHeight(conditions []cmtsyntax.Condition) (dedupConditions []cmtsyntax.Condition, heightInfo HeightInfo, err error) {
 	heightInfo.heightEqIdx = -1
 	heightRangeExists := false
 	found := false
@@ -59,7 +57,7 @@ func dedupHeight(conditions []cmtsyntax.Condition) (dedupConditions []cmtsyntax.
 		if c.Tag == types.TxHeightKey {
 			if c.Op == cmtsyntax.TEq {
 				if heightRangeExists || found {
-					continue
+					return nil, heightInfo, fmt.Errorf("invalid height configuration")
 				}
 				hFloat := c.Arg.Number()
 				if hFloat != nil {
@@ -69,6 +67,9 @@ func dedupHeight(conditions []cmtsyntax.Condition) (dedupConditions []cmtsyntax.
 					heightCondition = append(heightCondition, c)
 				}
 			} else {
+				if found {
+					return nil, heightInfo, fmt.Errorf("invalid height configuration")
+				}
 				heightInfo.onlyHeightEq = false
 				heightRangeExists = true
 				dedupConditions = append(dedupConditions, c)
@@ -90,19 +91,5 @@ func dedupHeight(conditions []cmtsyntax.Condition) (dedupConditions []cmtsyntax.
 		heightInfo.height = 0
 		heightInfo.onlyHeightEq = false
 	}
-	return dedupConditions, heightInfo
-}
-
-func checkHeightConditions(heightInfo HeightInfo, keyHeight int64) (bool, error) {
-	if heightInfo.heightRange.Key != "" {
-		withinBounds, err := idxutil.CheckBounds(heightInfo.heightRange, big.NewInt(keyHeight))
-		if err != nil || !withinBounds {
-			return false, err
-		}
-	} else {
-		if heightInfo.height != 0 && keyHeight != heightInfo.height {
-			return false, nil
-		}
-	}
-	return true, nil
+	return dedupConditions, heightInfo, nil
 }

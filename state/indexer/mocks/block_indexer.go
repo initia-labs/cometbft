@@ -69,6 +69,10 @@ func (_m *BlockIndexer) Index(_a0 types.EventDataNewBlockEvents) error {
 func (_m *BlockIndexer) Prune(curHeight int64) error {
 	ret := _m.Called(curHeight)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Prune")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(int64) error); ok {
 		r0 = rf(curHeight)
@@ -79,31 +83,33 @@ func (_m *BlockIndexer) Prune(curHeight int64) error {
 	return r0
 }
 
-// Search provides a mock function with given fields: ctx, q
-func (_m *BlockIndexer) Search(ctx context.Context, q *query.Query) ([]int64, error) {
-	ret := _m.Called(ctx, q)
+// Search provides a mock function with given fields: ctx, q, latestHeight, maxCount
+func (_m *BlockIndexer) Search(ctx context.Context, q *query.Query, latestHeight int64, maxCount int64) (chan int64, chan error) {
+	ret := _m.Called(ctx, q, latestHeight, maxCount)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Search")
 	}
 
-	var r0 []int64
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) ([]int64, error)); ok {
-		return rf(ctx, q)
+	var r0 chan int64
+	var r1 chan error
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64, int64) (chan int64, chan error)); ok {
+		return rf(ctx, q, latestHeight, maxCount)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) []int64); ok {
-		r0 = rf(ctx, q)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64, int64) chan int64); ok {
+		r0 = rf(ctx, q, latestHeight, maxCount)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]int64)
+			r0 = ret.Get(0).(chan int64)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *query.Query) error); ok {
-		r1 = rf(ctx, q)
+	if rf, ok := ret.Get(1).(func(context.Context, *query.Query, int64, int64) chan error); ok {
+		r1 = rf(ctx, q, latestHeight, maxCount)
 	} else {
-		r1 = ret.Error(1)
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(chan error)
+		}
 	}
 
 	return r0, r1

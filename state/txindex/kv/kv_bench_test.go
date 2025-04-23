@@ -12,6 +12,8 @@ import (
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/libs/pubsub/query"
 	"github.com/cometbft/cometbft/types"
+
+	"github.com/cometbft/cometbft/state/txindex"
 )
 
 func BenchmarkTxSearch(b *testing.B) {
@@ -27,7 +29,7 @@ func BenchmarkTxSearch(b *testing.B) {
 
 	indexer := NewTxIndex(db, 0)
 
-	for i := 0; i < 35000; i++ {
+	for i := 0; i < 1000; i++ {
 		events := []abci.Event{
 			{
 				Type: "transfer",
@@ -55,7 +57,9 @@ func BenchmarkTxSearch(b *testing.B) {
 			},
 		}
 
-		if err := indexer.Index(txResult); err != nil {
+		batch := txindex.NewBatch(1)
+		batch.Ops[0] = txResult
+		if err := indexer.AddBatch(batch); err != nil {
 			b.Errorf("failed to index tx: %s", err)
 		}
 	}
@@ -67,7 +71,21 @@ func BenchmarkTxSearch(b *testing.B) {
 	ctx := context.Background()
 
 	for i := 0; i < b.N; i++ {
-		if _, err := indexer.Search(ctx, txQuery); err != nil {
+		resultChan, errChan := indexer.Search(ctx, txQuery, 1000, 1000)
+
+		var err error
+	RESULT_LOOP:
+		for {
+			select {
+			case _, ok := <-resultChan:
+				if !ok {
+					break RESULT_LOOP
+				}
+			case err = <-errChan:
+				break RESULT_LOOP
+			}
+		}
+		if err != nil {
 			b.Errorf("failed to query for txs: %s", err)
 		}
 	}

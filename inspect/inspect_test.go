@@ -109,21 +109,41 @@ func TestTxSearch(t *testing.T) {
 	testQuery := fmt.Sprintf("tx.hash='%s'", string(testHash))
 	testTxResult := &abcitypes.TxResult{
 		Height: 1,
-		Index:  100,
+		Index:  0,
 		Tx:     testTx,
 	}
 
 	stateStoreMock := &statemocks.Store{}
+	stateStoreMock.On("LoadFinalizeBlockResponse", testTxResult.Height).Return(&abcitypes.ResponseFinalizeBlock{
+		Events: []abcitypes.Event{},
+		TxResults: []*abcitypes.ExecTxResult{
+			{},
+		},
+	}, nil)
 	stateStoreMock.On("Close").Return(nil)
 	blockStoreMock := &statemocks.BlockStore{}
+	blockStoreMock.On("LoadBlock", testTxResult.Height).Return(&types.Block{
+		Header: types.Header{
+			Height: testTxResult.Height,
+		},
+		Data: types.Data{
+			Txs: []types.Tx{testTx},
+		},
+	}, nil)
+	blockStoreMock.On("Height").Return(testTxResult.Height)
 	blockStoreMock.On("Close").Return(nil)
 	txIndexerMock := &txindexmocks.TxIndexer{}
 	blkIdxMock := &indexermocks.BlockIndexer{}
+	resultChan := make(chan abcitypes.TxResult, 1)
+	resultChan <- *testTxResult
+	close(resultChan)
+	errChan := make(chan error, 1)
+	close(errChan)
 	txIndexerMock.On("Search", mock.Anything,
 		mock.MatchedBy(func(q *query.Query) bool {
 			return testQuery == strings.ReplaceAll(q.String(), " ", "")
-		})).
-		Return([]*abcitypes.TxResult{testTxResult}, nil)
+		}), testTxResult.Height, int64(1000)).
+		Return(resultChan, errChan)
 
 	rpcConfig := config.TestRPCConfig()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)
@@ -150,6 +170,9 @@ func TestTxSearch(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resultTxSearch.Txs, 1)
 	require.Equal(t, types.Tx(testTx), resultTxSearch.Txs[0].Tx)
+
+	_, err = cli.TxSearch(context.Background(), testQuery, false, &page, &page, "desc")
+	require.Error(t, err)
 
 	cancel()
 	wg.Wait()
@@ -518,6 +541,7 @@ func TestBlockSearch(t *testing.T) {
 	stateStoreMock.On("Close").Return(nil)
 
 	blockStoreMock := &statemocks.BlockStore{}
+	blockStoreMock.On("Height").Return(testHeight)
 	blockStoreMock.On("Close").Return(nil)
 
 	txIndexerMock := &txindexmocks.TxIndexer{}
@@ -532,9 +556,14 @@ func TestBlockSearch(t *testing.T) {
 			Hash: testBlockHash,
 		},
 	})
+	resultChan := make(chan int64, 1)
+	resultChan <- testHeight
+	close(resultChan)
+	errChan := make(chan error, 1)
+	close(errChan)
 	blkIdxMock.On("Search", mock.Anything,
-		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() })).
-		Return([]int64{testHeight}, nil)
+		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() }), testHeight, int64(1000)).
+		Return(resultChan, errChan)
 	rpcConfig := config.TestRPCConfig()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)
 
@@ -558,11 +587,15 @@ func TestBlockSearch(t *testing.T) {
 
 	testPage := 1
 	testPerPage := 100
-	testOrderBy := "desc"
+	testOrderBy := "asc"
 	res, err := cli.BlockSearch(context.Background(), testQuery, &testPage, &testPerPage, testOrderBy)
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	require.Equal(t, testBlockHash, []byte(res.Blocks[0].BlockID.Hash))
+
+	testOrderBy = "desc"
+	_, err = cli.BlockSearch(context.Background(), testQuery, &testPage, &testPerPage, testOrderBy)
+	require.Error(t, err)
 
 	cancel()
 	wg.Wait()

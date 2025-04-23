@@ -3,7 +3,6 @@ package core
 import (
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/cometbft/cometbft/libs/bytes"
 	cmtmath "github.com/cometbft/cometbft/libs/math"
@@ -216,53 +215,59 @@ func (env *Environment) BlockSearch(
 		return nil, errors.New("block indexing is disabled")
 	}
 
+	if orderBy == "desc" {
+		return nil, errors.New("order_by is not supported")
+	}
+
 	q, err := cmtquery.New(query)
 	if err != nil {
 		return nil, err
 	}
 
-	results, err := env.BlockIndexer.Search(ctx.Context(), q)
-	if err != nil {
-		return nil, err
-	}
-
-	// sort results (must be done before pagination)
-	switch orderBy {
-	case "desc", "":
-		sort.Slice(results, func(i, j int) bool { return results[i] > results[j] })
-
-	case "asc":
-		sort.Slice(results, func(i, j int) bool { return results[i] < results[j] })
-
-	default:
-		return nil, errors.New("expected order_by to be either `asc` or `desc` or empty")
-	}
-
-	// paginate results
-	totalCount := len(results)
+	resultChan, errChan := env.BlockIndexer.Search(ctx.Context(), q, env.BlockStore.Height(), maxTotalCount)
 	perPage := env.validatePerPage(perPagePtr)
-
-	page, err := validatePage(pagePtr, perPage, totalCount)
-	if err != nil {
-		return nil, err
+	page := *pagePtr
+	if page <= 0 {
+		return nil, fmt.Errorf("page should be greater than 0")
+	} else if page*perPage > maxTotalCount {
+		return nil, fmt.Errorf("page size is too large, max count is %d", maxTotalCount)
 	}
 
-	skipCount := validateSkipCount(page, perPage)
-	pageSize := cmtmath.MinInt(perPage, totalCount-skipCount)
+	results := make([]*ctypes.ResultBlock, 0, perPage)
+	totalCount := 0
 
-	apiResults := make([]*ctypes.ResultBlock, 0, pageSize)
-	for i := skipCount; i < skipCount+pageSize; i++ {
-		block := env.BlockStore.LoadBlock(results[i])
-		if block != nil {
+RESULT_LOOP:
+	for {
+		select {
+		case result, ok := <-resultChan:
+			if !ok {
+				break RESULT_LOOP
+			}
+			totalCount++
+			if totalCount >= maxTotalCount {
+				break RESULT_LOOP
+			} else if totalCount <= (page-1)*perPage || totalCount > page*perPage {
+				continue
+			}
+
+			block := env.BlockStore.LoadBlock(result)
+			if block == nil {
+				return nil, fmt.Errorf("block not found")
+			}
 			blockMeta := env.BlockStore.LoadBlockMeta(block.Height)
-			if blockMeta != nil {
-				apiResults = append(apiResults, &ctypes.ResultBlock{
-					Block:   block,
-					BlockID: blockMeta.BlockID,
-				})
+			if blockMeta == nil {
+				return nil, fmt.Errorf("block meta not found")
+			}
+			results = append(results, &ctypes.ResultBlock{
+				Block:   block,
+				BlockID: blockMeta.BlockID,
+			})
+
+		case err := <-errChan:
+			if err != nil {
+				return nil, err
 			}
 		}
 	}
-
-	return &ctypes.ResultBlockSearch{Blocks: apiResults, TotalCount: totalCount}, nil
+	return &ctypes.ResultBlockSearch{Blocks: results, TotalCount: totalCount}, nil
 }

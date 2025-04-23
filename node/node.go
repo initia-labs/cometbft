@@ -324,7 +324,7 @@ func NewNodeWithContext(ctx context.Context,
 		return nil, err
 	}
 
-	indexerService, txIndexer, blockIndexer, err := createAndStartIndexerService(config,
+	indexerService, txIndexer, blockIndexer, err := createAndStartIndexerService(config, stateStore,
 		genDoc.ChainID, dbProvider, eventBus, logger)
 	if err != nil {
 		return nil, err

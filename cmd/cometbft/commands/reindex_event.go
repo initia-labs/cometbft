@@ -15,7 +15,6 @@ import (
 	"github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/state/indexer"
 	blockidxkv "github.com/cometbft/cometbft/state/indexer/block/kv"
-	"github.com/cometbft/cometbft/state/indexer/sink/psql"
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/state/txindex/kv"
 	"github.com/cometbft/cometbft/types"
@@ -70,7 +69,7 @@ want to use this command.
 			return
 		}
 
-		bi, ti, err := loadEventSinks(config, state.ChainID)
+		bi, ti, err := loadEventSinks(config, state.ChainID, ss)
 		if err != nil {
 			fmt.Println(reindexFailed, err)
 			return
@@ -102,20 +101,20 @@ func init() {
 	ReIndexEventCmd.Flags().Int64Var(&endHeight, "end-height", 0, "the block height would like to finish for re-index")
 }
 
-func loadEventSinks(cfg *cmtcfg.Config, chainID string) (indexer.BlockIndexer, txindex.TxIndexer, error) {
+func loadEventSinks(cfg *cmtcfg.Config, chainID string, stateStore state.Store) (indexer.BlockIndexer, txindex.TxIndexer, error) {
 	switch strings.ToLower(cfg.TxIndex.Indexer) {
 	case "null":
 		return nil, nil, errors.New("found null event sink, please check the tx-index section in the config.toml")
-	case "psql":
-		conn := cfg.TxIndex.PsqlConn
-		if conn == "" {
-			return nil, nil, errors.New("the psql connection settings cannot be empty")
-		}
-		es, err := psql.NewEventSink(conn, chainID)
-		if err != nil {
-			return nil, nil, err
-		}
-		return es.BlockIndexer(), es.TxIndexer(), nil
+	// case "psql":
+	// 	conn := cfg.TxIndex.PsqlConn
+	// 	if conn == "" {
+	// 		return nil, nil, errors.New("the psql connection settings cannot be empty")
+	// 	}
+	// 	es, err := psql.NewEventSink(conn, chainID)
+	// 	if err != nil {
+	// 		return nil, nil, err
+	// 	}
+	// 	return es.BlockIndexer(), es.TxIndexer(), nil
 	case "kv":
 		store, err := dbm.NewDB("tx_index", dbm.BackendType(cfg.DBBackend), cfg.DBDir())
 		if err != nil {
@@ -123,7 +122,7 @@ func loadEventSinks(cfg *cmtcfg.Config, chainID string) (indexer.BlockIndexer, t
 		}
 
 		txIndexer := kv.NewTxIndex(store, cfg.TxIndex.RetainHeight)
-		blockIndexer := blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events")), cfg.TxIndex.RetainHeight)
+		blockIndexer := blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events")), stateStore, cfg.TxIndex.RetainHeight)
 		return blockIndexer, txIndexer, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported event sink type: %s", cfg.TxIndex.Indexer)

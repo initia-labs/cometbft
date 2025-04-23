@@ -3,14 +3,16 @@ package core
 import (
 	"errors"
 	"fmt"
-	"sort"
 
-	cmtmath "github.com/cometbft/cometbft/libs/math"
 	cmtquery "github.com/cometbft/cometbft/libs/pubsub/query"
 	ctypes "github.com/cometbft/cometbft/rpc/core/types"
 	rpctypes "github.com/cometbft/cometbft/rpc/jsonrpc/types"
 	"github.com/cometbft/cometbft/state/txindex/null"
 	"github.com/cometbft/cometbft/types"
+)
+
+const (
+	maxTotalCount = 1000
 )
 
 // Tx allows you to query the transaction results. `nil` could mean the
@@ -67,69 +69,70 @@ func (env *Environment) TxSearch(
 		return nil, errors.New("maximum query length exceeded")
 	}
 
+	if orderBy == "desc" {
+		return nil, errors.New("order_by is not supported")
+	}
+
 	q, err := cmtquery.New(query)
 	if err != nil {
 		return nil, err
 	}
 
-	results, err := env.TxIndexer.Search(ctx.Context(), q)
-	if err != nil {
-		return nil, err
-	}
+	resultChan, errChan := env.TxIndexer.Search(ctx.Context(), q, env.BlockStore.Height(), maxTotalCount)
 
-	// sort results (must be done before pagination)
-	switch orderBy {
-	case "desc":
-		sort.Slice(results, func(i, j int) bool {
-			if results[i].Height == results[j].Height {
-				return results[i].Index > results[j].Index
-			}
-			return results[i].Height > results[j].Height
-		})
-	case "asc", "":
-		sort.Slice(results, func(i, j int) bool {
-			if results[i].Height == results[j].Height {
-				return results[i].Index < results[j].Index
-			}
-			return results[i].Height < results[j].Height
-		})
-	default:
-		return nil, errors.New("expected order_by to be either `asc` or `desc` or empty")
-	}
-
-	// paginate results
-	totalCount := len(results)
 	perPage := env.validatePerPage(perPagePtr)
-
-	page, err := validatePage(pagePtr, perPage, totalCount)
-	if err != nil {
-		return nil, err
+	page := *pagePtr
+	if page <= 0 {
+		return nil, fmt.Errorf("page should be greater than 0")
+	} else if page*perPage > maxTotalCount {
+		return nil, fmt.Errorf("page size is too large, max count is %d", maxTotalCount)
 	}
 
-	skipCount := validateSkipCount(page, perPage)
-	pageSize := cmtmath.MinInt(perPage, totalCount-skipCount)
+	results := make([]*ctypes.ResultTx, 0, perPage)
+	totalCount := 0
 
-	apiResults := make([]*ctypes.ResultTx, 0, pageSize)
-	for i := skipCount; i < skipCount+pageSize; i++ {
-		r := results[i]
+RESULT_LOOP:
+	for {
+		select {
+		case result, ok := <-resultChan:
+			if !ok {
+				break RESULT_LOOP
+			}
+			totalCount++
+			if totalCount >= maxTotalCount {
+				break RESULT_LOOP
+			} else if totalCount <= (page-1)*perPage || totalCount > page*perPage {
+				continue
+			}
 
-		var proof types.TxProof
-		if prove {
-			block := env.BlockStore.LoadBlock(r.Height)
-			if block != nil {
-				proof = block.Data.Txs.Proof(int(r.Index))
+			block := env.BlockStore.LoadBlock(result.Height)
+			if block == nil {
+				return nil, fmt.Errorf("block not found")
+			}
+			response, err := env.StateStore.LoadFinalizeBlockResponse(result.Height)
+			if err != nil {
+				return nil, err
+			}
+
+			var proof types.TxProof
+			if prove {
+				proof = block.Data.Txs.Proof(int(result.Index))
+			}
+
+			results = append(results, &ctypes.ResultTx{
+				Hash:     types.Tx(result.Tx).Hash(),
+				Height:   result.Height,
+				Index:    result.Index,
+				TxResult: *response.TxResults[result.Index],
+				Tx:       block.Data.Txs[result.Index],
+				Proof:    proof,
+			})
+		case err := <-errChan:
+			if err != nil {
+				return nil, err
 			}
 		}
-
-		apiResults = append(apiResults, &ctypes.ResultTx{
-			Hash:     types.Tx(r.Tx).Hash(),
-			Height:   r.Height,
-			Index:    r.Index,
-			TxResult: r.Result,
-			Tx:       r.Tx,
-			Proof:    proof,
-		})
 	}
 
-	return &ctypes.ResultTxSearch{Txs: apiResults, TotalCount: totalCount}, nil
+	return &ctypes.ResultTxSearch{Txs: results, TotalCount: totalCount}, nil
 }
