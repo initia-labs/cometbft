@@ -505,7 +505,7 @@ func (mem *CListMempool) resCbRecheck(tx types.Tx, res *abci.ResponseCheckTx) {
 			mem.cache.Remove(tx)
 			mem.metrics.EvictedTxs.Add(1)
 		}
-	} else if res.Code == abci.CodeTypeOK && res.Codespace != "txqueue" && !mem.hasValidRecheckTxs.Load() {
+	} else if res.Codespace != "txqueue" && !mem.hasValidRecheckTxs.Load() {
 		// if the tx is valid and non-txqueue codespace, and we haven't seen a valid recheck tx yet, set the flag
 		mem.hasValidRecheckTxs.Store(true)
 	}
