@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -159,6 +160,13 @@ func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 				return fmt.Errorf("not able to load ABCI Response at height %d from the statestore", height)
 			}
 
+			if changed := disassembleMoveEvent(resp); changed {
+				err := args.stateStore.SaveFinalizeBlockResponse(height, resp)
+				if err != nil {
+					return fmt.Errorf("not able to save ABCI Response at height %d to the statestore", height)
+				}
+			}
+
 			e := types.EventDataNewBlockEvents{
 				Height: height,
 				Events: resp.Events,
@@ -197,6 +205,56 @@ func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 	}
 
 	return nil
+}
+
+func disassembleMoveEvent(resp *abcitypes.ResponseFinalizeBlock) bool {
+	disassembleFunc := func(attrs []abcitypes.EventAttribute) []abcitypes.EventAttribute {
+		changedEvent := false
+		newAttributes := make([]abcitypes.EventAttribute, 0)
+		for _, attr := range attrs {
+			if attr.Key == "data" {
+				var dataEvent map[string]interface{}
+				err := json.Unmarshal([]byte(attr.Value), &dataEvent)
+				if err == nil {
+					changedEvent = true
+					for k, v := range dataEvent {
+						newAttributes = append(newAttributes, abcitypes.EventAttribute{
+							Key:   k,
+							Value: fmt.Sprintf("%v", v),
+							Index: attr.Index,
+						})
+					}
+				}
+			} else {
+				newAttributes = append(newAttributes, attr)
+			}
+		}
+		if changedEvent {
+			return newAttributes
+		}
+		return nil
+	}
+
+	changed := false
+
+	for eventIndex, event := range resp.Events {
+		if event.Type == "move" {
+			if newAttributes := disassembleFunc(event.Attributes); newAttributes != nil {
+				resp.Events[eventIndex].Attributes = newAttributes
+				changed = true
+			}
+		}
+	}
+
+	for txIndex, txResult := range resp.TxResults {
+		for eventIndex, event := range txResult.Events {
+			if newAttributes := disassembleFunc(event.Attributes); newAttributes != nil {
+				resp.TxResults[txIndex].Events[eventIndex].Attributes = newAttributes
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 func checkValidHeight(bs state.BlockStore) error {
