@@ -442,15 +442,25 @@ func (mem *CListMempool) resCbFirstTime(
 				tx:        tx,
 			}
 			memTx.addSender(txInfo.SenderID)
-			mem.addTx(memTx)
-			mem.logger.Debug(
-				"added good transaction",
-				"tx", types.Tx(tx).Hash(),
-				"res", r,
-				"height", mem.height.Load(),
-				"total", mem.Size(),
-			)
-			mem.notifyTxsAvailable()
+
+			// if the tx is valid and non-txqueue codespace, then add it to the mempool and notify listeners
+			if r.CheckTx.Codespace != "txqueue" {
+				mem.addTx(memTx)
+				mem.logger.Debug(
+					"added good transaction",
+					"tx", types.Tx(tx).Hash(),
+					"res", r,
+					"height", mem.height.Load(),
+					"total", mem.Size(),
+				)
+				mem.notifyTxsAvailable()
+			} else {
+				mem.logger.Debug(
+					"added txqueue transaction",
+					"tx", types.Tx(tx).Hash(),
+					"res", r,
+				)
+			}
 		} else {
 			// ignore bad transaction
 			mem.logger.Debug(
