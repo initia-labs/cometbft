@@ -55,6 +55,10 @@ type CListMempool struct {
 
 	logger  log.Logger
 	metrics *Metrics
+
+	// hasValidRecheckTxs indicates whether any transaction has been successfully rechecked
+	// with a non-txqueue codespace response, meaning it's ready for inclusion in a block
+	hasValidRecheckTxs atomic.Bool
 }
 
 var _ Mempool = &CListMempool{}
@@ -450,7 +454,9 @@ func (mem *CListMempool) resCbFirstTime(
 				"height", mem.height.Load(),
 				"total", mem.Size(),
 			)
-			mem.notifyTxsAvailable()
+			if r.CheckTx.Codespace != "txqueue" {
+				mem.notifyTxsAvailable()
+			}
 		} else {
 			// ignore bad transaction
 			mem.logger.Debug(
@@ -499,6 +505,9 @@ func (mem *CListMempool) resCbRecheck(tx types.Tx, res *abci.ResponseCheckTx) {
 			mem.cache.Remove(tx)
 			mem.metrics.EvictedTxs.Add(1)
 		}
+	} else if res.Codespace != "txqueue" && !mem.hasValidRecheckTxs.Load() {
+		// if the tx is valid and non-txqueue codespace, and we haven't seen a valid recheck tx yet, set the flag
+		mem.hasValidRecheckTxs.Store(true)
 	}
 }
 
@@ -591,6 +600,7 @@ func (mem *CListMempool) Update(
 	// Set height
 	mem.height.Store(height)
 	mem.notifiedTxsAvailable.Store(false)
+	mem.hasValidRecheckTxs.Store(false)
 
 	if preCheck != nil {
 		mem.preCheck = preCheck
@@ -630,8 +640,8 @@ func (mem *CListMempool) Update(
 		mem.recheckTxs()
 	}
 
-	// Notify if there are still txs left in the mempool.
-	if mem.Size() > 0 {
+	// Notify if there are still valid txs left in the mempool.
+	if mem.Size() > 0 && mem.hasValidRecheckTxs.Load() {
 		mem.notifyTxsAvailable()
 	}
 
@@ -641,6 +651,10 @@ func (mem *CListMempool) Update(
 
 	return nil
 }
+
+// MaxQueuedTxRetainHeight is the maximum height that a transaction can be queued for rechecking.
+// This is to prevent the mempool from holding onto transactions that are too old to be rechecked.
+const MaxQueuedTxRetainHeight = 100
 
 // recheckTxs sends all transactions in the mempool to the app for re-validation. When the function
 // returns, all recheck responses from the app have been processed.
@@ -655,7 +669,23 @@ func (mem *CListMempool) recheckTxs() {
 
 	// NOTE: globalCb may be called concurrently, but CheckTx cannot be executed concurrently
 	// because this function has the lock (via Update and Lock).
+	height := mem.height.Load()
 	for e := mem.txs.Front(); e != nil; e = e.Next() {
+
+		// check if the tx is too old to be in the mempool
+		if mempoolTx := e.Value.(*mempoolTx); height > mempoolTx.height+MaxQueuedTxRetainHeight {
+			mem.logger.Debug("tx is removed from the mempool with timeout", "tx", mempoolTx.tx.Hash(), "height", height, "max-height", mempoolTx.height+MaxQueuedTxRetainHeight)
+			if err := mem.RemoveTxByKey(mempoolTx.tx.Key()); err != nil {
+				mem.logger.Debug("Transaction could not be removed from mempool", "err", err)
+			}
+			if !mem.config.KeepInvalidTxsInCache {
+				mem.cache.Remove(mempoolTx.tx)
+				mem.metrics.EvictedTxs.Add(1)
+			}
+
+			continue
+		}
+
 		tx := e.Value.(*mempoolTx).tx
 		mem.recheck.numPendingTxs.Add(1)
 
