@@ -493,11 +493,6 @@ func (mem *CListMempool) resCbRecheck(tx types.Tx, res *abci.ResponseCheckTx) {
 		postCheckErr = mem.postCheck(tx, res)
 	}
 
-	// if the tx is valid and non-txqueue codespace, and we haven't seen a valid recheck tx yet, set the flag
-	if res.Code == abci.CodeTypeOK && res.Codespace != "txqueue" && !mem.hasValidRecheckTxs.Load() {
-		mem.hasValidRecheckTxs.Store(true)
-	}
-
 	if (res.Code != abci.CodeTypeOK) || postCheckErr != nil {
 		// Tx became invalidated due to newly committed block.
 		mem.logger.Debug("tx is no longer valid", "tx", tx.Hash(), "res", res, "postCheckErr", postCheckErr)
@@ -508,6 +503,9 @@ func (mem *CListMempool) resCbRecheck(tx types.Tx, res *abci.ResponseCheckTx) {
 			mem.cache.Remove(tx)
 			mem.metrics.EvictedTxs.Add(1)
 		}
+	} else if res.Code == abci.CodeTypeOK && res.Codespace != "txqueue" && !mem.hasValidRecheckTxs.Load() {
+		// if the tx is valid and non-txqueue codespace, and we haven't seen a valid recheck tx yet, set the flag
+		mem.hasValidRecheckTxs.Store(true)
 	}
 }
 
@@ -652,6 +650,10 @@ func (mem *CListMempool) Update(
 	return nil
 }
 
+// MaxQueuedTxRetainHeight is the maximum height that a transaction can be queued for rechecking.
+// This is to prevent the mempool from holding onto transactions that are too old to be rechecked.
+const MaxQueuedTxRetainHeight = 100
+
 // recheckTxs sends all transactions in the mempool to the app for re-validation. When the function
 // returns, all recheck responses from the app have been processed.
 func (mem *CListMempool) recheckTxs() {
@@ -665,8 +667,18 @@ func (mem *CListMempool) recheckTxs() {
 
 	// NOTE: globalCb may be called concurrently, but CheckTx cannot be executed concurrently
 	// because this function has the lock (via Update and Lock).
+	height := mem.height.Load()
 	for e := mem.txs.Front(); e != nil; e = e.Next() {
-		tx := e.Value.(*mempoolTx).tx
+		mempoolTx := e.Value.(*mempoolTx)
+		if mempoolTx.Height()+MaxQueuedTxRetainHeight > height {
+			mem.logger.Debug("tx is too old to be rechecked", "tx", mempoolTx.tx.Hash(), "height", mempoolTx.Height(), "max-height", height+MaxQueuedTxRetainHeight)
+			if err := mem.RemoveTxByKey(mempoolTx.tx.Key()); err != nil {
+				mem.logger.Debug("Transaction could not be removed from mempool", "err", err)
+			}
+			continue
+		}
+
+		tx := mempoolTx.tx
 		mem.recheck.numPendingTxs.Add(1)
 
 		// Send a CheckTx request to the app. If we're using a sync client, the resCbRecheck
