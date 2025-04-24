@@ -1,10 +1,9 @@
 package kv
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math/big"
-
-	"github.com/google/orderedcode"
 
 	idxutil "github.com/cometbft/cometbft/internal/indexer"
 	"github.com/cometbft/cometbft/libs/pubsub/query/syntax"
@@ -20,12 +19,15 @@ type HeightInfo struct {
 	onlyHeightEq    bool
 }
 
-func heightKey(height int64) ([]byte, error) {
-	return orderedcode.Append(
-		nil,
-		types.BlockHeightKey,
-		height,
-	)
+func int64FromBytes(bz []byte) int64 {
+	v, _ := binary.Varint(bz)
+	return v
+}
+
+func int64ToBytes(i int64) []byte {
+	buf := make([]byte, binary.MaxVarintLen64)
+	n := binary.PutVarint(buf, i)
+	return buf[:n]
 }
 
 // Remove all occurrences of height equality queries except one. While we are traversing the conditions, check whether the only condition in

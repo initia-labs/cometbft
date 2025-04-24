@@ -21,7 +21,7 @@ type BlockIndexer interface {
 
 	// Search performs a query for block heights that match a given FinalizeBlock
 	// event search criteria.
-	Search(ctx context.Context, q *query.Query, latestHeight int64, maxCount int64) (chan int64, chan error)
+	Search(ctx context.Context, q *query.Query, maxCount int64) (chan int64, chan error)
 
 	SetLogger(l log.Logger)
 

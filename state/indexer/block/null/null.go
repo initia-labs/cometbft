@@ -23,7 +23,7 @@ func (idx *BlockerIndexer) Index(types.EventDataNewBlockEvents) error {
 	return nil
 }
 
-func (idx *BlockerIndexer) Search(context.Context, *query.Query, int64, int64) (chan int64, chan error) {
+func (idx *BlockerIndexer) Search(context.Context, *query.Query, int64) (chan int64, chan error) {
 	resultChan := make(chan int64)
 	errorChan := make(chan error)
 

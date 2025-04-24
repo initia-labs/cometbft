@@ -16,6 +16,9 @@ import (
 	"github.com/cometbft/cometbft/types"
 
 	sm "github.com/cometbft/cometbft/state"
+
+	cmtstore "github.com/cometbft/cometbft/proto/tendermint/store"
+	bstore "github.com/cometbft/cometbft/store"
 )
 
 func TestBlockIndexer(t *testing.T) {
@@ -43,6 +46,13 @@ func TestBlockIndexer(t *testing.T) {
 		},
 	}
 
+	blockStoreDB := db.NewPrefixDB(db.NewMemDB(), []byte("block_store"))
+	bstore.SaveBlockStoreState(&cmtstore.BlockStoreState{
+		Base:   1,
+		Height: 11,
+	}, blockStoreDB)
+	blockStore := bstore.NewBlockStore(blockStoreDB)
+
 	stateStore := sm.NewStore(db.NewPrefixDB(db.NewMemDB(), []byte("state_store")), sm.StoreOptions{})
 	err := stateStore.SaveFinalizeBlockResponse(1, &abci.ResponseFinalizeBlock{
 		Events:                events1,
@@ -52,7 +62,7 @@ func TestBlockIndexer(t *testing.T) {
 		AppHash:               []byte("app_hash"),
 	})
 	require.NoError(t, err)
-	indexer := blockidxkv.New(store, stateStore, 0)
+	indexer := blockidxkv.New(store, blockStore, stateStore, 0)
 
 	require.NoError(t, indexer.Index(types.EventDataNewBlockEvents{
 		Height: 1,
@@ -157,7 +167,7 @@ func TestBlockIndexer(t *testing.T) {
 	for name, tc := range testCases {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
-			resultChan, errChan := indexer.Search(context.Background(), tc.q, 11, 1000)
+			resultChan, errChan := indexer.Search(context.Background(), tc.q, 1000)
 			results := make([]int64, 0)
 
 			var err error
@@ -186,7 +196,13 @@ func TestBlockIndexer(t *testing.T) {
 func TestBlockIndexerMulti(t *testing.T) {
 	store := db.NewPrefixDB(db.NewMemDB(), []byte("block_events"))
 	stateStore := sm.NewStore(db.NewPrefixDB(db.NewMemDB(), []byte("state_store")), sm.StoreOptions{})
-	indexer := blockidxkv.New(store, stateStore, 0)
+	blockStoreDB := db.NewPrefixDB(db.NewMemDB(), []byte("block_store"))
+	bstore.SaveBlockStoreState(&cmtstore.BlockStoreState{
+		Base:   1,
+		Height: 2,
+	}, blockStoreDB)
+	blockStore := bstore.NewBlockStore(blockStoreDB)
+	indexer := blockidxkv.New(store, blockStore, stateStore, 0)
 
 	events1 := []abci.Event{
 		{},
@@ -349,7 +365,7 @@ func TestBlockIndexerMulti(t *testing.T) {
 	for name, tc := range testCases {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
-			resultChan, errChan := indexer.Search(context.Background(), tc.q, 2, 1000)
+			resultChan, errChan := indexer.Search(context.Background(), tc.q, 1000)
 			results := make([]int64, 0)
 
 			var err error
@@ -381,7 +397,13 @@ func TestBigInt(t *testing.T) {
 	bigFloatLower := bigInt + ".1"
 	store := db.NewPrefixDB(db.NewMemDB(), []byte("block_events"))
 	stateStore := sm.NewStore(db.NewPrefixDB(db.NewMemDB(), []byte("state_store")), sm.StoreOptions{})
-	indexer := blockidxkv.New(store, stateStore, 0)
+	blockStoreDB := db.NewPrefixDB(db.NewMemDB(), []byte("block_store"))
+	bstore.SaveBlockStoreState(&cmtstore.BlockStoreState{
+		Base:   1,
+		Height: 1,
+	}, blockStoreDB)
+	blockStore := bstore.NewBlockStore(blockStoreDB)
+	indexer := blockidxkv.New(store, blockStore, stateStore, 0)
 
 	events1 := []abci.Event{
 		{},
@@ -439,8 +461,7 @@ func TestBigInt(t *testing.T) {
 	require.NoError(t, indexer.Index(types.EventDataNewBlockEvents{
 		Height: 1,
 		Events: events1,
-	},
-	))
+	}))
 
 	testCases := map[string]struct {
 		q       *query.Query
@@ -463,7 +484,7 @@ func TestBigInt(t *testing.T) {
 	for name, tc := range testCases {
 		tc := tc
 		t.Run(name, func(t *testing.T) {
-			resultsChan, errChan := indexer.Search(context.Background(), tc.q, 1, 1000)
+			resultsChan, errChan := indexer.Search(context.Background(), tc.q, 1000)
 			results := make([]int64, 0)
 			var err error
 		RESULT_LOOP:
@@ -484,100 +505,161 @@ func TestBigInt(t *testing.T) {
 	}
 }
 
-// func TestTxIndexPruning(t *testing.T) {
-// 	indexer := blockidxkv.New(db.NewMemDB(), 100)
+func TestTxIndexPruning(t *testing.T) {
+	store := db.NewPrefixDB(db.NewMemDB(), []byte("block_events"))
+	stateStore := sm.NewStore(db.NewPrefixDB(db.NewMemDB(), []byte("state_store")), sm.StoreOptions{})
+	blockStoreDB := db.NewPrefixDB(db.NewMemDB(), []byte("block_store"))
+	bstore.SaveBlockStoreState(&cmtstore.BlockStoreState{
+		Base:   1,
+		Height: 101,
+	}, blockStoreDB)
+	blockStore := bstore.NewBlockStore(blockStoreDB)
 
-// 	blockEvents := types.EventDataNewBlockEvents{
-// 		Height: 1,
-// 		Events: []abci.Event{
-// 			{},
-// 			{
-// 				Type: "account",
-// 				Attributes: []abci.EventAttribute{
-// 					{
-// 						Key:   "number",
-// 						Value: "1",
-// 						Index: true,
-// 					},
-// 					{
-// 						Key:   "owner",
-// 						Value: "/Ivan/",
-// 						Index: true,
-// 					},
-// 				},
-// 			},
-// 			{
-// 				Type: "",
-// 				Attributes: []abci.EventAttribute{
-// 					{
-// 						Key:   "not_allowed",
-// 						Value: "Vlad",
-// 						Index: true,
-// 					},
-// 				},
-// 			},
-// 		},
-// 	}
+	indexer := blockidxkv.New(store, blockStore, stateStore, 100)
 
-// 	err := indexer.Index(blockEvents)
-// 	require.NoError(t, err)
+	blockEvents := types.EventDataNewBlockEvents{
+		Height: 1,
+		Events: []abci.Event{
+			{},
+			{
+				Type: "account",
+				Attributes: []abci.EventAttribute{
+					{
+						Key:   "number",
+						Value: "1",
+						Index: true,
+					},
+					{
+						Key:   "owner",
+						Value: "/Ivan/",
+						Index: true,
+					},
+				},
+			},
+			{
+				Type: "",
+				Attributes: []abci.EventAttribute{
+					{
+						Key:   "not_allowed",
+						Value: "Vlad",
+						Index: true,
+					},
+				},
+			},
+		},
+	}
 
-// 	// before pruning
-// 	testCases := []struct {
-// 		q                 string
-// 		successAfterPrune bool
-// 	}{
-// 		//search by height
-// 		{"block.height = 1", false},
-// 		// search by exact match (one key)
-// 		{"account.number = 1", false},
-// 		{"account.owner = '/Ivan/'", false},
-// 		// search by range
-// 		{"account.number >= 1 AND account.number <= 5", false},
-// 		// search by range (lower bound)
-// 		{"account.number >= 1", false},
-// 		// search by range (upper bound)
-// 		{"account.number <= 5", false},
-// 		{"account.number <= 1", false},
-// 		// search using CONTAINS
-// 		{"account.owner CONTAINS 'an'", false},
-// 		// search using EXISTS
-// 		{"account.number EXISTS", false},
-// 	}
+	err := stateStore.SaveFinalizeBlockResponse(1, &abci.ResponseFinalizeBlock{
+		Events:                blockEvents.Events,
+		TxResults:             []*abci.ExecTxResult{},
+		ValidatorUpdates:      []abci.ValidatorUpdate{},
+		ConsensusParamUpdates: &prototypes.ConsensusParams{},
+		AppHash:               []byte("app_hash"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, indexer.Index(blockEvents))
 
-// 	ctx := context.Background()
+	blockEvents = types.EventDataNewBlockEvents{
+		Height: 2,
+		Events: []abci.Event{
+			{},
+			{
+				Type: "account",
+				Attributes: []abci.EventAttribute{
+					{
+						Key:   "number",
+						Value: "2",
+						Index: true,
+					},
+					{
+						Key:   "owner",
+						Value: "/Ivan2/",
+						Index: true,
+					},
+				},
+			},
+		},
+	}
 
-// 	for _, tc := range testCases {
-// 		tc := tc
-// 		t.Run(tc.q, func(t *testing.T) {
-// 			results, err := indexer.Search(ctx, query.MustCompile(tc.q))
-// 			require.NoError(t, err)
+	err = stateStore.SaveFinalizeBlockResponse(2, &abci.ResponseFinalizeBlock{
+		Events:                blockEvents.Events,
+		TxResults:             []*abci.ExecTxResult{},
+		ValidatorUpdates:      []abci.ValidatorUpdate{},
+		ConsensusParamUpdates: &prototypes.ConsensusParams{},
+		AppHash:               []byte("app_hash"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, indexer.Index(blockEvents))
 
-// 			require.Len(t, results, 1)
-// 			for _, h := range results {
-// 				require.Equal(t, int64(1), h)
-// 			}
-// 		})
-// 	}
+	// before pruning
+	testCases := []struct {
+		q                 string
+		successAfterPrune bool
+	}{
+		//search by height
+		{"block.height = 1", false},
+		// search by exact match (one key)
+		{"account.number = 1", false},
+		{"account.number = 1 AND account.owner = '/Ivan/'", false},
 
-// 	// prune index
-// 	indexer.Prune(101)
+		{"block.height = 2", true},
+		// search by exact match (one key)
+		{"account.number = 2", true},
+		{"account.number = 2 AND account.owner = '/Ivan2/'", true},
+	}
 
-// 	// after pruning
-// 	for _, tc := range testCases {
-// 		tc := tc
-// 		t.Run(tc.q, func(t *testing.T) {
-// 			results, err := indexer.Search(ctx, query.MustCompile(tc.q))
-// 			require.NoError(t, err)
+	ctx := context.Background()
 
-// 			if tc.successAfterPrune {
-// 				require.Len(t, results, 1)
-// 				for _, h := range results {
-// 					require.Equal(t, int64(1), h)
-// 				}
-// 			} else {
-// 				require.Len(t, results, 0)
-// 			}
-// 		})
-// 	}
-// }
+	for _, tc := range testCases {
+		t.Run(tc.q, func(t *testing.T) {
+			resultsChan, errChan := indexer.Search(ctx, query.MustCompile(tc.q), 1000)
+			results := make([]int64, 0)
+			var err error
+		RESULT_LOOP:
+			for {
+				select {
+				case result, ok := <-resultsChan:
+					if !ok {
+						break RESULT_LOOP
+					}
+					results = append(results, result)
+				case err = <-errChan:
+					break RESULT_LOOP
+				}
+			}
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+		})
+	}
+
+	// prune index
+	err = indexer.Prune(101)
+	require.NoError(t, err)
+
+	// after pruning
+	for _, tc := range testCases {
+		t.Run(tc.q, func(t *testing.T) {
+			resultsChan, errChan := indexer.Search(ctx, query.MustCompile(tc.q), 1000)
+			results := make([]int64, 0)
+			var err error
+		RESULT_LOOP:
+			for {
+				select {
+				case result, ok := <-resultsChan:
+					if !ok {
+						break RESULT_LOOP
+					}
+					results = append(results, result)
+				case err = <-errChan:
+					break RESULT_LOOP
+				}
+			}
+			require.NoError(t, err)
+			if tc.successAfterPrune {
+				require.Len(t, results, 1)
+			} else {
+				require.Len(t, results, 0)
+			}
+		})
+	}
+}

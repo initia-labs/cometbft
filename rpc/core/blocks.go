@@ -244,7 +244,7 @@ RESULT_LOOP:
 				break RESULT_LOOP
 			}
 			totalCount++
-			if totalCount >= maxTotalCount {
+			if totalCount > maxTotalCount {
 				break RESULT_LOOP
 			} else if totalCount <= (page-1)*perPage || totalCount > page*perPage {
 				continue
@@ -252,11 +252,13 @@ RESULT_LOOP:
 
 			block := env.BlockStore.LoadBlock(result)
 			if block == nil {
-				return nil, fmt.Errorf("block not found")
+				totalCount--
+				continue
 			}
 			blockMeta := env.BlockStore.LoadBlockMeta(block.Height)
 			if blockMeta == nil {
-				return nil, fmt.Errorf("block meta not found")
+				totalCount--
+				continue
 			}
 			results = append(results, &ctypes.ResultBlock{
 				Block:   block,

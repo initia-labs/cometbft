@@ -18,6 +18,7 @@ import (
 	"github.com/cometbft/cometbft/libs/pubsub/query"
 	"github.com/cometbft/cometbft/libs/pubsub/query/syntax"
 	"github.com/cometbft/cometbft/state/indexer"
+	"github.com/cometbft/cometbft/store"
 	"github.com/cometbft/cometbft/types"
 
 	"github.com/ethereum/go-ethereum/core/bloombits"
@@ -34,6 +35,7 @@ const (
 	sectionBloomKeyPrefix = "sb"
 	blockBloomKeyPrefix   = "bb"
 	blockKeyPrefix        = "b"
+	baseKey               = "base"
 
 	// bloomServiceThreads is the number of goroutines used globally by an Ethereum
 	// instance to service bloombits lookups for all running filters.
@@ -58,6 +60,7 @@ const (
 type BlockerIndexer struct {
 	store dbm.DB
 
+	blockStore *store.BlockStore
 	stateStore sm.Store
 
 	log log.Logger
@@ -71,9 +74,10 @@ type BlockerIndexer struct {
 	retainHeight int64
 }
 
-func New(store dbm.DB, stateStore sm.Store, retainHeight int64) *BlockerIndexer {
+func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *BlockerIndexer {
 	return &BlockerIndexer{
 		store:        store,
+		blockStore:   blockStore,
 		stateStore:   stateStore,
 		retainHeight: retainHeight,
 	}
@@ -149,7 +153,7 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 // one or more block heights. In the case of height queries, i.e. block.height=H,
 // if the height is indexed, that height alone will be returned. An error and
 // nil slice is returned. Otherwise, a non-nil slice and nil error is returned.
-func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query, latestHeight int64, maxCount int64) (chan int64, chan error) {
+func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query, maxCount int64) (chan int64, chan error) {
 	resultChan := make(chan int64)
 	errChan := make(chan error)
 
@@ -159,12 +163,12 @@ func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query, latestHei
 			close(errChan)
 		}()
 
-		errChan <- idx.search(ctx, q, latestHeight, maxCount, resultChan)
+		errChan <- idx.search(ctx, q, maxCount, resultChan)
 	}()
 	return resultChan, errChan
 }
 
-func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, latestHeight int64, maxCount int64, resultChan chan int64) error {
+func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount int64, resultChan chan int64) error {
 	select {
 	case <-ctx.Done():
 		return nil
@@ -212,7 +216,7 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, latestHei
 	}
 
 	begin := int64(1)
-	end := latestHeight
+	end := idx.blockStore.Height()
 
 	if heightInfo.height != 0 {
 		begin = heightInfo.height
@@ -240,6 +244,12 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, latestHei
 		}
 	}
 
+	idxBase, err := idx.Base()
+	if err != nil {
+		return err
+	}
+	begin = max(begin, idxBase, idx.blockStore.Base())
+
 	beginForIndexed := max(begin, bloomSectionSize)
 
 	matches := make(chan uint64, 64)
@@ -261,7 +271,6 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, latestHei
 				case request := <-bloomRequests:
 					task := <-request
 					task.Bitsets = make([][]byte, len(task.Sections))
-
 					for i, section := range task.Sections {
 						sectionBitbloom, err := idx.store.Get(bloomKeyForSectionIndex(int64(section), int64(task.Bit)))
 						if err != nil {
@@ -299,7 +308,6 @@ MATCHES_LOOP:
 				err = session.Error()
 				break MATCHES_LOOP
 			}
-			fmt.Println(number)
 			match, err := idx.checkMatch(int64(number), filters)
 			if err != nil {
 				return err
@@ -380,9 +388,7 @@ MATCHES_LOOP:
 
 func (idx *BlockerIndexer) checkMatch(number int64, filters [][]byte) (bool, error) {
 	response, err := idx.stateStore.LoadFinalizeBlockResponse(number)
-	if err != nil {
-		return false, err
-	} else if response == nil {
+	if err != nil || response == nil {
 		return false, nil
 	}
 
@@ -411,79 +417,58 @@ EVENTSCHECK_LOOP:
 }
 
 func (idx *BlockerIndexer) Prune(curHeight int64) error {
-	// minHeight := curHeight - idx.retainHeight
-	// if minHeight <= 0 || minHeight >= curHeight {
-	// 	return nil
-	// }
+	minHeight := curHeight - idx.retainHeight
+	if minHeight <= 0 || minHeight >= curHeight {
+		return nil
+	}
 
-	// pruneBatch := idx.store.NewBatch()
-	// defer pruneBatch.Close()
+	pruneBatch := idx.store.NewBatch()
+	defer pruneBatch.Close()
 
-	// startKey := keyForReverse(1, nil)
-	// endKey := keyForReverse(minHeight+1, nil)
-	// iter, err := idx.store.Iterator(startKey, endKey)
-	// if err != nil {
-	// 	return err
-	// }
+	base, err := idx.Base()
+	if err != nil {
+		return err
+	}
 
-	// defer iter.Close()
-	// for ; iter.Valid(); iter.Next() {
-	// 	// delete event index keys
-	// 	if err := pruneBatch.Delete(extractEventKeyFromReverseKey(iter.Key())); err != nil {
-	// 		return err
-	// 	}
+	// end key is exclusive
+	iter, err := idx.store.Iterator(bloomKeyForBlock(base), bloomKeyForBlock(minHeight+1))
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
 
-	// 	// delete reverse index keys
-	// 	if err := pruneBatch.Delete(iter.Key()); err != nil {
-	// 		return err
-	// 	}
-	// }
+	for ; iter.Valid(); iter.Next() {
+		if err := pruneBatch.Delete(iter.Key()); err != nil {
+			return err
+		}
+	}
 
-	// // delete block height index keys
-	// startKey, err = keyForHeightRange(1)
-	// if err != nil {
-	// 	return err
-	// }
-	// endKey, err = keyForHeightRange(minHeight + 1)
-	// if err != nil {
-	// 	return err
-	// }
-	// iter, err = idx.store.Iterator(startKey, endKey)
-	// if err != nil {
-	// 	return err
-	// }
+	iter2, err := idx.store.Iterator(bloomKeyForSectionIndex(base/bloomSectionSize, 0), bloomKeyForSectionIndex(minHeight/bloomSectionSize, bloomSectionSize))
+	if err != nil {
+		return err
+	}
+	defer iter2.Close()
 
-	// defer iter.Close()
-	// for ; iter.Valid(); iter.Next() {
-	// 	if err := pruneBatch.Delete(iter.Key()); err != nil {
-	// 		return err
-	// 	}
-	// }
+	for ; iter2.Valid(); iter2.Next() {
+		if err := pruneBatch.Delete(iter2.Key()); err != nil {
+			return err
+		}
+	}
 
-	// return pruneBatch.WriteSync()
-
-	// noop
-	return nil
+	err = pruneBatch.Set([]byte(baseKey), int64ToBytes(minHeight+1))
+	if err != nil {
+		return err
+	}
+	return pruneBatch.WriteSync()
 }
 
-// func extractEventKeyFromReverseKey(reverseKey []byte) []byte {
-// 	return reverseKey[len(types.ReverseBlockIndexPrefix)+8:]
-// }
-
-// func keyForReverse(height int64, eventKey []byte) []byte {
-// 	heightBz := make([]byte, 8)
-// 	binary.BigEndian.PutUint64(heightBz, uint64(height))
-
-// 	return append(append(types.ReverseBlockIndexPrefix, heightBz...), eventKey...)
-// }
-
-// func keyForHeightRange(height int64) ([]byte, error) {
-// 	return orderedcode.Append(
-// 		nil,
-// 		types.BlockHeightKey,
-// 		height,
-// 	)
-// }
+func (idx *BlockerIndexer) Base() (int64, error) {
+	base, err := idx.store.Get([]byte(baseKey))
+	if err != nil {
+		return 0, err
+	}
+	return int64FromBytes(base), nil
+}
 
 func sectionIndexFromHeight(height int64) int64 {
 	return height / bloomSectionSize
@@ -532,14 +517,14 @@ func filtersFromConditions(conditions []syntax.Condition) ([][]byte, error) {
 func bloomKeyForBlock(height int64) []byte {
 	return []byte(fmt.Sprintf("%s/%d",
 		blockBloomKeyPrefix,
-		height,
+		int64ToBytes(height),
 	))
 }
 
 func bloomKeyForSectionIndex(section int64, index int64) []byte {
 	return []byte(fmt.Sprintf("%s/%d/%d",
 		sectionBloomKeyPrefix,
-		section,
-		index,
+		int64ToBytes(section),
+		int64ToBytes(index),
 	))
 }

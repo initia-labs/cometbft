@@ -14,6 +14,9 @@ import (
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/state/txindex/kv"
 	"github.com/cometbft/cometbft/types"
+
+	cmtstore "github.com/cometbft/cometbft/proto/tendermint/store"
+	bstore "github.com/cometbft/cometbft/store"
 )
 
 func TestIndexerServiceIndexesBlocks(t *testing.T) {
@@ -28,10 +31,16 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 		}
 	})
 
+	bstore.SaveBlockStoreState(&cmtstore.BlockStoreState{
+		Base:   1,
+		Height: 1,
+	}, db.NewPrefixDB(db.NewMemDB(), []byte("block_store")))
+	blockStore := bstore.NewBlockStore(db.NewPrefixDB(db.NewMemDB(), []byte("block_store")))
+
 	// tx indexer
 	store := db.NewMemDB()
 	txIndexer := kv.NewTxIndex(store, 0)
-	blockIndexer := blockidxkv.New(db.NewPrefixDB(store, []byte("block_events")), nil, 0)
+	blockIndexer := blockidxkv.New(db.NewPrefixDB(store, []byte("block_events")), blockStore, nil, 0)
 
 	service := txindex.NewIndexerService(txIndexer, blockIndexer, eventBus, false)
 	service.SetLogger(log.TestingLogger())
