@@ -541,7 +541,6 @@ func TestBlockSearch(t *testing.T) {
 	stateStoreMock.On("Close").Return(nil)
 
 	blockStoreMock := &statemocks.BlockStore{}
-	blockStoreMock.On("Height").Return(testHeight)
 	blockStoreMock.On("Close").Return(nil)
 
 	txIndexerMock := &txindexmocks.TxIndexer{}
@@ -562,7 +561,7 @@ func TestBlockSearch(t *testing.T) {
 	errChan := make(chan error, 1)
 	close(errChan)
 	blkIdxMock.On("Search", mock.Anything,
-		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() }), testHeight, int64(1000)).
+		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() }), int64(1000)).
 		Return(resultChan, errChan)
 	rpcConfig := config.TestRPCConfig()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)

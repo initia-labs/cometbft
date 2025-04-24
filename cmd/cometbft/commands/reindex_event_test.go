@@ -99,7 +99,7 @@ func TestLoadEventSink(t *testing.T) {
 		cfg := cmtcfg.TestConfig()
 		cfg.TxIndex.Indexer = tc.sinks
 		// cfg.TxIndex.PsqlConn = tc.connURL
-		_, _, err := loadEventSinks(cfg, test.DefaultTestChainID, nil)
+		_, _, err := loadEventSinks(cfg, test.DefaultTestChainID, nil, nil)
 		if tc.loadErr {
 			require.Error(t, err, idx)
 		} else {

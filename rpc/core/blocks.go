@@ -224,7 +224,6 @@ func (env *Environment) BlockSearch(
 		return nil, err
 	}
 
-	resultChan, errChan := env.BlockIndexer.Search(ctx.Context(), q, env.BlockStore.Height(), maxTotalCount)
 	perPage := env.validatePerPage(perPagePtr)
 	page := *pagePtr
 	if page <= 0 {
@@ -233,6 +232,7 @@ func (env *Environment) BlockSearch(
 		return nil, fmt.Errorf("page size is too large, max count is %d", maxTotalCount)
 	}
 
+	resultChan, errChan := env.BlockIndexer.Search(ctx.Context(), q, maxTotalCount)
 	results := make([]*ctypes.ResultBlock, 0, perPage)
 	totalCount := 0
 
