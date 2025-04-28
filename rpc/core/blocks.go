@@ -225,7 +225,10 @@ func (env *Environment) BlockSearch(
 	}
 
 	perPage := env.validatePerPage(perPagePtr)
-	page := *pagePtr
+	page := 1
+	if pagePtr != nil {
+		page = *pagePtr
+	}
 	if page <= 0 {
 		return nil, fmt.Errorf("page should be greater than 0")
 	} else if page*perPage > maxTotalCount {
