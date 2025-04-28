@@ -740,20 +740,16 @@ func TestTxSearchMultipleTxs(t *testing.T) {
 
 	indexer := NewTxIndex(db.NewMemDB(), blockStore, stateStore, 0)
 
-	batch := txindex.NewBatch(1)
-	batch.Ops[0] = txResult
+	batch := txindex.NewBatch(2)
+	batch.Ops[0] = txResult2
+	batch.Ops[1] = txResult3
 	err = indexer.AddBatch(batch)
 	require.NoError(t, err)
 
-	batch3 := txindex.NewBatch(2)
-	batch3.Ops[0] = txResult2
-	batch3.Ops[1] = txResult3
-	err = indexer.AddBatch(batch3)
-	require.NoError(t, err)
-
-	batch4 := txindex.NewBatch(1)
-	batch4.Ops[0] = txResult4
-	err = indexer.AddBatch(batch4)
+	batch = txindex.NewBatch(2)
+	batch.Ops[0] = txResult
+	batch.Ops[1] = txResult4
+	err = indexer.AddBatch(batch)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -781,6 +777,7 @@ RESULT_LOOP:
 	assert.Equal(t, results[1].Index, txResult3.Index)
 	assert.Equal(t, results[2].Height, txResult.Height)
 	assert.Equal(t, results[2].Index, txResult.Index)
+	assert.Equal(t, results[3].Height, txResult4.Height)
 }
 
 func txResultWithEvents(events []abci.Event) *abci.TxResult {

@@ -145,6 +145,16 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 			}
 		}
 	}
+
+	base, err := idx.Base()
+	if err != nil {
+		return err
+	} else if base == 0 {
+		err = batch.Set([]byte(baseKey), int64ToBytes(bh.Height))
+		if err != nil {
+			return err
+		}
+	}
 	return batch.WriteSync()
 }
 
@@ -466,6 +476,8 @@ func (idx *BlockerIndexer) Base() (int64, error) {
 	base, err := idx.store.Get([]byte(baseKey))
 	if err != nil {
 		return 0, err
+	} else if base == nil {
+		return 0, nil
 	}
 	return int64FromBytes(base), nil
 }

@@ -191,6 +191,16 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 			}
 		}
 	}
+
+	base, err := txi.Base()
+	if err != nil {
+		return err
+	} else if base == 0 {
+		err = storeBatch.Set([]byte(baseKey), int64ToBytes(blockHeight))
+		if err != nil {
+			return err
+		}
+	}
 	return storeBatch.WriteSync()
 }
 
@@ -507,6 +517,8 @@ func (txi *TxIndex) Base() (int64, error) {
 	base, err := txi.store.Get([]byte(baseKey))
 	if err != nil {
 		return 0, err
+	} else if base == nil {
+		return 0, nil
 	}
 	return int64FromBytes(base), nil
 }
