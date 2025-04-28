@@ -301,10 +301,11 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 			if !ok {
 				return fmt.Errorf("invalid height range upper bound: %v", heightInfo.heightRange.UpperBound)
 			}
-			end, _ = bigEnd.Int64()
+			rangeEnd, _ := bigEnd.Int64()
 			if !heightInfo.heightRange.IncludeUpperBound {
-				end--
+				rangeEnd--
 			}
+			end = min(end, rangeEnd)
 		}
 	}
 
@@ -314,7 +315,6 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 		return err
 	}
 	begin = max(begin, idxBase, txi.blockStore.Base())
-
 	beginForIndexed := max(begin, bloomSectionSize)
 
 	matches := make(chan uint64, 64)
