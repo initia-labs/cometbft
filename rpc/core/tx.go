@@ -123,7 +123,7 @@ RESULT_LOOP:
 			}
 
 			results = append(results, &ctypes.ResultTx{
-				Hash:     types.Tx(result.Tx).Hash(),
+				Hash:     block.Data.Txs[result.Index].Hash(),
 				Height:   result.Height,
 				Index:    result.Index,
 				TxResult: *response.TxResults[result.Index],
