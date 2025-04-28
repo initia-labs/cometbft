@@ -130,7 +130,6 @@ func TestTxSearch(t *testing.T) {
 			Txs: []types.Tx{testTx},
 		},
 	}, nil)
-	blockStoreMock.On("Height").Return(testTxResult.Height)
 	blockStoreMock.On("Close").Return(nil)
 	txIndexerMock := &txindexmocks.TxIndexer{}
 	blkIdxMock := &indexermocks.BlockIndexer{}
@@ -142,7 +141,7 @@ func TestTxSearch(t *testing.T) {
 	txIndexerMock.On("Search", mock.Anything,
 		mock.MatchedBy(func(q *query.Query) bool {
 			return testQuery == strings.ReplaceAll(q.String(), " ", "")
-		}), testTxResult.Height, int64(1000)).
+		}), int64(1000)).
 		Return(resultChan, errChan)
 
 	rpcConfig := config.TestRPCConfig()
