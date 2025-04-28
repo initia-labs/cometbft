@@ -1,6 +1,7 @@
 package kv
 
 import (
+	"encoding/binary"
 	"fmt"
 
 	cmtsyntax "github.com/cometbft/cometbft/libs/pubsub/query/syntax"
@@ -15,6 +16,17 @@ type HeightInfo struct {
 	heightEqIdx     int
 	onlyHeightRange bool
 	onlyHeightEq    bool
+}
+
+func int64FromBytes(bz []byte) int64 {
+	v, _ := binary.Varint(bz)
+	return v
+}
+
+func int64ToBytes(i int64) []byte {
+	buf := make([]byte, binary.MaxVarintLen64)
+	n := binary.PutVarint(buf, i)
+	return buf[:n]
 }
 
 // IntInSlice returns true if a is found in the list.

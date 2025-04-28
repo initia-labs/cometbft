@@ -123,7 +123,7 @@ func loadEventSinks(cfg *cmtcfg.Config, chainID string, blockStore *store.BlockS
 			return nil, nil, err
 		}
 
-		txIndexer := kv.NewTxIndex(store, cfg.TxIndex.RetainHeight)
+		txIndexer := kv.NewTxIndex(store, blockStore, stateStore, cfg.TxIndex.RetainHeight)
 		blockIndexer := blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events")), blockStore, stateStore, cfg.TxIndex.RetainHeight)
 		return blockIndexer, txIndexer, nil
 	default:

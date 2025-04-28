@@ -31,7 +31,7 @@ func (txi *TxIndex) Index(_ *abci.TxResult) error {
 	return nil
 }
 
-func (txi *TxIndex) Search(_ context.Context, _ *query.Query, _ int64, _ int64) (chan abci.TxResult, chan error) {
+func (txi *TxIndex) Search(_ context.Context, _ *query.Query, _ int64) (chan abci.TxResult, chan error) {
 	txs := make(chan abci.TxResult)
 	errs := make(chan error)
 	close(txs)

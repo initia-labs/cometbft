@@ -78,7 +78,7 @@ func (env *Environment) TxSearch(
 		return nil, err
 	}
 
-	resultChan, errChan := env.TxIndexer.Search(ctx.Context(), q, env.BlockStore.Height(), maxTotalCount)
+	resultChan, errChan := env.TxIndexer.Search(ctx.Context(), q, maxTotalCount)
 
 	perPage := env.validatePerPage(perPagePtr)
 	page := *pagePtr

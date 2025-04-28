@@ -16,6 +16,8 @@ import (
 	"github.com/cometbft/cometbft/types"
 
 	cmtstore "github.com/cometbft/cometbft/proto/tendermint/store"
+	prototypes "github.com/cometbft/cometbft/proto/tendermint/types"
+	sm "github.com/cometbft/cometbft/state"
 	bstore "github.com/cometbft/cometbft/store"
 )
 
@@ -31,15 +33,16 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 		}
 	})
 
+	store := db.NewMemDB()
 	bstore.SaveBlockStoreState(&cmtstore.BlockStoreState{
 		Base:   1,
 		Height: 1,
-	}, db.NewPrefixDB(db.NewMemDB(), []byte("block_store")))
-	blockStore := bstore.NewBlockStore(db.NewPrefixDB(db.NewMemDB(), []byte("block_store")))
+	}, db.NewPrefixDB(store, []byte("block_store")))
+	blockStore := bstore.NewBlockStore(db.NewPrefixDB(store, []byte("block_store")))
+	stateStore := sm.NewStore(db.NewPrefixDB(store, []byte("state_store")), sm.StoreOptions{})
 
 	// tx indexer
-	store := db.NewMemDB()
-	txIndexer := kv.NewTxIndex(store, 0)
+	txIndexer := kv.NewTxIndex(store, blockStore, stateStore, 0)
 	blockIndexer := blockidxkv.New(db.NewPrefixDB(store, []byte("block_events")), blockStore, nil, 0)
 
 	service := txindex.NewIndexerService(txIndexer, blockIndexer, eventBus, false)
@@ -70,20 +73,35 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 		NumTxs: int64(2),
 	})
 	require.NoError(t, err)
+
 	txResult1 := &abci.TxResult{
 		Height: 1,
 		Index:  uint32(0),
 		Tx:     types.Tx("foo"),
 		Result: abci.ExecTxResult{Code: 0},
 	}
-	err = eventBus.PublishEventTx(types.EventDataTx{TxResult: *txResult1})
-	require.NoError(t, err)
 	txResult2 := &abci.TxResult{
 		Height: 1,
 		Index:  uint32(1),
 		Tx:     types.Tx("bar"),
 		Result: abci.ExecTxResult{Code: 0},
 	}
+
+	err = stateStore.SaveFinalizeBlockResponse(1, &abci.ResponseFinalizeBlock{
+		Events: []abci.Event{},
+		TxResults: []*abci.ExecTxResult{
+			&txResult1.Result,
+			&txResult2.Result,
+		},
+		ValidatorUpdates:      []abci.ValidatorUpdate{},
+		ConsensusParamUpdates: &prototypes.ConsensusParams{},
+		AppHash:               []byte("app_hash"),
+	})
+	require.NoError(t, err)
+
+	err = eventBus.PublishEventTx(types.EventDataTx{TxResult: *txResult1})
+	require.NoError(t, err)
+
 	err = eventBus.PublishEventTx(types.EventDataTx{TxResult: *txResult2})
 	require.NoError(t, err)
 

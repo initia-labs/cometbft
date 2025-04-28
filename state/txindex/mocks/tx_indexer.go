@@ -86,9 +86,9 @@ func (_m *TxIndexer) Prune(curHeight int64) error {
 	return r0
 }
 
-// Search provides a mock function with given fields: ctx, q, latestHeight, maxCount
-func (_m *TxIndexer) Search(ctx context.Context, q *query.Query, latestHeight int64, maxCount int64) (chan types.TxResult, chan error) {
-	ret := _m.Called(ctx, q, latestHeight, maxCount)
+// Search provides a mock function with given fields: ctx, q, maxCount
+func (_m *TxIndexer) Search(ctx context.Context, q *query.Query, maxCount int64) (chan types.TxResult, chan error) {
+	ret := _m.Called(ctx, q, maxCount)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Search")
@@ -96,19 +96,19 @@ func (_m *TxIndexer) Search(ctx context.Context, q *query.Query, latestHeight in
 
 	var r0 chan types.TxResult
 	var r1 chan error
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64, int64) (chan types.TxResult, chan error)); ok {
-		return rf(ctx, q, latestHeight, maxCount)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64) (chan types.TxResult, chan error)); ok {
+		return rf(ctx, q, maxCount)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64, int64) chan types.TxResult); ok {
-		r0 = rf(ctx, q, latestHeight, maxCount)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64) chan types.TxResult); ok {
+		r0 = rf(ctx, q, maxCount)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(chan types.TxResult)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *query.Query, int64, int64) chan error); ok {
-		r1 = rf(ctx, q, latestHeight, maxCount)
+	if rf, ok := ret.Get(1).(func(context.Context, *query.Query, int64) chan error); ok {
+		r1 = rf(ctx, q, maxCount)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).(chan error)

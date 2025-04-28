@@ -24,7 +24,7 @@ type TxIndexer interface {
 	Get(hash []byte) (*abci.TxResult, error)
 
 	// Search allows you to query for transactions.
-	Search(ctx context.Context, q *query.Query, latestHeight int64, maxCount int64) (chan abci.TxResult, chan error)
+	Search(ctx context.Context, q *query.Query, maxCount int64) (chan abci.TxResult, chan error)
 
 	//Set Logger
 	SetLogger(l log.Logger)
