@@ -36,6 +36,7 @@ const (
 	blockBloomKeyPrefix   = "bb"
 	blockKeyPrefix        = "b"
 	baseKey               = "base"
+	heightKey             = "h"
 	sectionIndexKey       = "si"
 
 	// bloomServiceThreads is the number of goroutines used globally by an Ethereum
@@ -161,6 +162,12 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 			return err
 		}
 	}
+
+	err = batch.Set([]byte(heightKey), int64ToBytes(bh.Height))
+	if err != nil {
+		return err
+	}
+
 	return batch.WriteSync()
 }
 
@@ -232,7 +239,11 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 	}
 
 	begin := int64(1)
-	end := idx.blockStore.Height()
+	height, err := idx.Height()
+	if err != nil {
+		return err
+	}
+	end := height
 
 	if heightInfo.height != 0 {
 		begin = heightInfo.height
@@ -353,6 +364,9 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 
 	g, innerCtx := errgroup.WithContext(ctx)
 	diff := end - begin + 1
+	if diff >= bloomSectionSize {
+		return fmt.Errorf("insufficient indexed data, reduce the query range")
+	}
 	batchNum := diff / batchSize
 	if diff%batchSize != 0 {
 		batchNum++
@@ -495,6 +509,16 @@ func (idx *BlockerIndexer) Base() (int64, error) {
 		return 0, nil
 	}
 	return int64FromBytes(base), nil
+}
+
+func (idx *BlockerIndexer) Height() (int64, error) {
+	height, err := idx.store.Get([]byte(heightKey))
+	if err != nil {
+		return 0, err
+	} else if height == nil {
+		return 0, nil
+	}
+	return int64FromBytes(height), nil
 }
 
 func (idx *BlockerIndexer) SectionIndex() (int64, error) {

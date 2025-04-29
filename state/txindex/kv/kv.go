@@ -54,8 +54,8 @@ const (
 	// to accumulate request an entire batch (avoiding hysteresis).
 	bloomRetrievalWait = time.Duration(0)
 
-	baseKey = "base"
-
+	baseKey         = "base"
+	heightKey       = "h"
 	sectionIndexKey = "si"
 )
 
@@ -208,6 +208,12 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 			return err
 		}
 	}
+
+	err = storeBatch.Set([]byte(heightKey), int64ToBytes(blockHeight))
+	if err != nil {
+		return err
+	}
+
 	return storeBatch.WriteSync()
 }
 
@@ -288,7 +294,12 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 	}
 
 	begin := int64(1)
-	end := txi.blockStore.Height()
+	height, err := txi.Height()
+	if err != nil {
+		return err
+	}
+	end := height
+
 	if heightInfo.height != 0 {
 		begin = heightInfo.height
 		end = heightInfo.height
@@ -410,6 +421,10 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 
 	g, innerCtx := errgroup.WithContext(ctx)
 	diff := end - begin + 1
+	if diff >= bloomSectionSize {
+		return fmt.Errorf("insufficient indexed data, reduce the query range")
+	}
+
 	batchNum := diff / batchSize
 	if diff%batchSize != 0 {
 		batchNum++
@@ -535,6 +550,16 @@ func (txi *TxIndex) Base() (int64, error) {
 		return 0, nil
 	}
 	return int64FromBytes(base), nil
+}
+
+func (txi *TxIndex) Height() (int64, error) {
+	height, err := txi.store.Get([]byte(heightKey))
+	if err != nil {
+		return 0, err
+	} else if height == nil {
+		return 0, nil
+	}
+	return int64FromBytes(height), nil
 }
 
 func (txi *TxIndex) SectionIndex() (int64, error) {
