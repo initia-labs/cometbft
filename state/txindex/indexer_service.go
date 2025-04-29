@@ -176,10 +176,15 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 		if startHeight == 0 {
 			startHeight = blockStore.Base()
 		}
+
 		endHeight := config.ReindexEndHeight
 		if endHeight == 0 {
 			endHeight = blockStore.Height()
 		}
+
+		minRetainHeight := blockStore.Height() - config.RetainHeight + 1
+		startHeight = max(startHeight, minRetainHeight)
+		endHeight = max(endHeight, minRetainHeight)
 
 		logger.Info("start re-indexing events", "startHeight", config.ReindexStartHeight, "endHeight", config.ReindexEndHeight)
 

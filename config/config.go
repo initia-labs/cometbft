@@ -1197,7 +1197,7 @@ type TxIndexConfig struct {
 	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight).
 	RetainHeight int64 `mapstructure:"retain-height"`
 
-	// ReindexEvents is used to reindex events from the event bus.
+	// ReindexEvents is used to reindex events in background.
 	ReindexEvents bool `mapstructure:"reindex-events"`
 
 	// ReindexStartHeight is the height to start reindexing events from.
