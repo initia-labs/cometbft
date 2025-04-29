@@ -297,6 +297,8 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 	height, err := txi.Height()
 	if err != nil {
 		return err
+	} else if height == 0 {
+		return fmt.Errorf("no data exists")
 	}
 	end := height
 

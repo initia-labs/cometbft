@@ -242,6 +242,8 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 	height, err := idx.Height()
 	if err != nil {
 		return err
+	} else if height == 0 {
+		return fmt.Errorf("no data exists")
 	}
 	end := height
 
