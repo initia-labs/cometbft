@@ -186,7 +186,7 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 		startHeight = max(startHeight, minRetainHeight)
 		endHeight = max(endHeight, minRetainHeight)
 
-		logger.Info("start re-indexing events", "startHeight", config.ReindexStartHeight, "endHeight", config.ReindexEndHeight)
+		logger.Info("start re-indexing events", "startHeight", startHeight, "endHeight", endHeight)
 
 		total := endHeight - startHeight + 1
 		printHeight := startHeight + total/100
