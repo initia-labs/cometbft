@@ -161,11 +161,16 @@ func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 	// 	bar.Play(height)
 	// }
 
-	return txindex.StartReindexEvents(cmd.Context(), log.NewNopLogger(), &cmtcfg.TxIndexConfig{
+	reindexFunc, err := txindex.StartReindexEvents(cmd.Context(), log.NewNopLogger(), &cmtcfg.TxIndexConfig{
 		ReindexEvents:      true,
 		ReindexStartHeight: args.startHeight,
 		ReindexEndHeight:   args.endHeight,
 	}, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer)
+	if err != nil {
+		return err
+	}
+	reindexFunc()
+	return nil
 }
 
 func checkValidHeight(bs state.BlockStore) error {

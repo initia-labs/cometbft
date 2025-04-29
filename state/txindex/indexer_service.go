@@ -166,9 +166,9 @@ func (is *IndexerService) OnStop() {
 
 const bloomSectionSize = int64(4096)
 
-func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIndexConfig, blockStore state.BlockStore, stateStore state.Store, blockIndexer indexer.BlockIndexer, txIndexer TxIndexer) error {
+func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIndexConfig, blockStore state.BlockStore, stateStore state.Store, blockIndexer indexer.BlockIndexer, txIndexer TxIndexer) (func(), error) {
 	if !config.ReindexEvents {
-		return nil
+		return nil, nil
 	}
 
 	blockIndexer.StartReindex()
@@ -203,7 +203,7 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 		logger.Info("re-indexing events", "start", start, "end", end)
 	}
 
-	go func() {
+	return func() {
 		logger.Info("start re-indexing events", "startHeight", startHeight, "endHeight", endHeight)
 
 		var wg sync.WaitGroup
@@ -232,8 +232,7 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 		}
 
 		logger.Info("re-indexing events completed")
-	}()
-	return nil
+	}, nil
 }
 
 func ReindexEvents(height int64, blockStore state.BlockStore, stateStore state.Store, blockIndexer indexer.BlockIndexer, txIndexer TxIndexer) error {

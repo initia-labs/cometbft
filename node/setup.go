@@ -166,9 +166,11 @@ func createAndStartIndexerService(
 
 	indexerService := txindex.NewIndexerService(txIndexer, blockIndexer, eventBus, false)
 	indexerService.SetLogger(logger.With("module", "indexer"))
-	if err := txindex.StartReindexEvents(ctx, logger.With("module", "reindex"), config.TxIndex, blockStore, stateStore, blockIndexer, txIndexer); err != nil {
+	reindexFunc, err := txindex.StartReindexEvents(ctx, logger.With("module", "reindex"), config.TxIndex, blockStore, stateStore, blockIndexer, txIndexer)
+	if err != nil {
 		return nil, nil, nil, err
 	}
+	go reindexFunc()
 
 	if err := indexerService.Start(); err != nil {
 		return nil, nil, nil, err
