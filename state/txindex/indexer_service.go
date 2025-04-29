@@ -203,7 +203,7 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 			}
 
 			if height == printHeight {
-				logger.Info("re-indexing events", "current height", height, "percentage", (height-startHeight)/total*100, "startHeight", startHeight, "endHeight", endHeight)
+				logger.Info("re-indexing events", "current height", height, "percentage", (height-startHeight)*100/total, "startHeight", startHeight, "endHeight", endHeight)
 				printHeight += total / 100
 			}
 		}
