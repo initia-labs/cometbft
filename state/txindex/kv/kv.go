@@ -55,6 +55,8 @@ const (
 	bloomRetrievalWait = time.Duration(0)
 
 	baseKey = "base"
+
+	sectionIndexKey = "si"
 )
 
 var _ txindex.TxIndexer = (*TxIndex)(nil)
@@ -190,6 +192,11 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 				return err
 			}
 		}
+
+		err = storeBatch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
+		if err != nil {
+			return err
+		}
 	}
 
 	base, err := txi.Base()
@@ -310,6 +317,9 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 	}
 
 	// for indexed events
+
+	innerCountForIndexed := int64(0)
+
 	idxBase, err := txi.Base()
 	if err != nil {
 		return err
@@ -317,75 +327,81 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 	begin = max(begin, idxBase, txi.blockStore.Base())
 	beginForIndexed := max(begin, bloomSectionSize)
 
-	matches := make(chan uint64, 64)
-
-	matcher := bloombits.NewMatcher(uint64(bloomSectionSize), [][][]byte{filters})
-	session, err := matcher.Start(ctx, uint64(beginForIndexed), uint64(end), matches)
+	sectionIndex, err := txi.SectionIndex()
 	if err != nil {
 		return err
-	}
+	} else if sectionIndex >= 0 {
+		endForIndexed := sectionIndex * bloomSectionSize
+		matches := make(chan uint64, 64)
 
-	bloomRequests := make(chan chan *bloombits.Retrieval)
-	for i := 0; i < bloomServiceThreads; i++ {
-		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
+		matcher := bloombits.NewMatcher(uint64(bloomSectionSize), [][][]byte{filters})
+		session, err := matcher.Start(ctx, uint64(beginForIndexed), uint64(endForIndexed), matches)
+		if err != nil {
+			return err
+		}
 
-				case request := <-bloomRequests:
-					task := <-request
-					task.Bitsets = make([][]byte, len(task.Sections))
+		bloomRequests := make(chan chan *bloombits.Retrieval)
+		for i := 0; i < bloomServiceThreads; i++ {
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
 
-					for i, section := range task.Sections {
-						sectionBitbloom, err := txi.store.Get(bloomKeyForSectionIndex(int64(section), int64(task.Bit)))
-						if err != nil {
-							task.Error = err
-							break
-						} else if sectionBitbloom == nil {
-							// pruned section, return empty bitset
-							task.Bitsets[i] = make([]byte, bloomSectionSize/8)
-							continue
+					case request := <-bloomRequests:
+						task := <-request
+						task.Bitsets = make([][]byte, len(task.Sections))
+
+						for i, section := range task.Sections {
+							sectionBitbloom, err := txi.store.Get(bloomKeyForSectionIndex(int64(section), int64(task.Bit)))
+							if err != nil {
+								task.Error = err
+								break
+							} else if sectionBitbloom == nil {
+								// pruned section, return empty bitset
+								task.Bitsets[i] = make([]byte, bloomSectionSize/8)
+								continue
+							}
+							task.Bitsets[i] = sectionBitbloom
 						}
-						task.Bitsets[i] = sectionBitbloom
+						request <- task
 					}
-					request <- task
+				}
+			}()
+		}
+
+		for i := 0; i < bloomFilterThreads; i++ {
+			go session.Multiplex(bloomRetrievalBatch, bloomRetrievalWait, bloomRequests)
+		}
+
+	MATCHES_LOOP:
+		for {
+			select {
+			case <-ctx.Done():
+				err = ctx.Err()
+				break MATCHES_LOOP
+
+			case number, ok := <-matches:
+				// Abort if all matches have been fulfilled
+				if !ok {
+					err = session.Error()
+					break MATCHES_LOOP
+				}
+				results, err := txi.checkMatch(int64(number), filters)
+				if err != nil {
+					return err
+				}
+				for _, result := range results {
+					innerCountForIndexed++
+					resultChan <- result
 				}
 			}
-		}()
-	}
-
-	for i := 0; i < bloomFilterThreads; i++ {
-		go session.Multiplex(bloomRetrievalBatch, bloomRetrievalWait, bloomRequests)
-	}
-
-	innerCountForIndexed := int64(0)
-
-MATCHES_LOOP:
-	for {
-		select {
-		case <-ctx.Done():
-			err = ctx.Err()
-			break MATCHES_LOOP
-
-		case number, ok := <-matches:
-			// Abort if all matches have been fulfilled
-			if !ok {
-				err = session.Error()
-				break MATCHES_LOOP
-			}
-			results, err := txi.checkMatch(int64(number), filters)
-			if err != nil {
-				return err
-			}
-			for _, result := range results {
-				innerCountForIndexed++
-				resultChan <- result
-			}
 		}
-	}
-	if err != nil {
-		return err
+		if err != nil {
+			return err
+		}
+
+		begin = max(begin, endForIndexed+1)
 	}
 
 	// for unindexed events
@@ -394,7 +410,6 @@ MATCHES_LOOP:
 	innerCountForUnindexed := atomic.Int64{}
 
 	g, innerCtx := errgroup.WithContext(ctx)
-	begin = max(begin, (end/bloomSectionSize)*bloomSectionSize)
 	diff := end - begin + 1
 	batchNum := diff / batchSize
 	if diff%batchSize != 0 {
@@ -521,6 +536,16 @@ func (txi *TxIndex) Base() (int64, error) {
 		return 0, nil
 	}
 	return int64FromBytes(base), nil
+}
+
+func (txi *TxIndex) SectionIndex() (int64, error) {
+	sectionIndex, err := txi.store.Get([]byte(sectionIndexKey))
+	if err != nil {
+		return 0, err
+	} else if sectionIndex == nil {
+		return -1, nil
+	}
+	return int64FromBytes(sectionIndex), nil
 }
 
 func (txi *TxIndex) Prune(curHeight int64) error {

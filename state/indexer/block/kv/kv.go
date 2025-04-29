@@ -36,6 +36,7 @@ const (
 	blockBloomKeyPrefix   = "bb"
 	blockKeyPrefix        = "b"
 	baseKey               = "base"
+	sectionIndexKey       = "si"
 
 	// bloomServiceThreads is the number of goroutines used globally by an Ethereum
 	// instance to service bloombits lookups for all running filters.
@@ -143,6 +144,11 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 			if err != nil {
 				return err
 			}
+		}
+
+		err = batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
+		if err != nil {
+			return err
 		}
 	}
 
@@ -255,6 +261,10 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 		}
 	}
 
+	// for indexed events
+
+	innerCountForIndexed := int64(0)
+
 	idxBase, err := idx.Base()
 	if err != nil {
 		return err
@@ -262,81 +272,87 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 	begin = max(begin, idxBase, idx.blockStore.Base())
 	beginForIndexed := max(begin, bloomSectionSize)
 
-	matches := make(chan uint64, 64)
-
-	matcher := bloombits.NewMatcher(uint64(bloomSectionSize), [][][]byte{filters})
-	session, err := matcher.Start(ctx, uint64(beginForIndexed), uint64(end), matches)
+	sectionIndex, err := idx.SectionIndex()
 	if err != nil {
 		return err
-	}
+	} else if sectionIndex >= 0 {
+		endForIndexed := sectionIndex * bloomSectionSize
 
-	bloomRequests := make(chan chan *bloombits.Retrieval)
-	for i := 0; i < bloomServiceThreads; i++ {
-		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
+		matches := make(chan uint64, 64)
 
-				case request := <-bloomRequests:
-					task := <-request
-					task.Bitsets = make([][]byte, len(task.Sections))
-					for i, section := range task.Sections {
-						sectionBitbloom, err := idx.store.Get(bloomKeyForSectionIndex(int64(section), int64(task.Bit)))
-						if err != nil {
-							task.Error = err
-							break
-						} else if sectionBitbloom == nil {
-							// pruned section, return empty bitset
-							task.Bitsets[i] = make([]byte, bloomSectionSize/8)
-							continue
+		matcher := bloombits.NewMatcher(uint64(bloomSectionSize), [][][]byte{filters})
+		session, err := matcher.Start(ctx, uint64(beginForIndexed), uint64(endForIndexed), matches)
+		if err != nil {
+			return err
+		}
+
+		bloomRequests := make(chan chan *bloombits.Retrieval)
+		for i := 0; i < bloomServiceThreads; i++ {
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+
+					case request := <-bloomRequests:
+						task := <-request
+						task.Bitsets = make([][]byte, len(task.Sections))
+						for i, section := range task.Sections {
+							sectionBitbloom, err := idx.store.Get(bloomKeyForSectionIndex(int64(section), int64(task.Bit)))
+							if err != nil {
+								task.Error = err
+								break
+							} else if sectionBitbloom == nil {
+								// pruned section, return empty bitset
+								task.Bitsets[i] = make([]byte, bloomSectionSize/8)
+								continue
+							}
+							task.Bitsets[i] = sectionBitbloom
 						}
-						task.Bitsets[i] = sectionBitbloom
+						request <- task
 					}
-					request <- task
+				}
+			}()
+		}
+
+		for i := 0; i < bloomFilterThreads; i++ {
+			go session.Multiplex(bloomRetrievalBatch, bloomRetrievalWait, bloomRequests)
+		}
+
+	MATCHES_LOOP:
+		for {
+			select {
+			case <-ctx.Done():
+				err = ctx.Err()
+				break MATCHES_LOOP
+
+			case number, ok := <-matches:
+				// Abort if all matches have been fulfilled
+				if !ok {
+					err = session.Error()
+					break MATCHES_LOOP
+				}
+				match, err := idx.checkMatch(int64(number), filters)
+				if err != nil {
+					return err
+				}
+				if match {
+					innerCountForIndexed++
+					resultChan <- int64(number)
 				}
 			}
-		}()
-	}
-
-	for i := 0; i < bloomFilterThreads; i++ {
-		go session.Multiplex(bloomRetrievalBatch, bloomRetrievalWait, bloomRequests)
-	}
-
-	innerCountForIndexed := int64(0)
-
-MATCHES_LOOP:
-	for {
-		select {
-		case <-ctx.Done():
-			err = ctx.Err()
-			break MATCHES_LOOP
-
-		case number, ok := <-matches:
-			// Abort if all matches have been fulfilled
-			if !ok {
-				err = session.Error()
-				break MATCHES_LOOP
-			}
-			match, err := idx.checkMatch(int64(number), filters)
-			if err != nil {
-				return err
-			}
-			if match {
-				innerCountForIndexed++
-				resultChan <- int64(number)
-			}
 		}
-	}
-	if err != nil {
-		return err
+		if err != nil {
+			return err
+		}
+
+		begin = max(begin, endForIndexed+1)
 	}
 
 	const batchSize = 500
 	innerCountForUnindexed := atomic.Int64{}
 
 	g, innerCtx := errgroup.WithContext(ctx)
-	begin = max(begin, (end/bloomSectionSize)*bloomSectionSize)
 	diff := end - begin + 1
 	batchNum := diff / batchSize
 	if diff%batchSize != 0 {
@@ -480,6 +496,16 @@ func (idx *BlockerIndexer) Base() (int64, error) {
 		return 0, nil
 	}
 	return int64FromBytes(base), nil
+}
+
+func (idx *BlockerIndexer) SectionIndex() (int64, error) {
+	sectionIndex, err := idx.store.Get([]byte(sectionIndexKey))
+	if err != nil {
+		return 0, err
+	} else if sectionIndex == nil {
+		return -1, nil
+	}
+	return int64FromBytes(sectionIndex), nil
 }
 
 func sectionIndexFromHeight(height int64) int64 {
