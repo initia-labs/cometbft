@@ -276,7 +276,7 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 	if err != nil {
 		return err
 	} else if sectionIndex >= 0 {
-		endForIndexed := sectionIndex * bloomSectionSize
+		endForIndexed := min(end, sectionIndex*bloomSectionSize)
 
 		matches := make(chan uint64, 64)
 
