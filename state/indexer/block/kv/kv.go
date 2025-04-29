@@ -74,6 +74,8 @@ type BlockerIndexer struct {
 	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
 	// except "tx.hash" and "tx.height" and "block.height" which are always retained.
 	retainHeight int64
+
+	isReindexing bool
 }
 
 func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *BlockerIndexer {
@@ -116,38 +118,7 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 
 	if bh.Height%bloomSectionSize == 0 {
 		sectionIndex := sectionIndexFromHeight(bh.Height) - 1
-		gen, err := bloombits.NewGenerator(uint(bloomSectionSize))
-		if err != nil {
-			return err
-		}
-
-		for i := int64(0); i < bloomSectionSize; i++ {
-			blockBloom, err := idx.store.Get(bloomKeyForBlock(sectionIndex*bloomSectionSize + i))
-			if err != nil {
-				return err
-			} else if blockBloom == nil {
-				blockBloom = make([]byte, gethcoretypes.BloomBitLength/8)
-			}
-
-			if err := gen.AddBloom(uint(i), gethcoretypes.Bloom(blockBloom)); err != nil {
-				return err
-			}
-		}
-
-		// write the bloom bits to the store
-		for i := 0; i < gethcoretypes.BloomBitLength; i++ {
-			bits, err := gen.Bitset(uint(i))
-			if err != nil {
-				return err
-			}
-
-			err = batch.Set(bloomKeyForSectionIndex(sectionIndex, int64(i)), bits)
-			if err != nil {
-				return err
-			}
-		}
-
-		err = batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
+		err := idx.createSectionBloom(sectionIndex, batch)
 		if err != nil {
 			return err
 		}
@@ -156,18 +127,88 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 	base, err := idx.Base()
 	if err != nil {
 		return err
-	} else if base == 0 {
+	} else if base == 0 || base > bh.Height {
 		err = batch.Set([]byte(baseKey), int64ToBytes(bh.Height))
 		if err != nil {
 			return err
 		}
 	}
 
-	err = batch.Set([]byte(heightKey), int64ToBytes(bh.Height))
+	height, err := idx.Height()
+	if err != nil {
+		return err
+	} else if height < bh.Height {
+		err = batch.Set([]byte(heightKey), int64ToBytes(bh.Height))
+		if err != nil {
+			return err
+		}
+	}
+	return batch.WriteSync()
+}
+
+func (idx *BlockerIndexer) createSectionBloom(sectionIndex int64, batch dbm.Batch) error {
+	gen, err := bloombits.NewGenerator(uint(bloomSectionSize))
 	if err != nil {
 		return err
 	}
 
+	for i := int64(0); i < bloomSectionSize; i++ {
+		blockBloom, err := idx.store.Get(bloomKeyForBlock(sectionIndex*bloomSectionSize + i))
+		if err != nil {
+			return err
+		} else if blockBloom == nil {
+			blockBloom = make([]byte, gethcoretypes.BloomBitLength/8)
+		}
+
+		if err := gen.AddBloom(uint(i), gethcoretypes.Bloom(blockBloom)); err != nil {
+			return err
+		}
+	}
+
+	// write the bloom bits to the store
+	for i := 0; i < gethcoretypes.BloomBitLength; i++ {
+		bits, err := gen.Bitset(uint(i))
+		if err != nil {
+			return err
+		}
+
+		err = batch.Set(bloomKeyForSectionIndex(sectionIndex, int64(i)), bits)
+		if err != nil {
+			return err
+		}
+	}
+
+	dbSectionIndex, err := idx.SectionIndex()
+	if err != nil {
+		return err
+	} else if dbSectionIndex < sectionIndex {
+		err = batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (idx *BlockerIndexer) StartReindex() {
+	idx.isReindexing = true
+}
+
+func (idx *BlockerIndexer) FinalizeReindex(height int64) error {
+	if !idx.isReindexing {
+		return nil
+	}
+
+	sectionIndex := (height + (bloomSectionSize - 1)) / bloomSectionSize
+	batch := idx.store.NewBatch()
+	defer func() {
+		batch.Close()
+		idx.isReindexing = false
+	}()
+	err := idx.createSectionBloom(sectionIndex, batch)
+	if err != nil {
+		return err
+	}
 	return batch.WriteSync()
 }
 
@@ -232,7 +273,10 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 			resultChan <- heightInfo.height
 		}
 		return nil
+	} else if idx.isReindexing {
+		return fmt.Errorf("indexer is reindexing, only height search is supported")
 	}
+
 	filters, err := filtersFromConditions(conditions)
 	if err != nil {
 		return err

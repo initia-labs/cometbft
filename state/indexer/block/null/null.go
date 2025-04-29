@@ -40,3 +40,10 @@ func (idx *BlockerIndexer) SetLogger(log.Logger) {
 func (idx *BlockerIndexer) Prune(curHeight int64) error {
 	return nil
 }
+
+func (idx *BlockerIndexer) StartReindex() {
+}
+
+func (idx *BlockerIndexer) FinalizeReindex(height int64) error {
+	return nil
+}

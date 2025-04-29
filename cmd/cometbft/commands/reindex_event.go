@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,7 +9,6 @@ import (
 
 	dbm "github.com/cometbft/cometbft-db"
 
-	abcitypes "github.com/cometbft/cometbft/abci/types"
 	cmtcfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/libs/progressbar"
 	"github.com/cometbft/cometbft/state"
@@ -19,7 +17,6 @@ import (
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/state/txindex/kv"
 	"github.com/cometbft/cometbft/store"
-	"github.com/cometbft/cometbft/types"
 )
 
 const (
@@ -156,54 +153,8 @@ func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 		case <-cmd.Context().Done():
 			return fmt.Errorf("event re-index terminated at height %d: %w", height, cmd.Context().Err())
 		default:
-			block := args.blockStore.LoadBlock(height)
-			if block == nil {
-				return fmt.Errorf("not able to load block at height %d from the blockstore", height)
-			}
-
-			resp, err := args.stateStore.LoadFinalizeBlockResponse(height)
-			if err != nil {
-				return fmt.Errorf("not able to load ABCI Response at height %d from the statestore", height)
-			}
-
-			if changed := disassembleMoveEvent(resp); changed {
-				err := args.stateStore.SaveFinalizeBlockResponse(height, resp)
-				if err != nil {
-					return fmt.Errorf("not able to save ABCI Response at height %d to the statestore", height)
-				}
-			}
-
-			e := types.EventDataNewBlockEvents{
-				Height: height,
-				Events: resp.Events,
-			}
-
-			numTxs := len(resp.TxResults)
-
-			var batch *txindex.Batch
-			if numTxs > 0 {
-				batch = txindex.NewBatch(int64(numTxs))
-
-				for idx, txResult := range resp.TxResults {
-					tr := abcitypes.TxResult{
-						Height: height,
-						Index:  uint32(idx),
-						Tx:     block.Txs[idx],
-						Result: *txResult,
-					}
-
-					if err = batch.Add(&tr); err != nil {
-						return fmt.Errorf("adding tx to batch: %w", err)
-					}
-				}
-
-				if err := args.txIndexer.AddBatch(batch); err != nil {
-					return fmt.Errorf("tx event re-index at height %d failed: %w", height, err)
-				}
-			}
-
-			if err := args.blockIndexer.Index(e); err != nil {
-				return fmt.Errorf("block event re-index at height %d failed: %w", height, err)
+			if err := txindex.ReindexEvents(height, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer); err != nil {
+				return fmt.Errorf("event re-index at height %d failed: %w", height, err)
 			}
 		}
 
@@ -211,56 +162,6 @@ func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 	}
 
 	return nil
-}
-
-func disassembleMoveEvent(resp *abcitypes.ResponseFinalizeBlock) bool {
-	disassembleFunc := func(attrs []abcitypes.EventAttribute) []abcitypes.EventAttribute {
-		changedEvent := false
-		newAttributes := make([]abcitypes.EventAttribute, 0)
-		for _, attr := range attrs {
-			if attr.Key == "data" {
-				var dataEvent map[string]interface{}
-				err := json.Unmarshal([]byte(attr.Value), &dataEvent)
-				if err == nil {
-					changedEvent = true
-					for k, v := range dataEvent {
-						newAttributes = append(newAttributes, abcitypes.EventAttribute{
-							Key:   k,
-							Value: fmt.Sprintf("%v", v),
-							Index: attr.Index,
-						})
-					}
-				}
-			} else {
-				newAttributes = append(newAttributes, attr)
-			}
-		}
-		if changedEvent {
-			return newAttributes
-		}
-		return nil
-	}
-
-	changed := false
-
-	for eventIndex, event := range resp.Events {
-		if event.Type == "move" {
-			if newAttributes := disassembleFunc(event.Attributes); newAttributes != nil {
-				resp.Events[eventIndex].Attributes = newAttributes
-				changed = true
-			}
-		}
-	}
-
-	for txIndex, txResult := range resp.TxResults {
-		for eventIndex, event := range txResult.Events {
-			if newAttributes := disassembleFunc(event.Attributes); newAttributes != nil {
-				resp.TxResults[txIndex].Events[eventIndex].Attributes = newAttributes
-				changed = true
-			}
-		}
-	}
-	return changed
 }
 
 func checkValidHeight(bs state.BlockStore) error {

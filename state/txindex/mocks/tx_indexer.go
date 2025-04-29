@@ -38,6 +38,24 @@ func (_m *TxIndexer) AddBatch(b *txindex.Batch) error {
 	return r0
 }
 
+// FinalizeReindex provides a mock function with given fields: height
+func (_m *TxIndexer) FinalizeReindex(height int64) error {
+	ret := _m.Called(height)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FinalizeReindex")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64) error); ok {
+		r0 = rf(height)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // Get provides a mock function with given fields: hash
 func (_m *TxIndexer) Get(hash []byte) (*types.TxResult, error) {
 	ret := _m.Called(hash)
@@ -121,6 +139,11 @@ func (_m *TxIndexer) Search(ctx context.Context, q *query.Query, maxCount int64)
 // SetLogger provides a mock function with given fields: l
 func (_m *TxIndexer) SetLogger(l log.Logger) {
 	_m.Called(l)
+}
+
+// StartReindex provides a mock function with no fields
+func (_m *TxIndexer) StartReindex() {
+	_m.Called()
 }
 
 // NewTxIndexer creates a new instance of TxIndexer. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

@@ -19,6 +19,24 @@ type BlockIndexer struct {
 	mock.Mock
 }
 
+// FinalizeReindex provides a mock function with given fields: height
+func (_m *BlockIndexer) FinalizeReindex(height int64) error {
+	ret := _m.Called(height)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FinalizeReindex")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64) error); ok {
+		r0 = rf(height)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // Has provides a mock function with given fields: height
 func (_m *BlockIndexer) Has(height int64) (bool, error) {
 	ret := _m.Called(height)
@@ -118,6 +136,11 @@ func (_m *BlockIndexer) Search(ctx context.Context, q *query.Query, maxCount int
 // SetLogger provides a mock function with given fields: l
 func (_m *BlockIndexer) SetLogger(l log.Logger) {
 	_m.Called(l)
+}
+
+// StartReindex provides a mock function with no fields
+func (_m *BlockIndexer) StartReindex() {
+	_m.Called()
 }
 
 // NewBlockIndexer creates a new instance of BlockIndexer. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

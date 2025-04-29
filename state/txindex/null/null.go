@@ -46,3 +46,10 @@ func (txi *TxIndex) SetLogger(log.Logger) {
 func (txi *TxIndex) Prune(curHeight int64) error {
 	return nil
 }
+
+func (txi *TxIndex) StartReindex() {
+}
+
+func (txi *TxIndex) FinalizeReindex(height int64) error {
+	return nil
+}

@@ -27,4 +27,10 @@ type BlockIndexer interface {
 
 	// Prune removes all block indexes below a certain height.
 	Prune(curHeight int64) error
+
+	// StartReindex starts the reindexing process.
+	StartReindex()
+
+	// FinalizeReindex finalizes the reindexing process.
+	FinalizeReindex(height int64) error
 }

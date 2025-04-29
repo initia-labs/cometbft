@@ -31,6 +31,12 @@ type TxIndexer interface {
 
 	// Prune removes all tx indexes below a certain height.
 	Prune(curHeight int64) error
+
+	// StartReindex starts the reindexing process.
+	StartReindex()
+
+	// FinalizeReindex finalizes the reindexing process.
+	FinalizeReindex(height int64) error
 }
 
 // Batch groups together multiple Index operations to be performed at the same time.

@@ -139,6 +139,7 @@ func createAndStartEventBus(logger log.Logger) (*types.EventBus, error) {
 }
 
 func createAndStartIndexerService(
+	ctx context.Context,
 	config *cfg.Config,
 	blockStore *store.BlockStore,
 	stateStore sm.Store,
@@ -161,10 +162,14 @@ func createAndStartIndexerService(
 	}
 
 	txIndexer.SetLogger(logger.With("module", "txindex"))
-	blockIndexer.SetLogger(logger.With("module", "txindex"))
+	blockIndexer.SetLogger(logger.With("module", "blockindex"))
 
 	indexerService := txindex.NewIndexerService(txIndexer, blockIndexer, eventBus, false)
-	indexerService.SetLogger(logger.With("module", "txindex"))
+	indexerService.SetLogger(logger.With("module", "indexer"))
+	if err := txindex.StartReindexEvents(ctx, logger.With("module", "reindex"), config.TxIndex, blockStore, stateStore, blockIndexer, txIndexer); err != nil {
+		return nil, nil, nil, err
+	}
+
 	if err := indexerService.Start(); err != nil {
 		return nil, nil, nil, err
 	}

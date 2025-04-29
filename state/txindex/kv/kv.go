@@ -77,6 +77,7 @@ type TxIndex struct {
 	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
 	// except "tx.hash" and "tx.height" and "block.height" which are always retained.
 	retainHeight int64
+	isReindexing bool
 }
 
 // NewTxIndex creates new KV indexer.
@@ -162,38 +163,7 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 
 	if blockHeight%bloomSectionSize == 0 {
 		sectionIndex := sectionIndexFromHeight(blockHeight) - 1
-		gen, err := bloombits.NewGenerator(uint(bloomSectionSize))
-		if err != nil {
-			return err
-		}
-
-		for i := int64(0); i < bloomSectionSize; i++ {
-			blockBloom, err := txi.store.Get(bloomKeyForBlock(sectionIndex*bloomSectionSize + i))
-			if err != nil {
-				return err
-			} else if blockBloom == nil {
-				blockBloom = make([]byte, gethcoretypes.BloomBitLength/8)
-			}
-
-			if err := gen.AddBloom(uint(i), gethcoretypes.Bloom(blockBloom)); err != nil {
-				return err
-			}
-		}
-
-		// write the bloom bits to the store
-		for i := 0; i < gethcoretypes.BloomBitLength; i++ {
-			bits, err := gen.Bitset(uint(i))
-			if err != nil {
-				return err
-			}
-
-			err = storeBatch.Set(bloomKeyForSectionIndex(sectionIndex, int64(i)), bits)
-			if err != nil {
-				return err
-			}
-		}
-
-		err = storeBatch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
+		err := txi.createSectionBloom(sectionIndex, storeBatch)
 		if err != nil {
 			return err
 		}
@@ -202,18 +172,89 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 	base, err := txi.Base()
 	if err != nil {
 		return err
-	} else if base == 0 {
+	} else if base == 0 || base > blockHeight {
 		err = storeBatch.Set([]byte(baseKey), int64ToBytes(blockHeight))
 		if err != nil {
 			return err
 		}
 	}
 
-	err = storeBatch.Set([]byte(heightKey), int64ToBytes(blockHeight))
+	height, err := txi.Height()
+	if err != nil {
+		return err
+	} else if height < blockHeight {
+		err = storeBatch.Set([]byte(heightKey), int64ToBytes(blockHeight))
+		if err != nil {
+			return err
+		}
+	}
+
+	return storeBatch.WriteSync()
+}
+
+func (txi *TxIndex) createSectionBloom(sectionIndex int64, batch dbm.Batch) error {
+	gen, err := bloombits.NewGenerator(uint(bloomSectionSize))
 	if err != nil {
 		return err
 	}
 
+	for i := int64(0); i < bloomSectionSize; i++ {
+		blockBloom, err := txi.store.Get(bloomKeyForBlock(sectionIndex*bloomSectionSize + i))
+		if err != nil {
+			return err
+		} else if blockBloom == nil {
+			blockBloom = make([]byte, gethcoretypes.BloomBitLength/8)
+		}
+
+		if err := gen.AddBloom(uint(i), gethcoretypes.Bloom(blockBloom)); err != nil {
+			return err
+		}
+	}
+
+	// write the bloom bits to the store
+	for i := 0; i < gethcoretypes.BloomBitLength; i++ {
+		bits, err := gen.Bitset(uint(i))
+		if err != nil {
+			return err
+		}
+
+		err = batch.Set(bloomKeyForSectionIndex(sectionIndex, int64(i)), bits)
+		if err != nil {
+			return err
+		}
+	}
+
+	dbSectionIndex, err := txi.SectionIndex()
+	if err != nil {
+		return err
+	} else if dbSectionIndex < sectionIndex {
+		err = batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (txi *TxIndex) StartReindex() {
+	txi.isReindexing = true
+}
+
+func (txi *TxIndex) FinalizeReindex(height int64) error {
+	if !txi.isReindexing {
+		return nil
+	}
+
+	sectionIndex := (height + (bloomSectionSize - 1)) / bloomSectionSize
+	storeBatch := txi.store.NewBatch()
+	defer func() {
+		storeBatch.Close()
+		txi.isReindexing = false
+	}()
+	err := txi.createSectionBloom(sectionIndex, storeBatch)
+	if err != nil {
+		return err
+	}
 	return storeBatch.WriteSync()
 }
 
@@ -269,6 +310,8 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 			resultChan <- *res
 			return nil
 		}
+	} else if txi.isReindexing {
+		return fmt.Errorf("indexer is reindexing, only hash search is supported")
 	}
 
 	// If we are not matching events and tx.height = 3 occurs more than once, the later value will
