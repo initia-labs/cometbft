@@ -378,8 +378,7 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 		for {
 			select {
 			case <-ctx.Done():
-				err = ctx.Err()
-				break MATCHES_LOOP
+				return ctx.Err()
 
 			case number, ok := <-matches:
 				// Abort if all matches have been fulfilled
