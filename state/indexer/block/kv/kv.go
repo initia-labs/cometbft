@@ -124,23 +124,25 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 		}
 	}
 
-	base, err := idx.Base()
-	if err != nil {
-		return err
-	} else if base == 0 || base > bh.Height {
-		err = batch.Set([]byte(baseKey), int64ToBytes(bh.Height))
+	if !idx.isReindexing {
+		base, err := idx.Base()
 		if err != nil {
 			return err
+		} else if base == 0 || base > bh.Height {
+			err = batch.Set([]byte(baseKey), int64ToBytes(bh.Height))
+			if err != nil {
+				return err
+			}
 		}
-	}
 
-	height, err := idx.Height()
-	if err != nil {
-		return err
-	} else if height < bh.Height {
-		err = batch.Set([]byte(heightKey), int64ToBytes(bh.Height))
+		height, err := idx.Height()
 		if err != nil {
 			return err
+		} else if height < bh.Height {
+			err = batch.Set([]byte(heightKey), int64ToBytes(bh.Height))
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return batch.WriteSync()
@@ -194,12 +196,12 @@ func (idx *BlockerIndexer) StartReindex() {
 	idx.isReindexing = true
 }
 
-func (idx *BlockerIndexer) FinalizeReindex(height int64) error {
+func (idx *BlockerIndexer) FinalizeReindex(startHeight, endHeight int64) error {
 	if !idx.isReindexing {
 		return nil
 	}
 
-	sectionIndex := (height + (bloomSectionSize - 1)) / bloomSectionSize
+	sectionIndex := (endHeight + (bloomSectionSize - 1)) / bloomSectionSize
 	batch := idx.store.NewBatch()
 	defer func() {
 		batch.Close()
@@ -208,6 +210,26 @@ func (idx *BlockerIndexer) FinalizeReindex(height int64) error {
 	err := idx.createSectionBloom(sectionIndex, batch)
 	if err != nil {
 		return err
+	}
+
+	base, err := idx.Base()
+	if err != nil {
+		return err
+	} else if base == 0 || base > startHeight {
+		err = batch.Set([]byte(baseKey), int64ToBytes(startHeight))
+		if err != nil {
+			return err
+		}
+	}
+
+	height, err := idx.Height()
+	if err != nil {
+		return err
+	} else if height < endHeight {
+		err = batch.Set([]byte(heightKey), int64ToBytes(endHeight))
+		if err != nil {
+			return err
+		}
 	}
 	return batch.WriteSync()
 }

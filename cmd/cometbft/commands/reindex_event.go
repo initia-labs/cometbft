@@ -10,7 +10,7 @@ import (
 	dbm "github.com/cometbft/cometbft-db"
 
 	cmtcfg "github.com/cometbft/cometbft/config"
-	"github.com/cometbft/cometbft/libs/progressbar"
+	"github.com/cometbft/cometbft/libs/log"
 	"github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/state/indexer"
 	blockidxkv "github.com/cometbft/cometbft/state/indexer/block/kv"
@@ -143,25 +143,29 @@ type eventReIndexArgs struct {
 }
 
 func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
-	var bar progressbar.Bar
-	bar.NewOption(args.startHeight-1, args.endHeight)
+	// var bar progressbar.Bar
+	// bar.NewOption(args.startHeight-1, args.endHeight)
 
-	fmt.Println("start re-indexing events:")
-	defer bar.Finish()
-	for height := args.startHeight; height <= args.endHeight; height++ {
-		select {
-		case <-cmd.Context().Done():
-			return fmt.Errorf("event re-index terminated at height %d: %w", height, cmd.Context().Err())
-		default:
-			if err := txindex.ReindexEvents(height, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer); err != nil {
-				return fmt.Errorf("event re-index at height %d failed: %w", height, err)
-			}
-		}
+	// fmt.Println("start re-indexing events:")
+	// defer bar.Finish()
+	// for height := args.startHeight; height <= args.endHeight; height++ {
+	// 	select {
+	// 	case <-cmd.Context().Done():
+	// 		return fmt.Errorf("event re-index terminated at height %d: %w", height, cmd.Context().Err())
+	// 	default:
+	// 		if err := txindex.ReindexEvents(height, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer); err != nil {
+	// 			return fmt.Errorf("event re-index at height %d failed: %w", height, err)
+	// 		}
+	// 	}
 
-		bar.Play(height)
-	}
+	// 	bar.Play(height)
+	// }
 
-	return nil
+	return txindex.StartReindexEvents(cmd.Context(), log.NewNopLogger(), &cmtcfg.TxIndexConfig{
+		ReindexEvents:      true,
+		ReindexStartHeight: args.startHeight,
+		ReindexEndHeight:   args.endHeight,
+	}, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer)
 }
 
 func checkValidHeight(bs state.BlockStore) error {

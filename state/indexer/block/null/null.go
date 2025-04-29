@@ -44,6 +44,6 @@ func (idx *BlockerIndexer) Prune(curHeight int64) error {
 func (idx *BlockerIndexer) StartReindex() {
 }
 
-func (idx *BlockerIndexer) FinalizeReindex(height int64) error {
+func (idx *BlockerIndexer) FinalizeReindex(startHeight, endHeight int64) error {
 	return nil
 }

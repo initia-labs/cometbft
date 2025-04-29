@@ -32,5 +32,5 @@ type BlockIndexer interface {
 	StartReindex()
 
 	// FinalizeReindex finalizes the reindexing process.
-	FinalizeReindex(height int64) error
+	FinalizeReindex(startHeight, endHeight int64) error
 }

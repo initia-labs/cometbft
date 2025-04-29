@@ -19,17 +19,17 @@ type BlockIndexer struct {
 	mock.Mock
 }
 
-// FinalizeReindex provides a mock function with given fields: height
-func (_m *BlockIndexer) FinalizeReindex(height int64) error {
-	ret := _m.Called(height)
+// FinalizeReindex provides a mock function with given fields: startHeight, endHeight
+func (_m *BlockIndexer) FinalizeReindex(startHeight int64, endHeight int64) error {
+	ret := _m.Called(startHeight, endHeight)
 
 	if len(ret) == 0 {
 		panic("no return value specified for FinalizeReindex")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(int64) error); ok {
-		r0 = rf(height)
+	if rf, ok := ret.Get(0).(func(int64, int64) error); ok {
+		r0 = rf(startHeight, endHeight)
 	} else {
 		r0 = ret.Error(0)
 	}

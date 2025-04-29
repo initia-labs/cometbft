@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"sync/atomic"
 
 	cfg "github.com/cometbft/cometbft/config"
@@ -163,6 +164,8 @@ func (is *IndexerService) OnStop() {
 	}
 }
 
+const bloomSectionSize = int64(4096)
+
 func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIndexConfig, blockStore state.BlockStore, stateStore state.Store, blockIndexer indexer.BlockIndexer, txIndexer TxIndexer) error {
 	if !config.ReindexEvents {
 		return nil
@@ -171,27 +174,22 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 	blockIndexer.StartReindex()
 	txIndexer.StartReindex()
 
-	go func() {
-		startHeight := config.ReindexStartHeight
-		if startHeight == 0 {
-			startHeight = blockStore.Base()
-		}
+	startHeight := config.ReindexStartHeight
+	if startHeight == 0 {
+		startHeight = blockStore.Base()
+	}
 
-		endHeight := config.ReindexEndHeight
-		if endHeight == 0 {
-			endHeight = blockStore.Height()
-		}
+	endHeight := config.ReindexEndHeight
+	if endHeight == 0 {
+		endHeight = blockStore.Height()
+	}
 
-		minRetainHeight := blockStore.Height() - config.RetainHeight + 1
-		startHeight = max(startHeight, minRetainHeight)
-		endHeight = max(endHeight, minRetainHeight)
+	minRetainHeight := blockStore.Height() - config.RetainHeight + 1
+	startHeight = max(startHeight, minRetainHeight)
+	endHeight = max(endHeight, minRetainHeight)
 
-		logger.Info("start re-indexing events", "startHeight", startHeight, "endHeight", endHeight)
-
-		total := endHeight - startHeight + 1
-		printHeight := startHeight + total/100
-
-		for height := startHeight; height <= endHeight; height++ {
+	sectionIndexer := func(start int64, end int64) {
+		for height := start; height <= end; height++ {
 			select {
 			case <-ctx.Done():
 				return
@@ -201,20 +199,34 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 					return
 				}
 			}
+		}
+		logger.Info("re-indexing events", "start", start, "end", end)
+	}
 
-			if height == printHeight {
-				logger.Info("re-indexing events", "current height", height, "percentage", (height-startHeight)*100/total, "startHeight", startHeight, "endHeight", endHeight)
-				printHeight += total / 100
-			}
+	go func() {
+		logger.Info("start re-indexing events", "startHeight", startHeight, "endHeight", endHeight)
+
+		var wg sync.WaitGroup
+
+		for section := startHeight / bloomSectionSize; section <= endHeight/bloomSectionSize; section++ {
+			sectionStart := max(section*bloomSectionSize, startHeight)
+			sectionEnd := min(section*bloomSectionSize+bloomSectionSize-1, endHeight)
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				sectionIndexer(sectionStart, sectionEnd)
+			}()
 		}
 
+		wg.Wait()
 		// update the last section bloom
-		err := blockIndexer.FinalizeReindex(endHeight)
+		err := blockIndexer.FinalizeReindex(startHeight, endHeight)
 		if err != nil {
 			logger.Error("failed to finalize block index re-index", "height", endHeight, "err", err)
 		}
 
-		err = txIndexer.FinalizeReindex(endHeight)
+		err = txIndexer.FinalizeReindex(startHeight, endHeight)
 		if err != nil {
 			logger.Error("failed to finalize tx index re-index", "height", endHeight, "err", err)
 		}

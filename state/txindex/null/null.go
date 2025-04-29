@@ -50,6 +50,6 @@ func (txi *TxIndex) Prune(curHeight int64) error {
 func (txi *TxIndex) StartReindex() {
 }
 
-func (txi *TxIndex) FinalizeReindex(height int64) error {
+func (txi *TxIndex) FinalizeReindex(startHeight, endHeight int64) error {
 	return nil
 }
