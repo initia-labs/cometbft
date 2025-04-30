@@ -61,6 +61,9 @@ type TxIndexerV2 interface {
 
 	// FinalizeReindex finalizes the reindexing process.
 	FinalizeReindex(startHeight, endHeight int64) error
+
+	// Height returns the height of the index.
+	Height() (int64, error)
 }
 
 // Batch groups together multiple Index operations to be performed at the same time.

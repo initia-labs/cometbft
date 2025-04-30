@@ -232,7 +232,11 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 
 	startHeight := config.ReindexStartHeight
 	if startHeight == 0 {
-		startHeight = blockStore.Base()
+		height, err := txIndexerV2.Height()
+		if err != nil {
+			return nil, err
+		}
+		startHeight = max(blockStore.Base(), height)
 	}
 
 	endHeight := config.ReindexEndHeight
