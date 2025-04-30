@@ -87,6 +87,7 @@ want to use this command.
 			txIndexer:    ti,
 			blockStore:   bs,
 			stateStore:   ss,
+			retainHeight: config.TxIndex.RetainHeight,
 		}
 		if err := eventReIndex(cmd, riArgs); err != nil {
 			panic(fmt.Errorf("%s: %w", reindexFailed, err))
@@ -141,6 +142,7 @@ type eventReIndexArgs struct {
 	txIndexer    txindex.TxIndexerV2
 	blockStore   state.BlockStore
 	stateStore   state.Store
+	retainHeight int64
 }
 
 func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
@@ -167,6 +169,7 @@ func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 		ReindexEvents:      true,
 		ReindexStartHeight: args.startHeight,
 		ReindexEndHeight:   args.endHeight,
+		RetainHeight:       args.retainHeight,
 	}, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer)
 	if err != nil {
 		return err
