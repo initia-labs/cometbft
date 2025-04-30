@@ -122,7 +122,7 @@ func loadEventSinks(cfg *cmtcfg.Config, chainID string, blockStore *store.BlockS
 	// 	}
 	// 	return es.BlockIndexer(), es.TxIndexer(), nil
 	case "kv", "kv_v2":
-		store, err := dbm.NewDB("tx_index", dbm.BackendType(cfg.DBBackend), cfg.DBDir())
+		store, err := dbm.NewDB("tx_index_v2", dbm.BackendType(cfg.DBBackend), cfg.DBDir())
 		if err != nil {
 			return nil, nil, err
 		}
