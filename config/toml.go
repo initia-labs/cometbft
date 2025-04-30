@@ -548,8 +548,16 @@ psql-conn = "{{ .TxIndex.PsqlConn }}"
 #
 # If set to 0, the index will retain all tx index.
 # Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
-# except "tx.hash" and "tx.height" and "block.height" which are always retained.
+
+# This value should be set higher than the prune-related retain height specified in app.toml.
 retain-height = {{ .TxIndex.RetainHeight }}
+
+# MigrationEvents is used to migrate events to v2 indexers in background.
+migration-events = {{ .TxIndex.MigrationEvents }}
+
+# ForceStartHeight is the height to start migration events from.
+# If not set, the migration will start from the last saved height.
+force-start-height = {{ .TxIndex.ForceStartHeight }}
 
 #######################################################
 ###       Instrumentation Configuration Options     ###

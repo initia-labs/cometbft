@@ -1195,9 +1195,11 @@ type TxIndexConfig struct {
 	//
 	// If set to 0, the index will retain all tx index.
 	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight).
+	//
+	// This value should be set higher than the prune-related retain height specified in app.toml.
 	RetainHeight int64 `mapstructure:"retain-height"`
 
-	// MigrationEvents is used to migrate events in background.
+	// MigrationEvents is used to migrate events to v2 indexers in background.
 	MigrationEvents bool `mapstructure:"migration-events"`
 
 	// ForceStartHeight is the height to start migration events from.
