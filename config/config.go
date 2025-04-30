@@ -1197,16 +1197,12 @@ type TxIndexConfig struct {
 	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight).
 	RetainHeight int64 `mapstructure:"retain-height"`
 
-	// ReindexEvents is used to reindex events in background.
-	ReindexEvents bool `mapstructure:"reindex-events"`
+	// MigrationEvents is used to migrate events in background.
+	MigrationEvents bool `mapstructure:"migration-events"`
 
-	// ReindexStartHeight is the height to start reindexing events from.
-	// If not set, the reindexing will start from the genesis block.
-	ReindexStartHeight int64 `mapstructure:"reindex-start-height"`
-
-	// ReindexEndHeight is the height to end reindexing events at.
-	// If not set, the reindexing will continue until the latest block.
-	ReindexEndHeight int64 `mapstructure:"reindex-end-height"`
+	// ForceStartHeight is the height to start migration events from.
+	// If not set, the migration will start from the last saved height.
+	ForceStartHeight int64 `mapstructure:"force-start-height"`
 }
 
 // DefaultTxIndexConfig returns a default configuration for the transaction indexer.

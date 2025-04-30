@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"sync/atomic"
 	"time"
@@ -38,6 +39,7 @@ const (
 	baseKey               = "base"
 	heightKey             = "h"
 	sectionIndexKey       = "si"
+	migrationKey          = "migration"
 
 	// bloomServiceThreads is the number of goroutines used globally by an Ethereum
 	// instance to service bloombits lookups for all running filters.
@@ -75,7 +77,7 @@ type BlockerIndexer struct {
 	// except "tx.hash" and "tx.height" and "block.height" which are always retained.
 	retainHeight int64
 
-	isReindexing bool
+	isMigrating bool
 }
 
 func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *BlockerIndexer {
@@ -143,6 +145,14 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 			return err
 		}
 	}
+
+	if idx.isMigrating {
+		err = batch.Set([]byte(migrationKey), int64ToBytes(bh.Height))
+		if err != nil {
+			return err
+		}
+	}
+
 	return batch.WriteSync()
 }
 
@@ -190,12 +200,12 @@ func (idx *BlockerIndexer) createSectionBloom(sectionIndex int64, batch dbm.Batc
 	return nil
 }
 
-func (idx *BlockerIndexer) StartReindex() {
-	idx.isReindexing = true
+func (idx *BlockerIndexer) StartMigration() {
+	idx.isMigrating = true
 }
 
-func (idx *BlockerIndexer) FinalizeReindex(startHeight, endHeight int64) error {
-	if !idx.isReindexing {
+func (idx *BlockerIndexer) FinishMigration(endHeight int64) error {
+	if !idx.isMigrating {
 		return nil
 	}
 
@@ -203,13 +213,27 @@ func (idx *BlockerIndexer) FinalizeReindex(startHeight, endHeight int64) error {
 	batch := idx.store.NewBatch()
 	defer func() {
 		batch.Close()
-		idx.isReindexing = false
+		idx.isMigrating = false
 	}()
 	err := idx.createSectionBloom(sectionIndex, batch)
 	if err != nil {
 		return err
 	}
+	err = batch.Set([]byte(migrationKey), int64ToBytes(math.MaxInt64))
+	if err != nil {
+		return err
+	}
 	return batch.WriteSync()
+}
+
+func (idx *BlockerIndexer) MigrationHeight() (int64, error) {
+	migrationHeight, err := idx.store.Get([]byte(migrationKey))
+	if err != nil {
+		return 0, err
+	} else if migrationHeight == nil {
+		return 0, nil
+	}
+	return int64FromBytes(migrationHeight), nil
 }
 
 // Search performs a query for block heights that match a given FinalizeBlock
@@ -273,8 +297,8 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 			resultChan <- heightInfo.height
 		}
 		return nil
-	} else if idx.isReindexing {
-		return fmt.Errorf("indexer is reindexing, only height search is supported")
+	} else if idx.isMigrating {
+		return fmt.Errorf("indexer is migrating, only height search is supported")
 	}
 
 	filters, err := filtersFromConditions(conditions)

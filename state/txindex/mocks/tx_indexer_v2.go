@@ -38,17 +38,17 @@ func (_m *TxIndexerV2) AddBatch(b *txindex.Batch) error {
 	return r0
 }
 
-// FinalizeReindex provides a mock function with given fields: startHeight, endHeight
-func (_m *TxIndexerV2) FinalizeReindex(startHeight int64, endHeight int64) error {
-	ret := _m.Called(startHeight, endHeight)
+// FinishMigration provides a mock function with given fields: endHeight
+func (_m *TxIndexerV2) FinishMigration(endHeight int64) error {
+	ret := _m.Called(endHeight)
 
 	if len(ret) == 0 {
-		panic("no return value specified for FinalizeReindex")
+		panic("no return value specified for FinishMigration")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(int64, int64) error); ok {
-		r0 = rf(startHeight, endHeight)
+	if rf, ok := ret.Get(0).(func(int64) error); ok {
+		r0 = rf(endHeight)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -86,12 +86,12 @@ func (_m *TxIndexerV2) Get(hash []byte) (*types.TxResult, error) {
 	return r0, r1
 }
 
-// Height provides a mock function with no fields
-func (_m *TxIndexerV2) Height() (int64, error) {
+// MigrationHeight provides a mock function with no fields
+func (_m *TxIndexerV2) MigrationHeight() (int64, error) {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
-		panic("no return value specified for Height")
+		panic("no return value specified for MigrationHeight")
 	}
 
 	var r0 int64
@@ -169,8 +169,8 @@ func (_m *TxIndexerV2) SetLogger(l log.Logger) {
 	_m.Called(l)
 }
 
-// StartReindex provides a mock function with no fields
-func (_m *TxIndexerV2) StartReindex() {
+// StartMigration provides a mock function with no fields
+func (_m *TxIndexerV2) StartMigration() {
 	_m.Called()
 }
 

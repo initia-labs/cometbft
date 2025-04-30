@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"sync/atomic"
 	"time"
@@ -57,6 +58,7 @@ const (
 	baseKey         = "base"
 	heightKey       = "h"
 	sectionIndexKey = "si"
+	migrationKey    = "migration"
 )
 
 var _ txindex.TxIndexerV2 = (*TxIndex)(nil)
@@ -77,7 +79,7 @@ type TxIndex struct {
 	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
 	// except "tx.hash" and "tx.height" and "block.height" which are always retained.
 	retainHeight int64
-	isReindexing bool
+	isMigrating  bool
 }
 
 // NewTxIndex creates new KV indexer.
@@ -191,6 +193,13 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 			return err
 		}
 	}
+
+	if txi.isMigrating {
+		err = storeBatch.Set([]byte(migrationKey), int64ToBytes(blockHeight))
+		if err != nil {
+			return err
+		}
+	}
 	return storeBatch.WriteSync()
 }
 
@@ -238,12 +247,12 @@ func (txi *TxIndex) createSectionBloom(sectionIndex int64, batch dbm.Batch) erro
 	return nil
 }
 
-func (txi *TxIndex) StartReindex() {
-	txi.isReindexing = true
+func (txi *TxIndex) StartMigration() {
+	txi.isMigrating = true
 }
 
-func (txi *TxIndex) FinalizeReindex(startHeight, endHeight int64) error {
-	if !txi.isReindexing {
+func (txi *TxIndex) FinishMigration(endHeight int64) error {
+	if !txi.isMigrating {
 		return nil
 	}
 
@@ -251,9 +260,14 @@ func (txi *TxIndex) FinalizeReindex(startHeight, endHeight int64) error {
 	storeBatch := txi.store.NewBatch()
 	defer func() {
 		storeBatch.Close()
-		txi.isReindexing = false
+		txi.isMigrating = false
 	}()
 	err := txi.createSectionBloom(sectionIndex, storeBatch)
+	if err != nil {
+		return err
+	}
+
+	err = storeBatch.Set([]byte(migrationKey), int64ToBytes(math.MaxInt64))
 	if err != nil {
 		return err
 	}
@@ -312,8 +326,8 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 			resultChan <- *res
 			return nil
 		}
-	} else if txi.isReindexing {
-		return fmt.Errorf("indexer is reindexing, only hash search is supported")
+	} else if txi.isMigrating {
+		return fmt.Errorf("indexer is migrating, only tx hash search is supported")
 	}
 
 	// If we are not matching events and tx.height = 3 occurs more than once, the later value will
@@ -607,6 +621,16 @@ func (txi *TxIndex) Height() (int64, error) {
 		return 0, nil
 	}
 	return int64FromBytes(height), nil
+}
+
+func (txi *TxIndex) MigrationHeight() (int64, error) {
+	migrationHeight, err := txi.store.Get([]byte(migrationKey))
+	if err != nil {
+		return 0, err
+	} else if migrationHeight == nil {
+		return 0, nil
+	}
+	return int64FromBytes(migrationHeight), nil
 }
 
 func (txi *TxIndex) SectionIndex() (int64, error) {

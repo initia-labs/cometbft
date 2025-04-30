@@ -19,17 +19,17 @@ type BlockIndexer struct {
 	mock.Mock
 }
 
-// FinalizeReindex provides a mock function with given fields: startHeight, endHeight
-func (_m *BlockIndexer) FinalizeReindex(startHeight int64, endHeight int64) error {
-	ret := _m.Called(startHeight, endHeight)
+// FinishMigration provides a mock function with given fields: endHeight
+func (_m *BlockIndexer) FinishMigration(endHeight int64) error {
+	ret := _m.Called(endHeight)
 
 	if len(ret) == 0 {
-		panic("no return value specified for FinalizeReindex")
+		panic("no return value specified for FinishMigration")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(int64, int64) error); ok {
-		r0 = rf(startHeight, endHeight)
+	if rf, ok := ret.Get(0).(func(int64) error); ok {
+		r0 = rf(endHeight)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -81,6 +81,34 @@ func (_m *BlockIndexer) Index(_a0 types.EventDataNewBlockEvents) error {
 	}
 
 	return r0
+}
+
+// MigrationHeight provides a mock function with no fields
+func (_m *BlockIndexer) MigrationHeight() (int64, error) {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for MigrationHeight")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func() (int64, error)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func() int64); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func() error); ok {
+		r1 = rf()
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // Prune provides a mock function with given fields: curHeight
@@ -138,8 +166,8 @@ func (_m *BlockIndexer) SetLogger(l log.Logger) {
 	_m.Called(l)
 }
 
-// StartReindex provides a mock function with no fields
-func (_m *BlockIndexer) StartReindex() {
+// StartMigration provides a mock function with no fields
+func (_m *BlockIndexer) StartMigration() {
 	_m.Called()
 }
 

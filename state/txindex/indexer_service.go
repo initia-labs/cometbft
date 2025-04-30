@@ -219,25 +219,30 @@ func (is *IndexerService) OnStop() {
 	}
 }
 
-func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIndexConfig, blockStore state.BlockStore, stateStore state.Store, blockIndexerV2 indexerv2.BlockIndexer, txIndexerV2 TxIndexerV2) (func(), error) {
-	if !config.ReindexEvents {
-		return nil, nil
-	}
+func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIndexConfig, blockStore state.BlockStore, stateStore state.Store, blockIndexerV2 indexerv2.BlockIndexer, txIndexerV2 TxIndexerV2, endHeight int64) (func(), error) {
+	blockIndexerV2.StartMigration()
+	txIndexerV2.StartMigration()
 
-	blockIndexerV2.StartReindex()
-	txIndexerV2.StartReindex()
-
-	startHeight := config.ReindexStartHeight
-	if startHeight == 0 {
-		height, err := txIndexerV2.Height()
+	startHeight := int64(1)
+	if config.ForceStartHeight == 0 {
+		txLastSavedMigrationHeight, err := txIndexerV2.MigrationHeight()
 		if err != nil {
 			return nil, err
 		}
-		startHeight = max(blockStore.Base(), height)
+
+		blockLastSavedMigrationHeight, err := blockIndexerV2.MigrationHeight()
+		if err != nil {
+			return nil, err
+		}
+		lastSavedMigrationHeight := min(txLastSavedMigrationHeight, blockLastSavedMigrationHeight)
+		startHeight = max(blockStore.Base(), lastSavedMigrationHeight)
+	} else {
+		startHeight = max(blockStore.Base(), config.ForceStartHeight)
 	}
 
-	endHeight := config.ReindexEndHeight
-	if endHeight == 0 {
+	if endHeight > 0 {
+		endHeight = min(endHeight, blockStore.Height())
+	} else {
 		endHeight = blockStore.Height()
 	}
 
@@ -268,12 +273,12 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 		}
 
 		// update the last section bloom
-		err := blockIndexerV2.FinalizeReindex(startHeight, endHeight)
+		err := blockIndexerV2.FinishMigration(endHeight)
 		if err != nil {
 			logger.Error("failed to finalize block index re-index", "height", endHeight, "err", err)
 		}
 
-		err = txIndexerV2.FinalizeReindex(startHeight, endHeight)
+		err = txIndexerV2.FinishMigration(endHeight)
 		if err != nil {
 			logger.Error("failed to finalize tx index re-index", "height", endHeight, "err", err)
 		}

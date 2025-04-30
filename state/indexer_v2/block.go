@@ -28,9 +28,12 @@ type BlockIndexer interface {
 	// Prune removes all block indexes below a certain height.
 	Prune(curHeight int64) error
 
-	// StartReindex starts the reindexing process.
-	StartReindex()
+	// StartMigration starts the migration process.
+	StartMigration()
 
-	// FinalizeReindex finalizes the reindexing process.
-	FinalizeReindex(startHeight, endHeight int64) error
+	// FinishMigration finalizes the migration process.
+	FinishMigration(endHeight int64) error
+
+	// MigrationHeight returns the height of the migration.
+	MigrationHeight() (int64, error)
 }

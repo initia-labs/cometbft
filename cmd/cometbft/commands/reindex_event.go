@@ -165,12 +165,11 @@ func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 	// }
 
 	reindexFunc, err := txindex.StartReindexEvents(cmd.Context(), log.NewTMLogger(log.NewSyncWriter(os.Stdout)), &cmtcfg.TxIndexConfig{
-		Indexer:            "kv_v2",
-		ReindexEvents:      true,
-		ReindexStartHeight: args.startHeight,
-		ReindexEndHeight:   args.endHeight,
-		RetainHeight:       args.retainHeight,
-	}, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer)
+		Indexer:          "kv_v2",
+		MigrationEvents:  false,
+		ForceStartHeight: args.startHeight,
+		RetainHeight:     args.retainHeight,
+	}, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer, args.endHeight)
 	if err != nil {
 		return err
 	}

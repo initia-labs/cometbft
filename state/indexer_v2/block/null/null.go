@@ -41,9 +41,13 @@ func (idx *BlockerIndexer) Prune(curHeight int64) error {
 	return nil
 }
 
-func (idx *BlockerIndexer) StartReindex() {
+func (idx *BlockerIndexer) StartMigration() {
 }
 
-func (idx *BlockerIndexer) FinalizeReindex(startHeight, endHeight int64) error {
+func (idx *BlockerIndexer) FinishMigration(endHeight int64) error {
 	return nil
+}
+
+func (idx *BlockerIndexer) MigrationHeight() (int64, error) {
+	return 0, nil
 }
