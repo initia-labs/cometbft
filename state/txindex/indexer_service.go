@@ -219,9 +219,9 @@ func (is *IndexerService) OnStop() {
 	}
 }
 
-func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIndexConfig, blockStore state.BlockStore, stateStore state.Store, blockIndexerV2 indexerv2.BlockIndexer, txIndexerV2 TxIndexerV2) error {
+func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIndexConfig, blockStore state.BlockStore, stateStore state.Store, blockIndexerV2 indexerv2.BlockIndexer, txIndexerV2 TxIndexerV2) (func(), error) {
 	if !config.ReindexEvents {
-		return nil
+		return nil, nil
 	}
 
 	blockIndexerV2.StartReindex()
@@ -231,7 +231,7 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 	if startHeight == 0 {
 		height, err := txIndexerV2.Height()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		startHeight = max(blockStore.Base(), height)
 	}
@@ -248,7 +248,7 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 	}
 
 	logger.Info("start re-indexing events", "startHeight", startHeight, "endHeight", endHeight)
-	go func() {
+	return func() {
 		total := endHeight - startHeight + 1
 		printHeight := startHeight + total/100
 		for height := startHeight; height <= endHeight; height++ {
@@ -279,8 +279,7 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 		}
 
 		logger.Info("re-indexing events completed")
-	}()
-	return nil
+	}, nil
 }
 
 func ReindexEvents(height int64, blockStore state.BlockStore, stateStore state.Store, blockIndexerV2 indexerv2.BlockIndexer, txIndexerV2 TxIndexerV2) error {

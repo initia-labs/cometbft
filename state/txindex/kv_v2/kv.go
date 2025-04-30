@@ -140,6 +140,9 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 			return err
 		}
 
+		result.Result = abci.ExecTxResult{}
+		result.Tx = nil
+
 		rawBytes, err := proto.Marshal(result)
 		if err != nil {
 			return err
