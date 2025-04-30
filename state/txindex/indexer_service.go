@@ -240,9 +240,11 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 		endHeight = blockStore.Height()
 	}
 
-	minRetainHeight := blockStore.Height() - config.RetainHeight + 1
-	startHeight = max(startHeight, minRetainHeight)
-	endHeight = max(endHeight, minRetainHeight)
+	if config.RetainHeight > 0 {
+		minRetainHeight := blockStore.Height() - config.RetainHeight + 1
+		startHeight = max(startHeight, minRetainHeight)
+		endHeight = max(endHeight, minRetainHeight)
+	}
 
 	sectionIndexer := func(start int64, end int64) {
 		for height := start; height <= end; height++ {
@@ -251,7 +253,7 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 				return
 			default:
 				if err := ReindexEvents(height, blockStore, stateStore, blockIndexerV2, txIndexerV2); err != nil {
-					logger.Error("event re-index at height %d failed: %w", height, err)
+					logger.Error("event re-index failed", "height", height, "error", err)
 					return
 				}
 			}
