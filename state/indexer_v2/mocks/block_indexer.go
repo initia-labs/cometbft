@@ -19,6 +19,24 @@ type BlockIndexer struct {
 	mock.Mock
 }
 
+// FinalizeReindex provides a mock function with given fields: startHeight, endHeight
+func (_m *BlockIndexer) FinalizeReindex(startHeight int64, endHeight int64) error {
+	ret := _m.Called(startHeight, endHeight)
+
+	if len(ret) == 0 {
+		panic("no return value specified for FinalizeReindex")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64, int64) error); ok {
+		r0 = rf(startHeight, endHeight)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // Has provides a mock function with given fields: height
 func (_m *BlockIndexer) Has(height int64) (bool, error) {
 	ret := _m.Called(height)
@@ -83,31 +101,33 @@ func (_m *BlockIndexer) Prune(curHeight int64) error {
 	return r0
 }
 
-// Search provides a mock function with given fields: ctx, q
-func (_m *BlockIndexer) Search(ctx context.Context, q *query.Query) ([]int64, error) {
-	ret := _m.Called(ctx, q)
+// Search provides a mock function with given fields: ctx, q, maxCount
+func (_m *BlockIndexer) Search(ctx context.Context, q *query.Query, maxCount int64) (chan int64, chan error) {
+	ret := _m.Called(ctx, q, maxCount)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Search")
 	}
 
-	var r0 []int64
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) ([]int64, error)); ok {
-		return rf(ctx, q)
+	var r0 chan int64
+	var r1 chan error
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64) (chan int64, chan error)); ok {
+		return rf(ctx, q, maxCount)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) []int64); ok {
-		r0 = rf(ctx, q)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64) chan int64); ok {
+		r0 = rf(ctx, q, maxCount)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]int64)
+			r0 = ret.Get(0).(chan int64)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *query.Query) error); ok {
-		r1 = rf(ctx, q)
+	if rf, ok := ret.Get(1).(func(context.Context, *query.Query, int64) chan error); ok {
+		r1 = rf(ctx, q, maxCount)
 	} else {
-		r1 = ret.Error(1)
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(chan error)
+		}
 	}
 
 	return r0, r1
@@ -116,6 +136,11 @@ func (_m *BlockIndexer) Search(ctx context.Context, q *query.Query) ([]int64, er
 // SetLogger provides a mock function with given fields: l
 func (_m *BlockIndexer) SetLogger(l log.Logger) {
 	_m.Called(l)
+}
+
+// StartReindex provides a mock function with no fields
+func (_m *BlockIndexer) StartReindex() {
+	_m.Called()
 }
 
 // NewBlockIndexer creates a new instance of BlockIndexer. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.

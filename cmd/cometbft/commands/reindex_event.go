@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -12,10 +13,10 @@ import (
 	cmtcfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/libs/log"
 	"github.com/cometbft/cometbft/state"
-	"github.com/cometbft/cometbft/state/indexer"
-	blockidxkv "github.com/cometbft/cometbft/state/indexer/block/kv"
+	indexerv2 "github.com/cometbft/cometbft/state/indexer_v2"
+	blockidxkvv2 "github.com/cometbft/cometbft/state/indexer_v2/block/kv"
 	"github.com/cometbft/cometbft/state/txindex"
-	"github.com/cometbft/cometbft/state/txindex/kv"
+	kvv2 "github.com/cometbft/cometbft/state/txindex/kv_v2"
 	"github.com/cometbft/cometbft/store"
 )
 
@@ -105,7 +106,7 @@ func init() {
 	ReIndexEventCmd.Flags().Int64Var(&endHeight, "end-height", 0, "the block height would like to finish for re-index")
 }
 
-func loadEventSinks(cfg *cmtcfg.Config, chainID string, blockStore *store.BlockStore, stateStore state.Store) (indexer.BlockIndexer, txindex.TxIndexer, error) {
+func loadEventSinks(cfg *cmtcfg.Config, chainID string, blockStore *store.BlockStore, stateStore state.Store) (indexerv2.BlockIndexer, txindex.TxIndexerV2, error) {
 	switch strings.ToLower(cfg.TxIndex.Indexer) {
 	case "null":
 		return nil, nil, errors.New("found null event sink, please check the tx-index section in the config.toml")
@@ -119,14 +120,14 @@ func loadEventSinks(cfg *cmtcfg.Config, chainID string, blockStore *store.BlockS
 	// 		return nil, nil, err
 	// 	}
 	// 	return es.BlockIndexer(), es.TxIndexer(), nil
-	case "kv":
+	case "kv", "kv_v2":
 		store, err := dbm.NewDB("tx_index", dbm.BackendType(cfg.DBBackend), cfg.DBDir())
 		if err != nil {
 			return nil, nil, err
 		}
 
-		txIndexer := kv.NewTxIndex(store, blockStore, stateStore, cfg.TxIndex.RetainHeight)
-		blockIndexer := blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events")), blockStore, stateStore, cfg.TxIndex.RetainHeight)
+		txIndexer := kvv2.NewTxIndex(store, blockStore, stateStore, cfg.TxIndex.RetainHeight)
+		blockIndexer := blockidxkvv2.New(dbm.NewPrefixDB(store, []byte("block_events")), blockStore, stateStore, cfg.TxIndex.RetainHeight)
 		return blockIndexer, txIndexer, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported event sink type: %s", cfg.TxIndex.Indexer)
@@ -136,8 +137,8 @@ func loadEventSinks(cfg *cmtcfg.Config, chainID string, blockStore *store.BlockS
 type eventReIndexArgs struct {
 	startHeight  int64
 	endHeight    int64
-	blockIndexer indexer.BlockIndexer
-	txIndexer    txindex.TxIndexer
+	blockIndexer indexerv2.BlockIndexer
+	txIndexer    txindex.TxIndexerV2
 	blockStore   state.BlockStore
 	stateStore   state.Store
 }
@@ -161,7 +162,8 @@ func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 	// 	bar.Play(height)
 	// }
 
-	reindexFunc, err := txindex.StartReindexEvents(cmd.Context(), log.NewNopLogger(), &cmtcfg.TxIndexConfig{
+	reindexFunc, err := txindex.StartReindexEvents(cmd.Context(), log.NewTMLogger(log.NewSyncWriter(os.Stdout)), &cmtcfg.TxIndexConfig{
+		Indexer:            "kv_v2",
 		ReindexEvents:      true,
 		ReindexStartHeight: args.startHeight,
 		ReindexEndHeight:   args.endHeight,

@@ -14,7 +14,7 @@ import (
 	abcitypes "github.com/cometbft/cometbft/abci/types"
 	cmtcfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/internal/test"
-	blockmocks "github.com/cometbft/cometbft/state/indexer/mocks"
+	blockmocksv2 "github.com/cometbft/cometbft/state/indexer_v2/mocks"
 	"github.com/cometbft/cometbft/state/mocks"
 	txmocks "github.com/cometbft/cometbft/state/txindex/mocks"
 	"github.com/cometbft/cometbft/types"
@@ -129,8 +129,8 @@ func TestLoadBlockStore(t *testing.T) {
 func TestReIndexEvent(t *testing.T) {
 	mockBlockStore := &mocks.BlockStore{}
 	mockStateStore := &mocks.Store{}
-	mockBlockIndexer := &blockmocks.BlockIndexer{}
-	mockTxIndexer := &txmocks.TxIndexer{}
+	mockBlockIndexer := &blockmocksv2.BlockIndexer{}
+	mockTxIndexer := &txmocks.TxIndexerV2{}
 
 	mockBlockStore.
 		On("Base").Return(base).
@@ -147,11 +147,13 @@ func TestReIndexEvent(t *testing.T) {
 
 	mockBlockIndexer.
 		On("Index", mock.AnythingOfType("types.EventDataNewBlockEvents")).Return(errors.New("")).Once().
-		On("Index", mock.AnythingOfType("types.EventDataNewBlockEvents")).Return(nil)
+		On("Index", mock.AnythingOfType("types.EventDataNewBlockEvents")).Return(nil).
+		On("StartReindex").Return(nil)
 
 	mockTxIndexer.
 		On("AddBatch", mock.AnythingOfType("*txindex.Batch")).Return(errors.New("")).Once().
-		On("AddBatch", mock.AnythingOfType("*txindex.Batch")).Return(nil)
+		On("AddBatch", mock.AnythingOfType("*txindex.Batch")).Return(nil).
+		On("StartReindex").Return(nil)
 
 	mockStateStore.
 		On("LoadFinalizeBlockResponse", base).Return(nil, errors.New("")).Once().

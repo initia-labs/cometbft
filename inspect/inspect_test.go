@@ -17,6 +17,7 @@ import (
 	"github.com/cometbft/cometbft/libs/pubsub/query"
 	httpclient "github.com/cometbft/cometbft/rpc/client/http"
 	indexermocks "github.com/cometbft/cometbft/state/indexer/mocks"
+	indexerv2mocks "github.com/cometbft/cometbft/state/indexer_v2/mocks"
 	statemocks "github.com/cometbft/cometbft/state/mocks"
 	txindexmocks "github.com/cometbft/cometbft/state/txindex/mocks"
 	"github.com/cometbft/cometbft/types"
@@ -70,11 +71,13 @@ func TestBlock(t *testing.T) {
 	blockStoreMock.On("LoadBlock", testHeight).Return(testBlock)
 	blockStoreMock.On("Close").Return(nil)
 
+	txIndexerMockV2 := &txindexmocks.TxIndexerV2{}
+	blkIdxMockV2 := &indexerv2mocks.BlockIndexer{}
 	txIndexerMock := &txindexmocks.TxIndexer{}
 	blkIdxMock := &indexermocks.BlockIndexer{}
 
 	rpcConfig := config.TestRPCConfig()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, txIndexerMockV2, blkIdxMock, blkIdxMockV2)
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
@@ -131,21 +134,23 @@ func TestTxSearch(t *testing.T) {
 		},
 	}, nil)
 	blockStoreMock.On("Close").Return(nil)
-	txIndexerMock := &txindexmocks.TxIndexer{}
-	blkIdxMock := &indexermocks.BlockIndexer{}
+	txIndexerMockV2 := &txindexmocks.TxIndexerV2{}
+	blkIdxMockV2 := &indexerv2mocks.BlockIndexer{}
 	resultChan := make(chan abcitypes.TxResult, 1)
 	resultChan <- *testTxResult
 	close(resultChan)
 	errChan := make(chan error, 1)
 	close(errChan)
-	txIndexerMock.On("Search", mock.Anything,
+	txIndexerMockV2.On("Search", mock.Anything,
 		mock.MatchedBy(func(q *query.Query) bool {
 			return testQuery == strings.ReplaceAll(q.String(), " ", "")
 		}), int64(1000)).
 		Return(resultChan, errChan)
 
 	rpcConfig := config.TestRPCConfig()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)
+	txIndexerMock := &txindexmocks.TxIndexer{}
+	blkIdxMock := &indexermocks.BlockIndexer{}
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, txIndexerMockV2, blkIdxMock, blkIdxMockV2)
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
@@ -189,14 +194,16 @@ func TestTx(t *testing.T) {
 	stateStoreMock.On("Close").Return(nil)
 	blockStoreMock := &statemocks.BlockStore{}
 	blockStoreMock.On("Close").Return(nil)
-	blkIdxMock := &indexermocks.BlockIndexer{}
 	txIndexerMock := &txindexmocks.TxIndexer{}
+	blkIdxMock := &indexermocks.BlockIndexer{}
+	txIndexerMockV2 := &txindexmocks.TxIndexerV2{}
+	blkIdxMockV2 := &indexerv2mocks.BlockIndexer{}
 	txIndexerMock.On("Get", testHash).Return(&abcitypes.TxResult{
 		Tx: testTx,
 	}, nil)
 
 	rpcConfig := config.TestRPCConfig()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, txIndexerMockV2, blkIdxMock, blkIdxMockV2)
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
@@ -243,8 +250,11 @@ func TestConsensusParams(t *testing.T) {
 	}, nil)
 	txIndexerMock := &txindexmocks.TxIndexer{}
 	blkIdxMock := &indexermocks.BlockIndexer{}
+
+	txIndexerMockV2 := &txindexmocks.TxIndexerV2{}
+	blkIdxMockV2 := &indexerv2mocks.BlockIndexer{}
 	rpcConfig := config.TestRPCConfig()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, txIndexerMockV2, blkIdxMock, blkIdxMockV2)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
@@ -291,10 +301,10 @@ func TestBlockResults(t *testing.T) {
 	blockStoreMock.On("Close").Return(nil)
 	blockStoreMock.On("Base").Return(int64(0))
 	blockStoreMock.On("Height").Return(testHeight)
-	txIndexerMock := &txindexmocks.TxIndexer{}
-	blkIdxMock := &indexermocks.BlockIndexer{}
+	txIndexerMock := &txindexmocks.TxIndexerV2{}
+	blkIdxMock := &indexerv2mocks.BlockIndexer{}
 	rpcConfig := config.TestRPCConfig()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, nil, txIndexerMock, nil, blkIdxMock)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
@@ -338,10 +348,12 @@ func TestCommit(t *testing.T) {
 		Height: testHeight,
 		Round:  testRound,
 	}, nil)
+	txIndexerMockV2 := &txindexmocks.TxIndexerV2{}
+	blkIdxMockV2 := &indexerv2mocks.BlockIndexer{}
+	rpcConfig := config.TestRPCConfig()
 	txIndexerMock := &txindexmocks.TxIndexer{}
 	blkIdxMock := &indexermocks.BlockIndexer{}
-	rpcConfig := config.TestRPCConfig()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, txIndexerMockV2, blkIdxMock, blkIdxMockV2)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
@@ -391,10 +403,12 @@ func TestBlockByHash(t *testing.T) {
 		},
 	}, nil)
 	blockStoreMock.On("LoadBlockByHash", testHash).Return(testBlock, nil)
+	txIndexerMockV2 := &txindexmocks.TxIndexerV2{}
+	blkIdxMockV2 := &indexerv2mocks.BlockIndexer{}
+	rpcConfig := config.TestRPCConfig()
 	txIndexerMock := &txindexmocks.TxIndexer{}
 	blkIdxMock := &indexermocks.BlockIndexer{}
-	rpcConfig := config.TestRPCConfig()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, txIndexerMockV2, blkIdxMock, blkIdxMockV2)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
@@ -443,10 +457,12 @@ func TestBlockchain(t *testing.T) {
 			Hash: testBlockHash,
 		},
 	})
+	txIndexerMockV2 := &txindexmocks.TxIndexerV2{}
+	blkIdxMockV2 := &indexerv2mocks.BlockIndexer{}
+	rpcConfig := config.TestRPCConfig()
 	txIndexerMock := &txindexmocks.TxIndexer{}
 	blkIdxMock := &indexermocks.BlockIndexer{}
-	rpcConfig := config.TestRPCConfig()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, txIndexerMockV2, blkIdxMock, blkIdxMockV2)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
@@ -495,10 +511,12 @@ func TestValidators(t *testing.T) {
 	blockStoreMock.On("Close").Return(nil)
 	blockStoreMock.On("Height").Return(testHeight)
 	blockStoreMock.On("Base").Return(int64(0))
+	txIndexerMockV2 := &txindexmocks.TxIndexerV2{}
+	blkIdxMockV2 := &indexerv2mocks.BlockIndexer{}
 	txIndexerMock := &txindexmocks.TxIndexer{}
 	blkIdxMock := &indexermocks.BlockIndexer{}
 	rpcConfig := config.TestRPCConfig()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, txIndexerMockV2, blkIdxMock, blkIdxMockV2)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
@@ -542,6 +560,8 @@ func TestBlockSearch(t *testing.T) {
 	blockStoreMock := &statemocks.BlockStore{}
 	blockStoreMock.On("Close").Return(nil)
 
+	txIndexerMockV2 := &txindexmocks.TxIndexerV2{}
+	blkIdxMockV2 := &indexerv2mocks.BlockIndexer{}
 	txIndexerMock := &txindexmocks.TxIndexer{}
 	blkIdxMock := &indexermocks.BlockIndexer{}
 	blockStoreMock.On("LoadBlock", testHeight).Return(&types.Block{
@@ -559,11 +579,11 @@ func TestBlockSearch(t *testing.T) {
 	close(resultChan)
 	errChan := make(chan error, 1)
 	close(errChan)
-	blkIdxMock.On("Search", mock.Anything,
+	blkIdxMockV2.On("Search", mock.Anything,
 		mock.MatchedBy(func(q *query.Query) bool { return testQuery == q.String() }), int64(1000)).
 		Return(resultChan, errChan)
 	rpcConfig := config.TestRPCConfig()
-	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, blkIdxMock)
+	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, txIndexerMockV2, blkIdxMock, blkIdxMockV2)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}

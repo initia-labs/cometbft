@@ -19,6 +19,30 @@ type TxIndexer interface {
 	// AddBatch analyzes, indexes and stores a batch of transactions.
 	AddBatch(b *Batch) error
 
+	// Index analyzes, indexes and stores a single transaction.
+	Index(result *abci.TxResult) error
+
+	// Get returns the transaction specified by hash or nil if the transaction is not indexed
+	// or stored.
+	Get(hash []byte) (*abci.TxResult, error)
+
+	// Search allows you to query for transactions.
+	Search(ctx context.Context, q *query.Query) ([]*abci.TxResult, error)
+
+	//Set Logger
+	SetLogger(l log.Logger)
+
+	// Prune removes all tx indexes below a certain height.
+	Prune(curHeight int64) error
+}
+
+//go:generate ../../scripts/mockery_generate.sh TxIndexerV2
+
+// TxIndexerV2 interface defines methods to index and search transactions.
+type TxIndexerV2 interface {
+	// AddBatch analyzes, indexes and stores a batch of transactions.
+	AddBatch(b *Batch) error
+
 	// Get returns the transaction specified by hash or nil if the transaction is not indexed
 	// or stored.
 	Get(hash []byte) (*abci.TxResult, error)

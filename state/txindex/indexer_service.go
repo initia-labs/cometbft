@@ -12,6 +12,7 @@ import (
 	"github.com/cometbft/cometbft/libs/service"
 	"github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/state/indexer"
+	indexerv2 "github.com/cometbft/cometbft/state/indexer_v2"
 	"github.com/cometbft/cometbft/types"
 
 	abcitypes "github.com/cometbft/cometbft/abci/types"
@@ -29,7 +30,9 @@ type IndexerService struct {
 	service.BaseService
 
 	txIdxr           TxIndexer
+	txIdxrV2         TxIndexerV2
 	blockIdxr        indexer.BlockIndexer
+	blockIdxrV2      indexerv2.BlockIndexer
 	eventBus         *types.EventBus
 	terminateOnError bool
 }
@@ -37,12 +40,13 @@ type IndexerService struct {
 // NewIndexerService returns a new service instance.
 func NewIndexerService(
 	txIdxr TxIndexer,
+	txIdxrV2 TxIndexerV2,
 	blockIdxr indexer.BlockIndexer,
+	blockIdxrV2 indexerv2.BlockIndexer,
 	eventBus *types.EventBus,
 	terminateOnError bool,
 ) *IndexerService {
-
-	is := &IndexerService{txIdxr: txIdxr, blockIdxr: blockIdxr, eventBus: eventBus, terminateOnError: terminateOnError}
+	is := &IndexerService{txIdxr: txIdxr, txIdxrV2: txIdxrV2, blockIdxr: blockIdxr, blockIdxrV2: blockIdxrV2, eventBus: eventBus, terminateOnError: terminateOnError}
 	is.BaseService = *service.NewBaseService(nil, "IndexerService", is)
 	return is
 }
@@ -70,8 +74,14 @@ func (is *IndexerService) OnStart() error {
 		blockIdxPruningRunning := atomic.Bool{}
 		blockIdxPruningRunning.Store(false)
 
+		blockIdxPruningRunningV2 := atomic.Bool{}
+		blockIdxPruningRunningV2.Store(false)
+
 		txIdxPruningRunning := atomic.Bool{}
 		txIdxPruningRunning.Store(false)
+
+		txIdx2PruningRunning := atomic.Bool{}
+		txIdx2PruningRunning.Store(false)
 
 		for {
 			select {
@@ -117,6 +127,18 @@ func (is *IndexerService) OnStart() error {
 					is.Logger.Info("indexed block events", "height", height)
 				}
 
+				if err := is.blockIdxrV2.Index(eventNewBlockEvents); err != nil {
+					is.Logger.Error("failed to index block v2", "height", height, "err", err)
+					if is.terminateOnError {
+						if err := is.Stop(); err != nil {
+							is.Logger.Error("failed to stop", "err", err)
+						}
+						return
+					}
+				} else {
+					is.Logger.Info("indexed block events v2", "height", height)
+				}
+
 				if err = is.txIdxr.AddBatch(batch); err != nil {
 					is.Logger.Error("failed to index block txs", "height", height, "err", err)
 					if is.terminateOnError {
@@ -127,6 +149,18 @@ func (is *IndexerService) OnStart() error {
 					}
 				} else {
 					is.Logger.Debug("indexed transactions", "height", height, "num_txs", numTxs)
+				}
+
+				if err = is.txIdxrV2.AddBatch(batch); err != nil {
+					is.Logger.Error("failed to index block txs v2", "height", height, "err", err)
+					if is.terminateOnError {
+						if err := is.Stop(); err != nil {
+							is.Logger.Error("failed to stop", "err", err)
+						}
+						return
+					}
+				} else {
+					is.Logger.Debug("indexed transactions v2", "height", height, "num_txs", numTxs)
 				}
 
 				if running := blockIdxPruningRunning.Swap(true); !running {
@@ -140,10 +174,32 @@ func (is *IndexerService) OnStart() error {
 					}()
 				}
 
+				if running := blockIdxPruningRunningV2.Swap(true); !running {
+					go func() {
+						defer blockIdxPruningRunningV2.Store(false)
+						if err := is.blockIdxrV2.Prune(height); err != nil {
+							is.Logger.Error("failed to prune tx index", "height", height, "err", err)
+						}
+
+						is.Logger.Debug("pruned block_index", "height", height)
+					}()
+				}
+
 				if running := txIdxPruningRunning.Swap(true); !running {
 					go func() {
 						defer txIdxPruningRunning.Store(false)
 						if err := is.txIdxr.Prune(height); err != nil {
+							is.Logger.Error("failed to prune tx index", "height", height, "err", err)
+						}
+
+						is.Logger.Debug("pruned tx_index", "height", height)
+					}()
+				}
+
+				if running := txIdx2PruningRunning.Swap(true); !running {
+					go func() {
+						defer txIdx2PruningRunning.Store(false)
+						if err := is.txIdxrV2.Prune(height); err != nil {
 							is.Logger.Error("failed to prune tx index", "height", height, "err", err)
 						}
 
@@ -166,13 +222,13 @@ func (is *IndexerService) OnStop() {
 
 const bloomSectionSize = int64(4096)
 
-func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIndexConfig, blockStore state.BlockStore, stateStore state.Store, blockIndexer indexer.BlockIndexer, txIndexer TxIndexer) (func(), error) {
+func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIndexConfig, blockStore state.BlockStore, stateStore state.Store, blockIndexerV2 indexerv2.BlockIndexer, txIndexerV2 TxIndexerV2) (func(), error) {
 	if !config.ReindexEvents {
 		return nil, nil
 	}
 
-	blockIndexer.StartReindex()
-	txIndexer.StartReindex()
+	blockIndexerV2.StartReindex()
+	txIndexerV2.StartReindex()
 
 	startHeight := config.ReindexStartHeight
 	if startHeight == 0 {
@@ -194,7 +250,7 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 			case <-ctx.Done():
 				return
 			default:
-				if err := ReindexEvents(height, blockStore, stateStore, blockIndexer, txIndexer); err != nil {
+				if err := ReindexEvents(height, blockStore, stateStore, blockIndexerV2, txIndexerV2); err != nil {
 					logger.Error("event re-index at height %d failed: %w", height, err)
 					return
 				}
@@ -221,12 +277,12 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 
 		wg.Wait()
 		// update the last section bloom
-		err := blockIndexer.FinalizeReindex(startHeight, endHeight)
+		err := blockIndexerV2.FinalizeReindex(startHeight, endHeight)
 		if err != nil {
 			logger.Error("failed to finalize block index re-index", "height", endHeight, "err", err)
 		}
 
-		err = txIndexer.FinalizeReindex(startHeight, endHeight)
+		err = txIndexerV2.FinalizeReindex(startHeight, endHeight)
 		if err != nil {
 			logger.Error("failed to finalize tx index re-index", "height", endHeight, "err", err)
 		}
@@ -235,7 +291,7 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 	}, nil
 }
 
-func ReindexEvents(height int64, blockStore state.BlockStore, stateStore state.Store, blockIndexer indexer.BlockIndexer, txIndexer TxIndexer) error {
+func ReindexEvents(height int64, blockStore state.BlockStore, stateStore state.Store, blockIndexerV2 indexerv2.BlockIndexer, txIndexerV2 TxIndexerV2) error {
 	block := blockStore.LoadBlock(height)
 	if block == nil {
 		// skip the block if it is not found
@@ -279,12 +335,12 @@ func ReindexEvents(height int64, blockStore state.BlockStore, stateStore state.S
 			}
 		}
 
-		if err := txIndexer.AddBatch(batch); err != nil {
+		if err := txIndexerV2.AddBatch(batch); err != nil {
 			return fmt.Errorf("tx event re-index at height %d failed: %w", height, err)
 		}
 	}
 
-	if err := blockIndexer.Index(e); err != nil {
+	if err := blockIndexerV2.Index(e); err != nil {
 		return fmt.Errorf("block event re-index at height %d failed: %w", height, err)
 	}
 	return nil

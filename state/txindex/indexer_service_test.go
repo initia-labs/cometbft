@@ -9,11 +9,12 @@ import (
 
 	db "github.com/cometbft/cometbft-db"
 
-	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/libs/log"
 	blockidxkv "github.com/cometbft/cometbft/state/indexer/block/kv"
+	blockidxkvv2 "github.com/cometbft/cometbft/state/indexer_v2/block/kv"
 	"github.com/cometbft/cometbft/state/txindex"
-	"github.com/cometbft/cometbft/state/txindex/kv"
+	kv "github.com/cometbft/cometbft/state/txindex/kv"
+	kvv2 "github.com/cometbft/cometbft/state/txindex/kv_v2"
 	"github.com/cometbft/cometbft/types"
 
 	abcitypes "github.com/cometbft/cometbft/abci/types"
@@ -43,11 +44,15 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 	blockStore := bstore.NewBlockStore(db.NewPrefixDB(store, []byte("block_store")))
 	stateStore := sm.NewStore(db.NewPrefixDB(store, []byte("state_store")), sm.StoreOptions{})
 
-	// tx indexer
-	txIndexer := kv.NewTxIndex(store, blockStore, stateStore, 0)
-	blockIndexer := blockidxkv.New(db.NewPrefixDB(store, []byte("block_events")), blockStore, nil, 0)
+	storeLegacy := db.NewMemDB()
+	txIndexer := kv.NewTxIndex(storeLegacy, 0)
+	blockIndexer := blockidxkv.New(db.NewPrefixDB(storeLegacy, []byte("block_events")), 0)
 
-	service := txindex.NewIndexerService(txIndexer, blockIndexer, eventBus, false)
+	// tx indexer
+	txIndexerV2 := kvv2.NewTxIndex(store, blockStore, stateStore, 0)
+	blockIndexerV2 := blockidxkvv2.New(db.NewPrefixDB(store, []byte("block_events")), blockStore, nil, 0)
+
+	service := txindex.NewIndexerService(txIndexer, txIndexerV2, blockIndexer, blockIndexerV2, eventBus, false)
 	service.SetLogger(log.TestingLogger())
 	err = service.Start()
 	require.NoError(t, err)
@@ -60,10 +65,10 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 	// publish block with events
 	err = eventBus.PublishEventNewBlockEvents(types.EventDataNewBlockEvents{
 		Height: 1,
-		Events: []abci.Event{
+		Events: []abcitypes.Event{
 			{
 				Type: "begin_event",
-				Attributes: []abci.EventAttribute{
+				Attributes: []abcitypes.EventAttribute{
 					{
 						Key:   "proposer",
 						Value: "FCAA001",
@@ -76,26 +81,26 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	txResult1 := &abci.TxResult{
+	txResult1 := &abcitypes.TxResult{
 		Height: 1,
 		Index:  uint32(0),
 		Tx:     types.Tx("foo"),
-		Result: abci.ExecTxResult{Code: 0},
+		Result: abcitypes.ExecTxResult{Code: 0},
 	}
-	txResult2 := &abci.TxResult{
+	txResult2 := &abcitypes.TxResult{
 		Height: 1,
 		Index:  uint32(1),
 		Tx:     types.Tx("bar"),
-		Result: abci.ExecTxResult{Code: 0},
+		Result: abcitypes.ExecTxResult{Code: 0},
 	}
 
-	err = stateStore.SaveFinalizeBlockResponse(1, &abci.ResponseFinalizeBlock{
-		Events: []abci.Event{},
-		TxResults: []*abci.ExecTxResult{
+	err = stateStore.SaveFinalizeBlockResponse(1, &abcitypes.ResponseFinalizeBlock{
+		Events: []abcitypes.Event{},
+		TxResults: []*abcitypes.ExecTxResult{
 			&txResult1.Result,
 			&txResult2.Result,
 		},
-		ValidatorUpdates:      []abci.ValidatorUpdate{},
+		ValidatorUpdates:      []abcitypes.ValidatorUpdate{},
 		ConsensusParamUpdates: &prototypes.ConsensusParams{},
 		AppHash:               []byte("app_hash"),
 	})
@@ -109,15 +114,15 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 
-	res, err := txIndexer.Get(types.Tx("foo").Hash())
+	res, err := txIndexerV2.Get(types.Tx("foo").Hash())
 	require.NoError(t, err)
 	require.Equal(t, txResult1, res)
 
-	ok, err := blockIndexer.Has(1)
+	ok, err := blockIndexerV2.Has(1)
 	require.NoError(t, err)
 	require.True(t, ok)
 
-	res, err = txIndexer.Get(types.Tx("bar").Hash())
+	res, err = txIndexerV2.Get(types.Tx("bar").Hash())
 	require.NoError(t, err)
 	require.Equal(t, txResult2, res)
 }

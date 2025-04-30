@@ -1,14 +1,14 @@
 package kv
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math/big"
 
 	idxutil "github.com/cometbft/cometbft/internal/indexer"
-	cmtsyntax "github.com/cometbft/cometbft/libs/pubsub/query/syntax"
-	"github.com/cometbft/cometbft/state/indexer"
+	"github.com/cometbft/cometbft/libs/pubsub/query/syntax"
+	indexer "github.com/cometbft/cometbft/state/indexer_v2"
 	"github.com/cometbft/cometbft/types"
-	"github.com/google/orderedcode"
 )
 
 type HeightInfo struct {
@@ -19,56 +19,45 @@ type HeightInfo struct {
 	onlyHeightEq    bool
 }
 
-// IntInSlice returns true if a is found in the list.
-func intInSlice(a int, list []int) bool {
-	for _, b := range list {
-		if b == a {
-			return true
-		}
-	}
-	return false
+func int64FromBytes(bz []byte) int64 {
+	v, _ := binary.Varint(bz)
+	return v
 }
 
-func ParseEventSeqFromEventKey(key []byte) (int64, error) {
-	var (
-		compositeKey, typ, eventValue string
-		height                        int64
-		eventSeq                      int64
-	)
-
-	remaining, err := orderedcode.Parse(string(key), &compositeKey, &eventValue, &height, &typ, &eventSeq)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse event key: %w", err)
-	}
-
-	if len(remaining) != 0 {
-		return 0, fmt.Errorf("unexpected remainder in key: %s", remaining)
-	}
-
-	return eventSeq, nil
+func int64ToBytes(i int64) []byte {
+	buf := make([]byte, binary.MaxVarintLen64)
+	n := binary.PutVarint(buf, i)
+	return buf[:n]
 }
 
-func dedupHeight(conditions []cmtsyntax.Condition) (dedupConditions []cmtsyntax.Condition, heightInfo HeightInfo) {
+// Remove all occurrences of height equality queries except one. While we are traversing the conditions, check whether the only condition in
+// addition to match events is the height equality or height range query. At the same time, if we do have a height range condition
+// ignore the height equality condition. If a height equality exists, place the condition index in the query and the desired height
+// into the heightInfo struct
+func dedupHeight(conditions []syntax.Condition) (dedupConditions []syntax.Condition, heightInfo HeightInfo, err error) {
 	heightInfo.heightEqIdx = -1
 	heightRangeExists := false
 	found := false
-	var heightCondition []cmtsyntax.Condition
+	var heightCondition []syntax.Condition
 	heightInfo.onlyHeightEq = true
 	heightInfo.onlyHeightRange = true
 	for _, c := range conditions {
-		if c.Tag == types.TxHeightKey {
-			if c.Op == cmtsyntax.TEq {
-				if heightRangeExists || found {
-					continue
+		if c.Tag == types.BlockHeightKey {
+			if c.Op == syntax.TEq {
+				if found || heightRangeExists {
+					return nil, heightInfo, fmt.Errorf("invalid height configuration")
 				}
 				hFloat := c.Arg.Number()
 				if hFloat != nil {
 					h, _ := hFloat.Int64()
 					heightInfo.height = h
-					found = true
 					heightCondition = append(heightCondition, c)
+					found = true
 				}
 			} else {
+				if found {
+					return nil, heightInfo, fmt.Errorf("invalid height configuration")
+				}
 				heightInfo.onlyHeightEq = false
 				heightRangeExists = true
 				dedupConditions = append(dedupConditions, c)
@@ -84,18 +73,19 @@ func dedupHeight(conditions []cmtsyntax.Condition) (dedupConditions []cmtsyntax.
 		heightInfo.onlyHeightRange = false
 		dedupConditions = append(dedupConditions, heightCondition...)
 	} else {
-		// If we found a range make sure we set the height idx to -1 as the height equality
+		// If we found a range make sure we set the hegiht idx to -1 as the height equality
 		// will be removed
 		heightInfo.heightEqIdx = -1
 		heightInfo.height = 0
 		heightInfo.onlyHeightEq = false
+		found = false
 	}
-	return dedupConditions, heightInfo
+	return dedupConditions, heightInfo, nil
 }
 
 func checkHeightConditions(heightInfo HeightInfo, keyHeight int64) (bool, error) {
 	if heightInfo.heightRange.Key != "" {
-		withinBounds, err := idxutil.CheckBounds(heightInfo.heightRange, big.NewInt(keyHeight))
+		withinBounds, err := idxutil.CheckBoundsV2(heightInfo.heightRange, big.NewInt(keyHeight))
 		if err != nil || !withinBounds {
 			return false, err
 		}

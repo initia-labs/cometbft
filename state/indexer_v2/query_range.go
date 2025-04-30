@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"fmt"
 	"math/big"
 	"time"
 
@@ -93,7 +94,7 @@ func (qr QueryRange) UpperBoundValue() interface{} {
 
 // LookForRangesWithHeight returns a mapping of QueryRanges and the matching indexes in
 // the provided query conditions.
-func LookForRangesWithHeight(conditions []syntax.Condition) (queryRange QueryRanges, indexes []int, heightRange QueryRange) {
+func LookForRangesWithHeight(conditions []syntax.Condition) (queryRange QueryRanges, indexes []int, heightRange QueryRange, err error) {
 	queryRange = make(QueryRanges)
 	for i, c := range conditions {
 		if IsRangeOperation(c.Op) {
@@ -109,6 +110,9 @@ func LookForRangesWithHeight(conditions []syntax.Condition) (queryRange QueryRan
 			switch c.Op {
 			case syntax.TGt:
 				if heightKey {
+					if heightRange.LowerBound != nil {
+						return nil, nil, heightRange, fmt.Errorf("invalid height configuration")
+					}
 					heightRange.LowerBound = conditionArg(c)
 				}
 				r.LowerBound = conditionArg(c)
@@ -117,6 +121,9 @@ func LookForRangesWithHeight(conditions []syntax.Condition) (queryRange QueryRan
 				r.IncludeLowerBound = true
 				r.LowerBound = conditionArg(c)
 				if heightKey {
+					if heightRange.LowerBound != nil {
+						return nil, nil, heightRange, fmt.Errorf("invalid height configuration")
+					}
 					heightRange.IncludeLowerBound = true
 					heightRange.LowerBound = conditionArg(c)
 				}
@@ -124,6 +131,9 @@ func LookForRangesWithHeight(conditions []syntax.Condition) (queryRange QueryRan
 			case syntax.TLt:
 				r.UpperBound = conditionArg(c)
 				if heightKey {
+					if heightRange.UpperBound != nil {
+						return nil, nil, heightRange, fmt.Errorf("invalid height configuration")
+					}
 					heightRange.UpperBound = conditionArg(c)
 				}
 
@@ -131,6 +141,9 @@ func LookForRangesWithHeight(conditions []syntax.Condition) (queryRange QueryRan
 				r.IncludeUpperBound = true
 				r.UpperBound = conditionArg(c)
 				if heightKey {
+					if heightRange.UpperBound != nil {
+						return nil, nil, heightRange, fmt.Errorf("invalid height configuration")
+					}
 					heightRange.IncludeUpperBound = true
 					heightRange.UpperBound = conditionArg(c)
 				}
@@ -141,7 +154,7 @@ func LookForRangesWithHeight(conditions []syntax.Condition) (queryRange QueryRan
 		}
 	}
 
-	return queryRange, indexes, heightRange
+	return queryRange, indexes, heightRange, nil
 }
 
 // Deprecated: This function is not used anymore and will be replaced with LookForRangesWithHeight

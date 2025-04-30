@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/cometbft/cometbft/libs/bytes"
 	cmtmath "github.com/cometbft/cometbft/libs/math"
@@ -10,6 +11,7 @@ import (
 	ctypes "github.com/cometbft/cometbft/rpc/core/types"
 	rpctypes "github.com/cometbft/cometbft/rpc/jsonrpc/types"
 	blockidxnull "github.com/cometbft/cometbft/state/indexer/block/null"
+	blockidxv2null "github.com/cometbft/cometbft/state/indexer_v2/block/null"
 	"github.com/cometbft/cometbft/types"
 )
 
@@ -210,8 +212,84 @@ func (env *Environment) BlockSearch(
 	pagePtr, perPagePtr *int,
 	orderBy string,
 ) (*ctypes.ResultBlockSearch, error) {
+	if env.BlockIndexerV2 != nil {
+		return env.blockSearchV2(ctx, query, pagePtr, perPagePtr, orderBy)
+	} else if env.BlockIndexer != nil {
+		return env.blockSearch(ctx, query, pagePtr, perPagePtr, orderBy)
+	}
+	return nil, errors.New("block indexing is disabled")
+}
+
+func (env *Environment) blockSearch(
+	ctx *rpctypes.Context,
+	query string,
+	pagePtr, perPagePtr *int,
+	orderBy string,
+) (*ctypes.ResultBlockSearch, error) {
 	// skip if block indexing is disabled
 	if _, ok := env.BlockIndexer.(*blockidxnull.BlockerIndexer); ok {
+		return nil, errors.New("block indexing is disabled")
+	}
+
+	q, err := cmtquery.New(query)
+	if err != nil {
+		return nil, err
+	}
+
+	results, err := env.BlockIndexer.Search(ctx.Context(), q)
+	if err != nil {
+		return nil, err
+	}
+
+	// sort results (must be done before pagination)
+	switch orderBy {
+	case "desc", "":
+		sort.Slice(results, func(i, j int) bool { return results[i] > results[j] })
+
+	case "asc":
+		sort.Slice(results, func(i, j int) bool { return results[i] < results[j] })
+
+	default:
+		return nil, errors.New("expected order_by to be either `asc` or `desc` or empty")
+	}
+
+	// paginate results
+	totalCount := len(results)
+	perPage := env.validatePerPage(perPagePtr)
+
+	page, err := validatePage(pagePtr, perPage, totalCount)
+	if err != nil {
+		return nil, err
+	}
+
+	skipCount := validateSkipCount(page, perPage)
+	pageSize := cmtmath.MinInt(perPage, totalCount-skipCount)
+
+	apiResults := make([]*ctypes.ResultBlock, 0, pageSize)
+	for i := skipCount; i < skipCount+pageSize; i++ {
+		block := env.BlockStore.LoadBlock(results[i])
+		if block != nil {
+			blockMeta := env.BlockStore.LoadBlockMeta(block.Height)
+			if blockMeta != nil {
+				apiResults = append(apiResults, &ctypes.ResultBlock{
+					Block:   block,
+					BlockID: blockMeta.BlockID,
+				})
+			}
+		}
+	}
+
+	return &ctypes.ResultBlockSearch{Blocks: apiResults, TotalCount: totalCount}, nil
+}
+
+func (env *Environment) blockSearchV2(
+	ctx *rpctypes.Context,
+	query string,
+	pagePtr, perPagePtr *int,
+	orderBy string,
+) (*ctypes.ResultBlockSearch, error) {
+	// skip if block indexing is disabled
+	if _, ok := env.BlockIndexerV2.(*blockidxv2null.BlockerIndexer); ok {
 		return nil, errors.New("block indexing is disabled")
 	}
 
@@ -235,7 +313,7 @@ func (env *Environment) BlockSearch(
 		return nil, fmt.Errorf("page size is too large, max count is %d", maxTotalCount)
 	}
 
-	resultChan, errChan := env.BlockIndexer.Search(ctx.Context(), q, maxTotalCount)
+	resultChan, errChan := env.BlockIndexerV2.Search(ctx.Context(), q, maxTotalCount)
 	results := make([]*ctypes.ResultBlock, 0, perPage)
 	totalCount := 0
 

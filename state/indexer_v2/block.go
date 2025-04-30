@@ -21,10 +21,16 @@ type BlockIndexer interface {
 
 	// Search performs a query for block heights that match a given FinalizeBlock
 	// event search criteria.
-	Search(ctx context.Context, q *query.Query) ([]int64, error)
+	Search(ctx context.Context, q *query.Query, maxCount int64) (chan int64, chan error)
 
 	SetLogger(l log.Logger)
 
 	// Prune removes all block indexes below a certain height.
 	Prune(curHeight int64) error
+
+	// StartReindex starts the reindexing process.
+	StartReindex()
+
+	// FinalizeReindex finalizes the reindexing process.
+	FinalizeReindex(startHeight, endHeight int64) error
 }

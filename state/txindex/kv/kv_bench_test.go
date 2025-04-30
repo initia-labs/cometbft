@@ -12,13 +12,6 @@ import (
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/libs/pubsub/query"
 	"github.com/cometbft/cometbft/types"
-
-	"github.com/cometbft/cometbft/state/txindex"
-
-	cmtstore "github.com/cometbft/cometbft/proto/tendermint/store"
-	prototypes "github.com/cometbft/cometbft/proto/tendermint/types"
-	sm "github.com/cometbft/cometbft/state"
-	bstore "github.com/cometbft/cometbft/store"
 )
 
 func BenchmarkTxSearch(b *testing.B) {
@@ -32,16 +25,9 @@ func BenchmarkTxSearch(b *testing.B) {
 		b.Errorf("failed to create database: %s", err)
 	}
 
-	blockStoreDB := dbm.NewPrefixDB(db, []byte("block_store"))
-	bstore.SaveBlockStoreState(&cmtstore.BlockStoreState{
-		Base:   1,
-		Height: 1000,
-	}, blockStoreDB)
-	blockStore := bstore.NewBlockStore(blockStoreDB)
-	stateStore := sm.NewStore(dbm.NewPrefixDB(db, []byte("state_store")), sm.StoreOptions{})
-	indexer := NewTxIndex(db, blockStore, stateStore, 0)
+	indexer := NewTxIndex(db, 0)
 
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 35000; i++ {
 		events := []abci.Event{
 			{
 				Type: "transfer",
@@ -69,22 +55,7 @@ func BenchmarkTxSearch(b *testing.B) {
 			},
 		}
 
-		err = stateStore.SaveFinalizeBlockResponse(int64(i), &abci.ResponseFinalizeBlock{
-			Events: []abci.Event{},
-			TxResults: []*abci.ExecTxResult{
-				&txResult.Result,
-			},
-			ValidatorUpdates:      []abci.ValidatorUpdate{},
-			ConsensusParamUpdates: &prototypes.ConsensusParams{},
-			AppHash:               []byte("app_hash"),
-		})
-		if err != nil {
-			b.Errorf("failed to save finalize block response: %s", err)
-		}
-
-		batch := txindex.NewBatch(1)
-		batch.Ops[0] = txResult
-		if err := indexer.AddBatch(batch); err != nil {
+		if err := indexer.Index(txResult); err != nil {
 			b.Errorf("failed to index tx: %s", err)
 		}
 	}
@@ -96,21 +67,7 @@ func BenchmarkTxSearch(b *testing.B) {
 	ctx := context.Background()
 
 	for i := 0; i < b.N; i++ {
-		resultChan, errChan := indexer.Search(ctx, txQuery, 1000)
-
-		var err error
-	RESULT_LOOP:
-		for {
-			select {
-			case _, ok := <-resultChan:
-				if !ok {
-					break RESULT_LOOP
-				}
-			case err = <-errChan:
-				break RESULT_LOOP
-			}
-		}
-		if err != nil {
+		if _, err := indexer.Search(ctx, txQuery); err != nil {
 			b.Errorf("failed to query for txs: %s", err)
 		}
 	}

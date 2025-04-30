@@ -6,7 +6,7 @@ import (
 
 	"github.com/cometbft/cometbft/libs/log"
 	"github.com/cometbft/cometbft/libs/pubsub/query"
-	"github.com/cometbft/cometbft/state/indexer"
+	indexer "github.com/cometbft/cometbft/state/indexer_v2"
 	"github.com/cometbft/cometbft/types"
 )
 
@@ -23,13 +23,27 @@ func (idx *BlockerIndexer) Index(types.EventDataNewBlockEvents) error {
 	return nil
 }
 
-func (idx *BlockerIndexer) Search(context.Context, *query.Query) ([]int64, error) {
-	return []int64{}, nil
+func (idx *BlockerIndexer) Search(context.Context, *query.Query, int64) (chan int64, chan error) {
+	resultChan := make(chan int64)
+	errorChan := make(chan error)
+
+	go func() {
+		defer close(resultChan)
+		defer close(errorChan)
+	}()
+	return resultChan, errorChan
 }
 
 func (idx *BlockerIndexer) SetLogger(log.Logger) {
 }
 
 func (idx *BlockerIndexer) Prune(curHeight int64) error {
+	return nil
+}
+
+func (idx *BlockerIndexer) StartReindex() {
+}
+
+func (idx *BlockerIndexer) FinalizeReindex(startHeight, endHeight int64) error {
 	return nil
 }

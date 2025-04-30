@@ -3,58 +3,28 @@ package kv
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/big"
-	"sync/atomic"
-	"time"
+	"sort"
+	"strconv"
+	"strings"
 
-	"golang.org/x/sync/errgroup"
+	"github.com/google/orderedcode"
 
 	dbm "github.com/cometbft/cometbft-db"
 
 	abci "github.com/cometbft/cometbft/abci/types"
+	idxutil "github.com/cometbft/cometbft/internal/indexer"
 	"github.com/cometbft/cometbft/libs/log"
 	"github.com/cometbft/cometbft/libs/pubsub/query"
 	"github.com/cometbft/cometbft/libs/pubsub/query/syntax"
 	"github.com/cometbft/cometbft/state/indexer"
-	"github.com/cometbft/cometbft/store"
 	"github.com/cometbft/cometbft/types"
-
-	"github.com/ethereum/go-ethereum/core/bloombits"
-	gethcoretypes "github.com/ethereum/go-ethereum/core/types"
-
-	sm "github.com/cometbft/cometbft/state"
 )
 
 var _ indexer.BlockIndexer = (*BlockerIndexer)(nil)
-
-const (
-	bloomSectionSize = int64(4096)
-
-	sectionBloomKeyPrefix = "sb"
-	blockBloomKeyPrefix   = "bb"
-	blockKeyPrefix        = "b"
-	baseKey               = "base"
-	heightKey             = "h"
-	sectionIndexKey       = "si"
-
-	// bloomServiceThreads is the number of goroutines used globally by an Ethereum
-	// instance to service bloombits lookups for all running filters.
-	bloomServiceThreads = 16
-
-	// bloomFilterThreads is the number of goroutines used locally per filter to
-	// multiplex requests onto the global servicing goroutines.
-	bloomFilterThreads = 3
-
-	// bloomRetrievalBatch is the maximum number of bloom bit retrievals to service
-	// in a single batch.
-	bloomRetrievalBatch = 16
-
-	// bloomRetrievalWait is the maximum time to wait for enough bloom bit requests
-	// to accumulate request an entire batch (avoiding hysteresis).
-	bloomRetrievalWait = time.Duration(0)
-)
 
 // BlockerIndexer implements a block indexer, indexing FinalizeBlock
 // events with an underlying KV store. Block events are indexed by their height,
@@ -62,10 +32,10 @@ const (
 type BlockerIndexer struct {
 	store dbm.DB
 
-	blockStore *store.BlockStore
-	stateStore sm.Store
-
-	log log.Logger
+	// Add unique event identifier to use when querying
+	// Matching will be done both on height AND eventSeq
+	eventSeq int64
+	log      log.Logger
 
 	// The minimum tx height offsets from the current block being committed,
 	// such that all txs past this offset are pruned.
@@ -74,15 +44,11 @@ type BlockerIndexer struct {
 	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
 	// except "tx.hash" and "tx.height" and "block.height" which are always retained.
 	retainHeight int64
-
-	isReindexing bool
 }
 
-func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *BlockerIndexer {
+func New(store dbm.DB, retainHeight int64) *BlockerIndexer {
 	return &BlockerIndexer{
 		store:        store,
-		blockStore:   blockStore,
-		stateStore:   stateStore,
 		retainHeight: retainHeight,
 	}
 }
@@ -94,7 +60,12 @@ func (idx *BlockerIndexer) SetLogger(l log.Logger) {
 // Has returns true if the given height has been indexed. An error is returned
 // upon database query failure.
 func (idx *BlockerIndexer) Has(height int64) (bool, error) {
-	return idx.store.Has(bloomKeyForBlock(height))
+	key, err := heightKey(height)
+	if err != nil {
+		return false, fmt.Errorf("failed to create block height index key: %w", err)
+	}
+
+	return idx.store.Has(key)
 }
 
 // Index indexes FinalizeBlock events for a given block by its height.
@@ -106,131 +77,22 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 	batch := idx.store.NewBatch()
 	defer batch.Close()
 
-	// update block bloom
+	height := bh.Height
 
-	blockBloom := bloomForBlock(bh.Events)
-	err := batch.Set(bloomKeyForBlock(bh.Height), blockBloom[:])
+	// 1. index by height
+	key, err := heightKey(height)
 	if err != nil {
+		return fmt.Errorf("failed to create block height index key: %w", err)
+	}
+	if err := batch.Set(key, int64ToBytes(height)); err != nil {
 		return err
 	}
 
-	// update section bloom every sectionSize(4096) blocks
-
-	if bh.Height%bloomSectionSize == 0 {
-		sectionIndex := sectionIndexFromHeight(bh.Height) - 1
-		err := idx.createSectionBloom(sectionIndex, batch)
-		if err != nil {
-			return err
-		}
+	// 2. index block events
+	if err := idx.indexEvents(batch, bh.Events, height); err != nil {
+		return fmt.Errorf("failed to index FinalizeBlock events: %w", err)
 	}
 
-	if !idx.isReindexing {
-		base, err := idx.Base()
-		if err != nil {
-			return err
-		} else if base == 0 || base > bh.Height {
-			err = batch.Set([]byte(baseKey), int64ToBytes(bh.Height))
-			if err != nil {
-				return err
-			}
-		}
-
-		height, err := idx.Height()
-		if err != nil {
-			return err
-		} else if height < bh.Height {
-			err = batch.Set([]byte(heightKey), int64ToBytes(bh.Height))
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return batch.WriteSync()
-}
-
-func (idx *BlockerIndexer) createSectionBloom(sectionIndex int64, batch dbm.Batch) error {
-	gen, err := bloombits.NewGenerator(uint(bloomSectionSize))
-	if err != nil {
-		return err
-	}
-
-	for i := int64(0); i < bloomSectionSize; i++ {
-		blockBloom, err := idx.store.Get(bloomKeyForBlock(sectionIndex*bloomSectionSize + i))
-		if err != nil {
-			return err
-		} else if blockBloom == nil {
-			blockBloom = make([]byte, gethcoretypes.BloomBitLength/8)
-		}
-
-		if err := gen.AddBloom(uint(i), gethcoretypes.Bloom(blockBloom)); err != nil {
-			return err
-		}
-	}
-
-	// write the bloom bits to the store
-	for i := 0; i < gethcoretypes.BloomBitLength; i++ {
-		bits, err := gen.Bitset(uint(i))
-		if err != nil {
-			return err
-		}
-
-		err = batch.Set(bloomKeyForSectionIndex(sectionIndex, int64(i)), bits)
-		if err != nil {
-			return err
-		}
-	}
-
-	dbSectionIndex, err := idx.SectionIndex()
-	if err != nil {
-		return err
-	} else if dbSectionIndex < sectionIndex {
-		err = batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (idx *BlockerIndexer) StartReindex() {
-	idx.isReindexing = true
-}
-
-func (idx *BlockerIndexer) FinalizeReindex(startHeight, endHeight int64) error {
-	if !idx.isReindexing {
-		return nil
-	}
-
-	sectionIndex := (endHeight + (bloomSectionSize - 1)) / bloomSectionSize
-	batch := idx.store.NewBatch()
-	defer func() {
-		batch.Close()
-		idx.isReindexing = false
-	}()
-	err := idx.createSectionBloom(sectionIndex, batch)
-	if err != nil {
-		return err
-	}
-
-	base, err := idx.Base()
-	if err != nil {
-		return err
-	} else if base == 0 || base > startHeight {
-		err = batch.Set([]byte(baseKey), int64ToBytes(startHeight))
-		if err != nil {
-			return err
-		}
-	}
-
-	height, err := idx.Height()
-	if err != nil {
-		return err
-	} else if height < endHeight {
-		err = batch.Set([]byte(heightKey), int64ToBytes(endHeight))
-		if err != nil {
-			return err
-		}
-	}
 	return batch.WriteSync()
 }
 
@@ -239,44 +101,30 @@ func (idx *BlockerIndexer) FinalizeReindex(startHeight, endHeight int64) error {
 // one or more block heights. In the case of height queries, i.e. block.height=H,
 // if the height is indexed, that height alone will be returned. An error and
 // nil slice is returned. Otherwise, a non-nil slice and nil error is returned.
-func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query, maxCount int64) (chan int64, chan error) {
-	resultChan := make(chan int64)
-	errChan := make(chan error)
-
-	go func() {
-		defer func() {
-			close(resultChan)
-			close(errChan)
-		}()
-
-		errChan <- idx.search(ctx, q, maxCount, resultChan)
-	}()
-	return resultChan, errChan
-}
-
-func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount int64, resultChan chan int64) error {
+func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query) ([]int64, error) {
+	results := make([]int64, 0)
 	select {
 	case <-ctx.Done():
-		return nil
+		return results, nil
 
 	default:
 	}
 
 	conditions := q.Syntax()
 
+	// conditions to skip because they're handled before "everything else"
+	skipIndexes := make([]int, 0)
+
+	var ok bool
+
+	var heightInfo HeightInfo
 	// If we are not matching events and block.height occurs more than once, the later value will
 	// overwrite the first one.
-	conditions, heightInfo, err := dedupHeight(conditions)
-	if err != nil {
-		return err
-	}
+	conditions, heightInfo, ok = dedupHeight(conditions)
 
 	// Extract ranges. If both upper and lower bounds exist, it's better to get
 	// them in order as to not iterate over kvs that are not within range.
-	_, _, heightRange, err := indexer.LookForRangesWithHeight(conditions)
-	if err != nil {
-		return err
-	}
+	ranges, rangeIndexes, heightRange := indexer.LookForRangesWithHeight(conditions)
 	heightInfo.heightRange = heightRange
 
 	// If we have additional constraints and want to query per event
@@ -285,242 +133,505 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 	// match(). If we only have the height constraint
 	// in the query (the second part of the ||), we don't need to query
 	// per event conditions and return all events within the height range.
-	if heightInfo.onlyHeightEq {
+	if ok && heightInfo.onlyHeightEq {
 		ok, err := idx.Has(heightInfo.height)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if ok {
-			resultChan <- heightInfo.height
+			return []int64{heightInfo.height}, nil
 		}
-		return nil
-	} else if idx.isReindexing {
-		return fmt.Errorf("indexer is reindexing, only height search is supported")
+
+		return results, nil
 	}
 
-	filters, err := filtersFromConditions(conditions)
-	if err != nil {
-		return err
+	var heightsInitialized bool
+	filteredHeights := make(map[string][]byte)
+	if heightInfo.heightEqIdx != -1 {
+		skipIndexes = append(skipIndexes, heightInfo.heightEqIdx)
 	}
 
-	begin := int64(1)
-	height, err := idx.Height()
-	if err != nil {
-		return err
-	} else if height == 0 {
-		return fmt.Errorf("no data exists")
-	}
-	end := height
+	if len(ranges) > 0 {
+		skipIndexes = append(skipIndexes, rangeIndexes...)
 
-	if heightInfo.height != 0 {
-		begin = heightInfo.height
-		end = heightInfo.height
-	} else if heightInfo.heightRange.Key != "" {
-		if heightInfo.heightRange.LowerBound != nil {
-			bigBegin, ok := heightInfo.heightRange.LowerBound.(*big.Float)
-			if !ok {
-				return fmt.Errorf("invalid height range lower bound: %v", heightInfo.heightRange.LowerBound)
+		for _, qr := range ranges {
+			// If we have a query range over height and want to still look for
+			// specific event values we do not want to simply return all
+			// blocks in this height range. We remember the height range info
+			// and pass it on to match() to take into account when processing events.
+			if qr.Key == types.BlockHeightKey && !heightInfo.onlyHeightRange {
+				// If the query contains ranges other than the height then we need to treat the height
+				// range when querying the conditions of the other range.
+				// Otherwise we can just return all the blocks within the height range (as there is no
+				// additional constraint on events)
+
+				continue
+
 			}
-			begin, _ = bigBegin.Int64()
-			if !heightInfo.heightRange.IncludeLowerBound {
-				begin++
+			prefix, err := orderedcode.Append(nil, qr.Key)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create prefix key: %w", err)
 			}
-		}
-		if heightInfo.heightRange.UpperBound != nil {
-			bigEnd, ok := heightInfo.heightRange.UpperBound.(*big.Float)
-			if !ok {
-				return fmt.Errorf("invalid height range upper bound: %v", heightInfo.heightRange.UpperBound)
-			}
-			rangeEnd, _ := bigEnd.Int64()
-			if !heightInfo.heightRange.IncludeUpperBound {
-				rangeEnd--
-			}
-			end = min(end, rangeEnd)
-		}
-	}
 
-	// for indexed events
-
-	innerCountForIndexed := int64(0)
-
-	idxBase, err := idx.Base()
-	if err != nil {
-		return err
-	}
-	begin = max(begin, idxBase, idx.blockStore.Base())
-	beginForIndexed := max(begin, bloomSectionSize)
-
-	sectionIndex, err := idx.SectionIndex()
-	if err != nil {
-		return err
-	} else if sectionIndex >= 0 {
-		endForIndexed := min(end, sectionIndex*bloomSectionSize)
-
-		matches := make(chan uint64, 64)
-
-		matcher := bloombits.NewMatcher(uint64(bloomSectionSize), [][][]byte{filters})
-		session, err := matcher.Start(ctx, uint64(beginForIndexed), uint64(endForIndexed), matches)
-		if err != nil {
-			return err
-		}
-
-		bloomRequests := make(chan chan *bloombits.Retrieval)
-		for i := 0; i < bloomServiceThreads; i++ {
-			go func() {
-				for {
-					select {
-					case <-ctx.Done():
-						return
-
-					case request := <-bloomRequests:
-						task := <-request
-						task.Bitsets = make([][]byte, len(task.Sections))
-						for i, section := range task.Sections {
-							sectionBitbloom, err := idx.store.Get(bloomKeyForSectionIndex(int64(section), int64(task.Bit)))
-							if err != nil {
-								task.Error = err
-								break
-							} else if sectionBitbloom == nil {
-								// pruned section, return empty bitset
-								task.Bitsets[i] = make([]byte, bloomSectionSize/8)
-								continue
-							}
-							task.Bitsets[i] = sectionBitbloom
-						}
-						request <- task
-					}
-				}
-			}()
-		}
-
-		for i := 0; i < bloomFilterThreads; i++ {
-			go session.Multiplex(bloomRetrievalBatch, bloomRetrievalWait, bloomRequests)
-		}
-
-	MATCHES_LOOP:
-		for {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-
-			case number, ok := <-matches:
-				// Abort if all matches have been fulfilled
-				if !ok {
-					err = session.Error()
-					break MATCHES_LOOP
-				}
-				match, err := idx.checkMatch(int64(number), filters)
+			if !heightsInitialized {
+				filteredHeights, err = idx.matchRange(ctx, qr, prefix, filteredHeights, true, heightInfo)
 				if err != nil {
-					return err
-				}
-				if match {
-					innerCountForIndexed++
-					resultChan <- int64(number)
-				}
-			}
-		}
-		if err != nil {
-			return err
-		}
-
-		begin = max(begin, endForIndexed+1)
-	}
-
-	const batchSize = 500
-	innerCountForUnindexed := atomic.Int64{}
-
-	g, innerCtx := errgroup.WithContext(ctx)
-	diff := end - begin + 1
-	if diff >= bloomSectionSize {
-		return fmt.Errorf("insufficient indexed data, reduce the query range")
-	}
-	batchNum := diff / batchSize
-	if diff%batchSize != 0 {
-		batchNum++
-	}
-
-	resultsArray := make([][]int64, batchNum)
-	for i := int64(0); i < batchNum; i++ {
-		// make local copy of i for goroutine
-		sectionIdx := i
-		sectionBegin := begin + i*batchSize
-		sectionEnd := sectionBegin + batchSize - 1
-		if sectionEnd > end {
-			sectionEnd = end
-		}
-
-		// fetch logs in parallel
-		g.Go(func() error {
-			for sectionNumber := sectionBegin; sectionNumber <= sectionEnd; sectionNumber++ {
-				select {
-				case <-innerCtx.Done():
-					return innerCtx.Err()
-				default:
+					return nil, err
 				}
 
-				found, err := idx.checkMatch(sectionNumber, filters)
+				heightsInitialized = true
+
+				// Ignore any remaining conditions if the first condition resulted in no
+				// matches (assuming implicit AND operand).
+				if len(filteredHeights) == 0 {
+					break
+				}
+			} else {
+				filteredHeights, err = idx.matchRange(ctx, qr, prefix, filteredHeights, false, heightInfo)
 				if err != nil {
-					return err
-				} else if found {
-					innerCountForUnindexed.Add(1)
-					if innerCountForUnindexed.Load()+innerCountForIndexed >= maxCount {
-						return errors.New("too many results, reduce the query range")
-					}
-					resultsArray[sectionIdx] = append(resultsArray[sectionIdx], sectionNumber)
+					return nil, err
 				}
-			}
-			return nil
-		})
-	}
-
-	// wait for all goroutines to finish
-	err = g.Wait()
-	if err != nil {
-		return err
-	}
-
-	// send logs to channel in order
-	for _, results := range resultsArray {
-		for _, result := range results {
-			select {
-			case resultChan <- result:
-			case <-ctx.Done():
-				return ctx.Err()
 			}
 		}
 	}
-	return nil
+
+	// for all other conditions
+	for i, c := range conditions {
+		if intInSlice(i, skipIndexes) {
+			continue
+		}
+
+		startKey, err := orderedcode.Append(nil, c.Tag, c.Arg.Value())
+		if err != nil {
+			return nil, err
+		}
+
+		if !heightsInitialized {
+			filteredHeights, err = idx.match(ctx, c, startKey, filteredHeights, true, heightInfo)
+			if err != nil {
+				return nil, err
+			}
+
+			heightsInitialized = true
+
+			// Ignore any remaining conditions if the first condition resulted in no
+			// matches (assuming implicit AND operand).
+			if len(filteredHeights) == 0 {
+				break
+			}
+		} else {
+			filteredHeights, err = idx.match(ctx, c, startKey, filteredHeights, false, heightInfo)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// fetch matching heights
+	results = make([]int64, 0, len(filteredHeights))
+	resultMap := make(map[int64]struct{})
+
+FOR_LOOP:
+	for _, hBz := range filteredHeights {
+		h := int64FromBytes(hBz)
+
+		ok, err := idx.Has(h)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			if _, ok := resultMap[h]; !ok {
+				resultMap[h] = struct{}{}
+				results = append(results, h)
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			break FOR_LOOP
+
+		default:
+		}
+	}
+
+	sort.Slice(results, func(i, j int) bool { return results[i] < results[j] })
+
+	return results, nil
 }
 
-func (idx *BlockerIndexer) checkMatch(number int64, filters [][]byte) (bool, error) {
-	response, err := idx.stateStore.LoadFinalizeBlockResponse(number)
-	if err != nil || response == nil {
-		return false, nil
+// matchRange returns all matching block heights that match a given QueryRange
+// and start key. An already filtered result (filteredHeights) is provided such
+// that any non-intersecting matches are removed.
+//
+// NOTE: The provided filteredHeights may be empty if no previous condition has
+// matched.
+func (idx *BlockerIndexer) matchRange(
+	ctx context.Context,
+	qr indexer.QueryRange,
+	startKey []byte,
+	filteredHeights map[string][]byte,
+	firstRun bool,
+	heightInfo HeightInfo,
+) (map[string][]byte, error) {
+	// A previous match was attempted but resulted in no matches, so we return
+	// no matches (assuming AND operand).
+	if !firstRun && len(filteredHeights) == 0 {
+		return filteredHeights, nil
 	}
 
-EVENTSCHECK_LOOP:
-	for _, conditionFilter := range filters {
-		for _, event := range response.Events {
-			if len(event.Type) == 0 {
-				continue
+	tmpHeights := make(map[string][]byte)
+
+	it, err := dbm.IteratePrefix(idx.store, startKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create prefix iterator: %w", err)
+	}
+	defer it.Close()
+
+LOOP:
+	for ; it.Valid(); it.Next() {
+		var (
+			eventValue string
+			err        error
+		)
+
+		if qr.Key == types.BlockHeightKey {
+			eventValue, err = parseValueFromPrimaryKey(it.Key())
+		} else {
+			eventValue, err = parseValueFromEventKey(it.Key())
+		}
+
+		if err != nil {
+			continue
+		}
+
+		if _, ok := qr.AnyBound().(*big.Float); ok {
+			v := new(big.Int)
+			v, ok := v.SetString(eventValue, 10)
+			var vF *big.Float
+			if !ok {
+				// The precision here is 125. For numbers bigger than this, the value
+				// will not be parsed properly
+				vF, _, err = big.ParseFloat(eventValue, 10, 125, big.ToNearestEven)
+				if err != nil {
+					continue LOOP
+				}
 			}
-			for _, attr := range event.Attributes {
-				if len(attr.Key) == 0 {
-					continue
-				} else if attr.Index {
-					filter := eventFilter(event.Type, attr.Key, attr.Value)
-					if bytes.Equal(conditionFilter, filter) {
-						continue EVENTSCHECK_LOOP
-					}
+
+			if qr.Key != types.BlockHeightKey {
+				keyHeight, err := parseHeightFromEventKey(it.Key())
+				if err != nil {
+					idx.log.Error("failure to parse height from key:", err)
+					continue LOOP
+				}
+				withinHeight, err := checkHeightConditions(heightInfo, keyHeight)
+				if err != nil {
+					idx.log.Error("failure checking for height bounds:", err)
+					continue LOOP
+				}
+				if !withinHeight {
+					continue LOOP
+				}
+			}
+
+			var withinBounds bool
+			var err error
+			if !ok {
+				withinBounds, err = idxutil.CheckBounds(qr, vF)
+			} else {
+				withinBounds, err = idxutil.CheckBounds(qr, v)
+			}
+			if err != nil {
+				idx.log.Error("failed to parse bounds:", err)
+			} else {
+				if withinBounds {
+					idx.setTmpHeights(tmpHeights, it)
 				}
 			}
 		}
 
-		// no match found
-		return false, nil
+		select {
+		case <-ctx.Done():
+			break LOOP
+		default:
+		}
 	}
-	return true, err
+
+	if err := it.Error(); err != nil {
+		return nil, err
+	}
+
+	if len(tmpHeights) == 0 || firstRun {
+		// Either:
+		//
+		// 1. Regardless if a previous match was attempted, which may have had
+		// results, but no match was found for the current condition, then we
+		// return no matches (assuming AND operand).
+		//
+		// 2. A previous match was not attempted, so we return all results.
+		return tmpHeights, nil
+	}
+
+	// Remove/reduce matches in filteredHashes that were not found in this
+	// match (tmpHashes).
+FOR_LOOP:
+	for k, v := range filteredHeights {
+		tmpHeight := tmpHeights[k]
+
+		// Check whether in this iteration we have not found an overlapping height (tmpHeight == nil)
+		// or whether the events in which the attributed occurred do not match (first part of the condition)
+		if tmpHeight == nil || !bytes.Equal(tmpHeight, v) {
+			delete(filteredHeights, k)
+
+			select {
+			case <-ctx.Done():
+				break FOR_LOOP
+			default:
+			}
+		}
+	}
+
+	return filteredHeights, nil
+}
+
+func (idx *BlockerIndexer) setTmpHeights(tmpHeights map[string][]byte, it dbm.Iterator) {
+	// If we return attributes that occur within the same events, then store the
+	// event sequence in the result map as well.
+	eventSeq, _ := parseEventSeqFromEventKey(it.Key())
+
+	// Copy the value because the iterator will be reused.
+	value := make([]byte, len(it.Value()))
+	copy(value, it.Value())
+
+	tmpHeights[string(value)+strconv.FormatInt(eventSeq, 10)] = value
+
+}
+
+// match returns all matching heights that meet a given query condition and start
+// key. An already filtered result (filteredHeights) is provided such that any
+// non-intersecting matches are removed.
+//
+// NOTE: The provided filteredHeights may be empty if no previous condition has
+// matched.
+func (idx *BlockerIndexer) match(
+	ctx context.Context,
+	c syntax.Condition,
+	startKeyBz []byte,
+	filteredHeights map[string][]byte,
+	firstRun bool,
+	heightInfo HeightInfo,
+) (map[string][]byte, error) {
+	// A previous match was attempted but resulted in no matches, so we return
+	// no matches (assuming AND operand).
+	if !firstRun && len(filteredHeights) == 0 {
+		return filteredHeights, nil
+	}
+
+	tmpHeights := make(map[string][]byte)
+
+	switch {
+	case c.Op == syntax.TEq:
+		it, err := dbm.IteratePrefix(idx.store, startKeyBz)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create prefix iterator: %w", err)
+		}
+		defer it.Close()
+
+		for ; it.Valid(); it.Next() {
+
+			keyHeight, err := parseHeightFromEventKey(it.Key())
+			if err != nil {
+				idx.log.Error("failure to parse height from key:", err)
+				continue
+			}
+			withinHeight, err := checkHeightConditions(heightInfo, keyHeight)
+			if err != nil {
+				idx.log.Error("failure checking for height bounds:", err)
+				continue
+			}
+			if !withinHeight {
+				continue
+			}
+
+			idx.setTmpHeights(tmpHeights, it)
+
+			if err := ctx.Err(); err != nil {
+				break
+			}
+		}
+
+		if err := it.Error(); err != nil {
+			return nil, err
+		}
+
+	case c.Op == syntax.TExists:
+		prefix, err := orderedcode.Append(nil, c.Tag)
+		if err != nil {
+			return nil, err
+		}
+
+		it, err := dbm.IteratePrefix(idx.store, prefix)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create prefix iterator: %w", err)
+		}
+		defer it.Close()
+
+	LOOP_EXISTS:
+		for ; it.Valid(); it.Next() {
+
+			keyHeight, err := parseHeightFromEventKey(it.Key())
+			if err != nil {
+				idx.log.Error("failure to parse height from key:", err)
+				continue
+			}
+			withinHeight, err := checkHeightConditions(heightInfo, keyHeight)
+			if err != nil {
+				idx.log.Error("failure checking for height bounds:", err)
+				continue
+			}
+			if !withinHeight {
+				continue
+			}
+
+			idx.setTmpHeights(tmpHeights, it)
+
+			select {
+			case <-ctx.Done():
+				break LOOP_EXISTS
+
+			default:
+			}
+		}
+
+		if err := it.Error(); err != nil {
+			return nil, err
+		}
+
+	case c.Op == syntax.TContains:
+		prefix, err := orderedcode.Append(nil, c.Tag)
+		if err != nil {
+			return nil, err
+		}
+
+		it, err := dbm.IteratePrefix(idx.store, prefix)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create prefix iterator: %w", err)
+		}
+		defer it.Close()
+
+	LOOP_CONTAINS:
+		for ; it.Valid(); it.Next() {
+			eventValue, err := parseValueFromEventKey(it.Key())
+			if err != nil {
+				continue
+			}
+
+			if strings.Contains(eventValue, c.Arg.Value()) {
+				keyHeight, err := parseHeightFromEventKey(it.Key())
+				if err != nil {
+					idx.log.Error("failure to parse height from key:", err)
+					continue
+				}
+				withinHeight, err := checkHeightConditions(heightInfo, keyHeight)
+				if err != nil {
+					idx.log.Error("failure checking for height bounds:", err)
+					continue
+				}
+				if !withinHeight {
+					continue
+				}
+				idx.setTmpHeights(tmpHeights, it)
+			}
+
+			select {
+			case <-ctx.Done():
+				break LOOP_CONTAINS
+
+			default:
+			}
+		}
+		if err := it.Error(); err != nil {
+			return nil, err
+		}
+
+	default:
+		return nil, errors.New("other operators should be handled already")
+	}
+
+	if len(tmpHeights) == 0 || firstRun {
+		// Either:
+		//
+		// 1. Regardless if a previous match was attempted, which may have had
+		// results, but no match was found for the current condition, then we
+		// return no matches (assuming AND operand).
+		//
+		// 2. A previous match was not attempted, so we return all results.
+		return tmpHeights, nil
+	}
+
+	// Remove/reduce matches in filteredHeights that were not found in this
+	// match (tmpHeights).
+FOR_LOOP:
+	for k, v := range filteredHeights {
+		tmpHeight := tmpHeights[k]
+		if tmpHeight == nil || !bytes.Equal(tmpHeight, v) {
+			delete(filteredHeights, k)
+
+			select {
+			case <-ctx.Done():
+				break FOR_LOOP
+
+			default:
+			}
+		}
+	}
+
+	return filteredHeights, nil
+}
+
+func (idx *BlockerIndexer) indexEvents(batch dbm.Batch, events []abci.Event, height int64) error {
+	heightBz := int64ToBytes(height)
+
+	for _, event := range events {
+		idx.eventSeq = idx.eventSeq + 1
+		// only index events with a non-empty type
+		if len(event.Type) == 0 {
+			continue
+		}
+
+		for _, attr := range event.Attributes {
+			if len(attr.Key) == 0 {
+				continue
+			}
+
+			// index iff the event specified index:true and it's not a reserved event
+			compositeKey := fmt.Sprintf("%s.%s", event.Type, attr.Key)
+			if compositeKey == types.BlockHeightKey {
+				return fmt.Errorf("event type and attribute key \"%s\" is reserved; please use a different key", compositeKey)
+			}
+
+			if attr.GetIndex() {
+				key, err := eventKey(compositeKey, attr.Value, height, idx.eventSeq)
+				if err != nil {
+					return fmt.Errorf("failed to create block index key: %w", err)
+				}
+
+				if err := batch.Set(key, heightBz); err != nil {
+					return err
+				}
+
+				// if index pruning enabled, also index the reverse mapping
+				if idx.retainHeight != 0 {
+					err = batch.Set(keyForReverse(height, key), []byte{0x1})
+					if err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func (idx *BlockerIndexer) Prune(curHeight int64) error {
@@ -532,128 +643,65 @@ func (idx *BlockerIndexer) Prune(curHeight int64) error {
 	pruneBatch := idx.store.NewBatch()
 	defer pruneBatch.Close()
 
-	base, err := idx.Base()
+	startKey := keyForReverse(1, nil)
+	endKey := keyForReverse(minHeight+1, nil)
+	iter, err := idx.store.Iterator(startKey, endKey)
 	if err != nil {
 		return err
 	}
 
-	// end key is exclusive
-	iter, err := idx.store.Iterator(bloomKeyForBlock(base), bloomKeyForBlock(minHeight+1))
-	if err != nil {
-		return err
-	}
 	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		// delete event index keys
+		if err := pruneBatch.Delete(extractEventKeyFromReverseKey(iter.Key())); err != nil {
+			return err
+		}
 
+		// delete reverse index keys
+		if err := pruneBatch.Delete(iter.Key()); err != nil {
+			return err
+		}
+	}
+
+	// delete block height index keys
+	startKey, err = keyForHeightRange(1)
+	if err != nil {
+		return err
+	}
+	endKey, err = keyForHeightRange(minHeight + 1)
+	if err != nil {
+		return err
+	}
+	iter, err = idx.store.Iterator(startKey, endKey)
+	if err != nil {
+		return err
+	}
+
+	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
 		if err := pruneBatch.Delete(iter.Key()); err != nil {
 			return err
 		}
 	}
 
-	iter2, err := idx.store.Iterator(bloomKeyForSectionIndex(base/bloomSectionSize, 0), bloomKeyForSectionIndex(minHeight/bloomSectionSize, bloomSectionSize))
-	if err != nil {
-		return err
-	}
-	defer iter2.Close()
-
-	for ; iter2.Valid(); iter2.Next() {
-		if err := pruneBatch.Delete(iter2.Key()); err != nil {
-			return err
-		}
-	}
-
-	err = pruneBatch.Set([]byte(baseKey), int64ToBytes(minHeight+1))
-	if err != nil {
-		return err
-	}
 	return pruneBatch.WriteSync()
 }
 
-func (idx *BlockerIndexer) Base() (int64, error) {
-	base, err := idx.store.Get([]byte(baseKey))
-	if err != nil {
-		return 0, err
-	} else if base == nil {
-		return 0, nil
-	}
-	return int64FromBytes(base), nil
+func extractEventKeyFromReverseKey(reverseKey []byte) []byte {
+	return reverseKey[len(types.ReverseBlockIndexPrefix)+8:]
 }
 
-func (idx *BlockerIndexer) Height() (int64, error) {
-	height, err := idx.store.Get([]byte(heightKey))
-	if err != nil {
-		return 0, err
-	} else if height == nil {
-		return 0, nil
-	}
-	return int64FromBytes(height), nil
+func keyForReverse(height int64, eventKey []byte) []byte {
+	heightBz := make([]byte, 8)
+	binary.BigEndian.PutUint64(heightBz, uint64(height))
+
+	return append(append(types.ReverseBlockIndexPrefix, heightBz...), eventKey...)
 }
 
-func (idx *BlockerIndexer) SectionIndex() (int64, error) {
-	sectionIndex, err := idx.store.Get([]byte(sectionIndexKey))
-	if err != nil {
-		return 0, err
-	} else if sectionIndex == nil {
-		return -1, nil
-	}
-	return int64FromBytes(sectionIndex), nil
-}
-
-func sectionIndexFromHeight(height int64) int64 {
-	return height / bloomSectionSize
-}
-
-func eventFilter(eventType string, attrKey string, attrValue string) []byte {
-	return []byte(fmt.Sprintf("%s.%s=%s", eventType, attrKey, attrValue))
-}
-
-func bloomForBlock(events []abci.Event) gethcoretypes.Bloom {
-	var bin gethcoretypes.Bloom
-	for _, event := range events {
-		if len(event.Type) == 0 {
-			continue
-		}
-		for _, attr := range event.Attributes {
-			if len(attr.Key) == 0 {
-				continue
-			} else if attr.Index {
-				bin.Add(eventFilter(event.Type, attr.Key, attr.Value))
-			}
-		}
-	}
-	return bin
-}
-
-func filtersFromConditions(conditions []syntax.Condition) ([][]byte, error) {
-	var filters [][]byte
-	for _, c := range conditions {
-		if c.Tag == types.BlockHeightKey {
-			continue
-		} else if c.Tag == types.TxHeightKey {
-			return nil, fmt.Errorf("tx height is not allowed in the query")
-		}
-
-		if c.Op == syntax.TEq {
-			filter := []byte(fmt.Sprintf("%s=%s", c.Tag, c.Arg.Value()))
-			filters = append(filters, filter)
-		} else {
-			return nil, fmt.Errorf("unsupported operation: %s", c.Op)
-		}
-	}
-	return filters, nil
-}
-
-func bloomKeyForBlock(height int64) []byte {
-	return []byte(fmt.Sprintf("%s/%d",
-		blockBloomKeyPrefix,
-		int64ToBytes(height),
-	))
-}
-
-func bloomKeyForSectionIndex(section int64, index int64) []byte {
-	return []byte(fmt.Sprintf("%s/%d/%d",
-		sectionBloomKeyPrefix,
-		int64ToBytes(section),
-		int64ToBytes(index),
-	))
+func keyForHeightRange(height int64) ([]byte, error) {
+	return orderedcode.Append(
+		nil,
+		types.BlockHeightKey,
+		height,
+	)
 }

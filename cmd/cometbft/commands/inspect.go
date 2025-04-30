@@ -12,6 +12,7 @@ import (
 	"github.com/cometbft/cometbft/inspect"
 	"github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/state/indexer/block"
+	blockv2 "github.com/cometbft/cometbft/state/indexer_v2/block"
 	"github.com/cometbft/cometbft/store"
 	"github.com/cometbft/cometbft/types"
 )
@@ -73,11 +74,17 @@ func runInspect(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+
 	txIndexer, blockIndexer, err := block.IndexerFromConfig(config, cfg.DefaultDBProvider, genDoc.ChainID)
 	if err != nil {
 		return err
 	}
-	ins := inspect.New(config.RPC, blockStore, stateStore, txIndexer, blockIndexer)
+
+	txIndexerV2, blockIndexerV2, err := blockv2.IndexerFromConfig(config, cfg.DefaultDBProvider, genDoc.ChainID)
+	if err != nil {
+		return err
+	}
+	ins := inspect.New(config.RPC, blockStore, stateStore, txIndexer, txIndexerV2, blockIndexer, blockIndexerV2)
 
 	logger.Info("starting inspect server")
 	return ins.Run(ctx)

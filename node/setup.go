@@ -32,6 +32,8 @@ import (
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/state/indexer"
 	"github.com/cometbft/cometbft/state/indexer/block"
+	indexerv2 "github.com/cometbft/cometbft/state/indexer_v2"
+	blockv2 "github.com/cometbft/cometbft/state/indexer_v2/block"
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/store"
 	"github.com/cometbft/cometbft/types"
@@ -147,36 +149,47 @@ func createAndStartIndexerService(
 	dbProvider cfg.DBProvider,
 	eventBus *types.EventBus,
 	logger log.Logger,
-) (*txindex.IndexerService, txindex.TxIndexer, indexer.BlockIndexer, error) {
+) (*txindex.IndexerService, txindex.TxIndexer, txindex.TxIndexerV2, indexer.BlockIndexer, indexerv2.BlockIndexer, error) {
 	var (
-		txIndexer    txindex.TxIndexer
-		blockIndexer indexer.BlockIndexer
+		txIndexer      txindex.TxIndexer
+		txIndexerV2    txindex.TxIndexerV2
+		blockIndexer   indexer.BlockIndexer
+		blockIndexerV2 indexerv2.BlockIndexer
 	)
 
-	txIndexer, blockIndexer, allIndexersDisabled, err := block.IndexerFromConfigWithDisabledIndexers(config, blockStore, stateStore, dbProvider, chainID)
+	txIndexer, blockIndexer, allIndexersDisabled, err := block.IndexerFromConfigWithDisabledIndexers(config, dbProvider, chainID)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
-	if allIndexersDisabled {
-		return nil, txIndexer, blockIndexer, nil
+	txIndexerV2, blockIndexerV2, allIndexersDisabledV2, err := blockv2.IndexerFromConfigWithDisabledIndexers(config, blockStore, stateStore, dbProvider, chainID)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
+	if allIndexersDisabled && allIndexersDisabledV2 {
+		return nil, txIndexer, txIndexerV2, blockIndexer, blockIndexerV2, nil
 	}
 
 	txIndexer.SetLogger(logger.With("module", "txindex"))
-	blockIndexer.SetLogger(logger.With("module", "blockindex"))
+	txIndexerV2.SetLogger(logger.With("module", "txindexV2"))
 
-	indexerService := txindex.NewIndexerService(txIndexer, blockIndexer, eventBus, false)
+	blockIndexer.SetLogger(logger.With("module", "blockindex"))
+	blockIndexerV2.SetLogger(logger.With("module", "blockindexV2"))
+
+	indexerService := txindex.NewIndexerService(txIndexer, txIndexerV2, blockIndexer, blockIndexerV2, eventBus, false)
 	indexerService.SetLogger(logger.With("module", "indexer"))
-	reindexFunc, err := txindex.StartReindexEvents(ctx, logger.With("module", "reindex"), config.TxIndex, blockStore, stateStore, blockIndexer, txIndexer)
+	reindexFunc, err := txindex.StartReindexEvents(ctx, logger.With("module", "reindex"), config.TxIndex, blockStore, stateStore, blockIndexerV2, txIndexerV2)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
+	} else if reindexFunc != nil {
+		go reindexFunc()
 	}
-	go reindexFunc()
 
 	if err := indexerService.Start(); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
-	return indexerService, txIndexer, blockIndexer, nil
+	return indexerService, txIndexer, txIndexerV2, blockIndexer, blockIndexerV2, nil
 }
 
 func doHandshake(
