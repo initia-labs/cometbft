@@ -169,25 +169,23 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 		}
 	}
 
-	if !txi.isReindexing {
-		base, err := txi.Base()
+	base, err := txi.Base()
+	if err != nil {
+		return err
+	} else if base == 0 || base > blockHeight {
+		err = storeBatch.Set([]byte(baseKey), int64ToBytes(blockHeight))
 		if err != nil {
 			return err
-		} else if base == 0 || base > blockHeight {
-			err = storeBatch.Set([]byte(baseKey), int64ToBytes(blockHeight))
-			if err != nil {
-				return err
-			}
 		}
+	}
 
-		height, err := txi.Height()
+	height, err := txi.Height()
+	if err != nil {
+		return err
+	} else if height < blockHeight {
+		err = storeBatch.Set([]byte(heightKey), int64ToBytes(blockHeight))
 		if err != nil {
 			return err
-		} else if height < blockHeight {
-			err = storeBatch.Set([]byte(heightKey), int64ToBytes(blockHeight))
-			if err != nil {
-				return err
-			}
 		}
 	}
 	return storeBatch.WriteSync()
@@ -255,26 +253,6 @@ func (txi *TxIndex) FinalizeReindex(startHeight, endHeight int64) error {
 	err := txi.createSectionBloom(sectionIndex, storeBatch)
 	if err != nil {
 		return err
-	}
-
-	base, err := txi.Base()
-	if err != nil {
-		return err
-	} else if base == 0 || base > startHeight {
-		err = storeBatch.Set([]byte(baseKey), int64ToBytes(startHeight))
-		if err != nil {
-			return err
-		}
-	}
-
-	height, err := txi.Height()
-	if err != nil {
-		return err
-	} else if height < endHeight {
-		err = storeBatch.Set([]byte(heightKey), int64ToBytes(endHeight))
-		if err != nil {
-			return err
-		}
 	}
 	return storeBatch.WriteSync()
 }
