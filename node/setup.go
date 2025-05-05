@@ -100,6 +100,7 @@ func DefaultMetricsProvider(config *cfg.InstrumentationConfig) MetricsProvider {
 
 type blockSyncReactor interface {
 	SwitchToBlockSync(sm.State) error
+	IsCaughtUp() bool
 }
 
 //------------------------------------------------------------------------------

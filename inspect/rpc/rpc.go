@@ -33,6 +33,7 @@ func Routes(cfg config.RPCConfig, s state.Store, bs state.BlockStore, txidx txin
 		StateStore:       s,
 		BlockStore:       bs,
 		ConsensusReactor: waitSyncCheckerImpl{},
+		BlockReactor:     IsCaughtImpl{},
 		Logger:           logger,
 	}
 	return core.RoutesMap{
@@ -83,6 +84,12 @@ func addCORSHandler(rpcConfig *config.RPCConfig, h http.Handler) http.Handler {
 type waitSyncCheckerImpl struct{}
 
 func (waitSyncCheckerImpl) WaitSync() bool {
+	return false
+}
+
+type IsCaughtImpl struct{}
+
+func (IsCaughtImpl) IsCaughtUp() bool {
 	return false
 }
 
