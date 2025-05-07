@@ -180,6 +180,11 @@ func (bcR *Reactor) SwitchToBlockSync(state sm.State) error {
 	return nil
 }
 
+// IsCaughtUp returns true if this node is caught up, false - otherwise.
+func (bcR *Reactor) IsCaughtUp() bool {
+	return bcR.pool.IsCaughtUp()
+}
+
 // OnStop implements service.Service.
 func (bcR *Reactor) OnStop() {
 	if bcR.blockSync {

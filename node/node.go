@@ -677,6 +677,12 @@ func (n *Node) ConfigureRPC() (*rpccore.Environment, error) {
 	if pubKey == nil || err != nil {
 		return nil, fmt.Errorf("can't get pubkey: %w", err)
 	}
+
+	bcReactor, ok := n.bcReactor.(blockSyncReactor)
+	if !ok {
+		return nil, fmt.Errorf("this blocksync reactor does not support IsCaughtUp()")
+	}
+
 	rpcCoreEnv := rpccore.Environment{
 		ProxyAppQuery:   n.proxyApp.Query(),
 		ProxyAppMempool: n.proxyApp.Mempool(),
@@ -693,6 +699,7 @@ func (n *Node) ConfigureRPC() (*rpccore.Environment, error) {
 		TxIndexer:        n.txIndexer,
 		BlockIndexer:     n.blockIndexer,
 		ConsensusReactor: n.consensusReactor,
+		BlockReactor:     bcReactor,
 		EventBus:         n.eventBus,
 		Mempool:          n.mempool,
 
