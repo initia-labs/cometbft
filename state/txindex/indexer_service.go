@@ -407,11 +407,13 @@ func reconstructMoveEvent(events []abcitypes.Event) (modified bool) {
 	}
 
 	for eventIndex, event := range events {
-		if event.Type == "move" {
-			if newAttributes := reconstructFunc(event.Attributes); len(newAttributes) != len(event.Attributes) {
-				events[eventIndex].Attributes = newAttributes
-				modified = true
-			}
+		if event.Type != "move" {
+			continue
+		}
+
+		if newAttributes := reconstructFunc(event.Attributes); len(newAttributes) != len(event.Attributes) {
+			events[eventIndex].Attributes = newAttributes
+			modified = true
 		}
 	}
 
