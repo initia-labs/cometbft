@@ -372,16 +372,20 @@ func reindexEvents(height int64, blockStore state.BlockStore, stateStore state.S
 
 // ReconstructMoveEvent is a helper function to reconstruct the move event of the ResponseFinalizeBlock
 func ReconstructMoveEvent(resp *abcitypes.ResponseFinalizeBlock) (modified bool) {
-	modified = reconstructMoveEvent(resp.Events)
+	modified = reconstructMoveEvent(&resp.Events)
 	for _, txResult := range resp.TxResults {
-		modified = modified || reconstructMoveEvent(txResult.Events)
+		modified = modified || reconstructMoveEvent(&txResult.Events)
 	}
 
 	return
 }
 
 // reconstructMoveEvent is a helper function to reconstruct the move event of the events
-func reconstructMoveEvent(events []abcitypes.Event) (modified bool) {
+func reconstructMoveEvent(events *[]abcitypes.Event) (modified bool) {
+	if events == nil {
+		return false
+	}
+
 	reconstructFunc := func(attrs []abcitypes.EventAttribute) []abcitypes.EventAttribute {
 		for _, attr := range attrs {
 			if attr.Key != "data" {
@@ -406,13 +410,13 @@ func reconstructMoveEvent(events []abcitypes.Event) (modified bool) {
 		return attrs
 	}
 
-	for eventIndex, event := range events {
+	for eventIndex, event := range *events {
 		if event.Type != "move" {
 			continue
 		}
 
 		if newAttributes := reconstructFunc(event.Attributes); len(newAttributes) != len(event.Attributes) {
-			events[eventIndex].Attributes = newAttributes
+			(*events)[eventIndex].Attributes = newAttributes
 			modified = true
 		}
 	}
