@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"sync/atomic"
 	"time"
@@ -35,7 +34,6 @@ const (
 
 	sectionBloomKeyPrefix = "sb"
 	blockBloomKeyPrefix   = "bb"
-	blockKeyPrefix        = "b"
 	baseKey               = "base"
 	heightKey             = "h"
 	sectionIndexKey       = "si"
@@ -77,7 +75,11 @@ type BlockerIndexer struct {
 	// except "tx.hash" and "tx.height" and "block.height" which are always retained.
 	retainHeight int64
 
+	// isMigrating is true if the indexer is migrating from the old indexer to the new one.
 	isMigrating bool
+
+	// createSectionBloomRunning is used to prevent multiple createSectionBloom goroutines from running concurrently.
+	createSectionBloomRunning atomic.Bool
 }
 
 func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *BlockerIndexer {
@@ -102,14 +104,13 @@ func (idx *BlockerIndexer) Has(height int64) (bool, error) {
 // Index indexes FinalizeBlock events for a given block by its height.
 // The following is indexed:
 //
-// primary key: encode(block.height | height) => encode(height)
-// FinalizeBlock events: encode(eventType.eventAttr|eventValue|height|finalize_block|eventSeq) => encode(height)
+// block bloom: encode(bb | height) => block bloom
+// section bloom: encode(sb | sectionIndex) => section bloom
 func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 	batch := idx.store.NewBatch()
 	defer batch.Close()
 
 	// update block bloom
-
 	blockBloom := bloomForBlock(bh.Events)
 	err := batch.Set(bloomKeyForBlock(bh.Height), blockBloom[:])
 	if err != nil {
@@ -117,14 +118,7 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 	}
 
 	// update section bloom every sectionSize(4096) blocks
-
-	if bh.Height%bloomSectionSize == 0 {
-		sectionIndex := sectionIndexFromHeight(bh.Height) - 1
-		err := idx.createSectionBloom(sectionIndex, batch)
-		if err != nil {
-			return err
-		}
-	}
+	idx.doCreateSectionBloom(bh.Height)
 
 	base, err := idx.Base()
 	if err != nil {
@@ -136,6 +130,7 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 		}
 	}
 
+	// store last indexed height
 	height, err := idx.Height()
 	if err != nil {
 		return err
@@ -146,23 +141,55 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 		}
 	}
 
-	if idx.isMigrating {
-		err = batch.Set([]byte(migrationKey), int64ToBytes(bh.Height))
-		if err != nil {
-			return err
-		}
-	}
-
 	return batch.WriteSync()
 }
 
+// doCreateSectionBloom creates a section bloom for the given height in a separate goroutine.
+// It uses atomic boolean to prevent multiple goroutines from running concurrently.
+func (idx *BlockerIndexer) doCreateSectionBloom(height int64) {
+	if running := idx.createSectionBloomRunning.Swap(true); running {
+		return
+	}
+
+	go func(height int64) {
+		defer idx.createSectionBloomRunning.Store(false)
+		dbSectionIndex, err := idx.SectionIndex()
+		if err != nil {
+			idx.log.Error("failed to get section index", "err", err)
+			return
+		}
+
+		sectionIndex := sectionIndexFromHeight(height) - 1
+		if dbSectionIndex >= sectionIndex {
+			return
+		}
+
+		batch := idx.store.NewBatch()
+		defer batch.Close()
+
+		err = idx.createSectionBloom(sectionIndex, batch)
+		if err != nil {
+			idx.log.Error("failed to do bloom indexing", "err", err)
+			return
+		}
+
+		if err := batch.WriteSync(); err != nil {
+			idx.log.Error("failed to write sync", "err", err)
+			return
+		}
+
+		idx.log.Debug("bloom indexing finished", "height", height)
+	}(height)
+}
+
+// createSectionBloom creates a section bloom for the given section index.
 func (idx *BlockerIndexer) createSectionBloom(sectionIndex int64, batch dbm.Batch) error {
 	gen, err := bloombits.NewGenerator(uint(bloomSectionSize))
 	if err != nil {
 		return err
 	}
 
-	for i := int64(0); i < bloomSectionSize; i++ {
+	for i := range bloomSectionSize {
 		blockBloom, err := idx.store.Get(bloomKeyForBlock(sectionIndex*bloomSectionSize + i))
 		if err != nil {
 			return err
@@ -176,7 +203,7 @@ func (idx *BlockerIndexer) createSectionBloom(sectionIndex int64, batch dbm.Batc
 	}
 
 	// write the bloom bits to the store
-	for i := 0; i < gethcoretypes.BloomBitLength; i++ {
+	for i := range gethcoretypes.BloomBitLength {
 		bits, err := gen.Bitset(uint(i))
 		if err != nil {
 			return err
@@ -198,42 +225,6 @@ func (idx *BlockerIndexer) createSectionBloom(sectionIndex int64, batch dbm.Batc
 		}
 	}
 	return nil
-}
-
-func (idx *BlockerIndexer) StartMigration() {
-	idx.isMigrating = true
-}
-
-func (idx *BlockerIndexer) FinishMigration(endHeight int64) error {
-	if !idx.isMigrating {
-		return nil
-	}
-
-	sectionIndex := (endHeight + (bloomSectionSize - 1)) / bloomSectionSize
-	batch := idx.store.NewBatch()
-	defer func() {
-		batch.Close()
-		idx.isMigrating = false
-	}()
-	err := idx.createSectionBloom(sectionIndex, batch)
-	if err != nil {
-		return err
-	}
-	err = batch.Set([]byte(migrationKey), int64ToBytes(math.MaxInt64))
-	if err != nil {
-		return err
-	}
-	return batch.WriteSync()
-}
-
-func (idx *BlockerIndexer) MigrationHeight() (int64, error) {
-	migrationHeight, err := idx.store.Get([]byte(migrationKey))
-	if err != nil {
-		return 0, err
-	} else if migrationHeight == nil {
-		return 0, nil
-	}
-	return int64FromBytes(migrationHeight), nil
 }
 
 // Search performs a query for block heights that match a given FinalizeBlock
@@ -396,7 +387,7 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 			}()
 		}
 
-		for i := 0; i < bloomFilterThreads; i++ {
+		for range bloomFilterThreads {
 			go session.Multiplex(bloomRetrievalBatch, bloomRetrievalWait, bloomRequests)
 		}
 
@@ -606,7 +597,7 @@ func sectionIndexFromHeight(height int64) int64 {
 }
 
 func eventFilter(eventType string, attrKey string, attrValue string) []byte {
-	return []byte(fmt.Sprintf("%s.%s=%s", eventType, attrKey, attrValue))
+	return fmt.Appendf(nil, "%s.%s=%s", eventType, attrKey, attrValue)
 }
 
 func bloomForBlock(events []abci.Event) gethcoretypes.Bloom {
@@ -636,7 +627,7 @@ func filtersFromConditions(conditions []syntax.Condition) ([][]byte, error) {
 		}
 
 		if c.Op == syntax.TEq {
-			filter := []byte(fmt.Sprintf("%s=%s", c.Tag, c.Arg.Value()))
+			filter := fmt.Appendf(nil, "%s=%s", c.Tag, c.Arg.Value())
 			filters = append(filters, filter)
 		} else {
 			return nil, fmt.Errorf("unsupported operation: %s", c.Op)
@@ -646,16 +637,16 @@ func filtersFromConditions(conditions []syntax.Condition) ([][]byte, error) {
 }
 
 func bloomKeyForBlock(height int64) []byte {
-	return []byte(fmt.Sprintf("%s/%d",
+	return fmt.Appendf(nil, "%s/%d",
 		blockBloomKeyPrefix,
 		int64ToBytes(height),
-	))
+	)
 }
 
 func bloomKeyForSectionIndex(section int64, index int64) []byte {
-	return []byte(fmt.Sprintf("%s/%d/%d",
+	return fmt.Appendf(nil, "%s/%d/%d",
 		sectionBloomKeyPrefix,
 		int64ToBytes(section),
 		int64ToBytes(index),
-	))
+	)
 }

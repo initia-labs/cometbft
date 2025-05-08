@@ -51,3 +51,7 @@ func (idx *BlockerIndexer) FinishMigration(endHeight int64) error {
 func (idx *BlockerIndexer) MigrationHeight() (int64, error) {
 	return 0, nil
 }
+
+func (idx *BlockerIndexer) SetMigrationHeight(height int64) error {
+	return nil
+}

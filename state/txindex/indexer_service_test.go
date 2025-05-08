@@ -165,7 +165,7 @@ func TestDisassembleMoveEvent(t *testing.T) {
 		},
 	}
 
-	changed := txindex.DisassembleMoveEvent(finalizedBlockResponse)
+	changed := txindex.ReconstructMoveEvent(finalizedBlockResponse)
 	require.True(t, changed)
 
 	require.Equal(t, finalizedBlockResponse.Events[0].Type, "move")
@@ -235,7 +235,7 @@ func TestDisassembleMoveEvent(t *testing.T) {
 		},
 	}
 
-	changed = txindex.DisassembleMoveEvent(unchangedFinalizedBlockResponse)
+	changed = txindex.ReconstructMoveEvent(unchangedFinalizedBlockResponse)
 	require.False(t, changed)
 
 	require.Equal(t, unchangedFinalizedBlockResponse.Events[0].Type, "move")

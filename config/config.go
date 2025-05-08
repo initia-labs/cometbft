@@ -1203,12 +1203,18 @@ type TxIndexConfig struct {
 	// This value should be set higher than the prune-related retain height specified in app.toml.
 	RetainHeight int64 `mapstructure:"retain-height"`
 
-	// MigrationEvents is used to migrate events to v2 indexers in background.
-	MigrationEvents bool `mapstructure:"migration-events"`
+	// V2Migration is used to migrate txindex to v2 indexers in background.
+	V2Migration TxIndexV2MigrationConfig `mapstructure:"v2-migration"`
+}
 
-	// ForceStartHeight is the height to start migration events from.
+// TxIndexV2MigrationConfig defines the configuration for the transaction indexer v2 migration.
+type TxIndexV2MigrationConfig struct {
+	// Enable is used to migrate txindex to v2 indexers in background.
+	Enable bool `mapstructure:"enable"`
+
+	// StartHeight is the height to start migration events from.
 	// If not set, the migration will start from the last saved height.
-	ForceStartHeight int64 `mapstructure:"force-start-height"`
+	StartHeight int64 `mapstructure:"start-height"`
 }
 
 // DefaultTxIndexConfig returns a default configuration for the transaction indexer.

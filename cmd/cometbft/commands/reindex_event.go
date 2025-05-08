@@ -146,29 +146,12 @@ type eventReIndexArgs struct {
 }
 
 func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
-	// var bar progressbar.Bar
-	// bar.NewOption(args.startHeight-1, args.endHeight)
-
-	// fmt.Println("start re-indexing events:")
-	// defer bar.Finish()
-	// for height := args.startHeight; height <= args.endHeight; height++ {
-	// 	select {
-	// 	case <-cmd.Context().Done():
-	// 		return fmt.Errorf("event re-index terminated at height %d: %w", height, cmd.Context().Err())
-	// 	default:
-	// 		if err := txindex.ReindexEvents(height, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer); err != nil {
-	// 			return fmt.Errorf("event re-index at height %d failed: %w", height, err)
-	// 		}
-	// 	}
-
-	// 	bar.Play(height)
-	// }
-
-	reindexFunc, err := txindex.StartReindexEvents(cmd.Context(), log.NewTMLogger(log.NewSyncWriter(os.Stdout)), &cmtcfg.TxIndexConfig{
-		Indexer:          "kv_v2",
-		MigrationEvents:  false,
-		ForceStartHeight: args.startHeight,
-		RetainHeight:     args.retainHeight,
+	reindexFunc, err := txindex.ReindexEvents(cmd.Context(), log.NewTMLogger(log.NewSyncWriter(os.Stdout)), &cmtcfg.TxIndexConfig{
+		Indexer:      "kv_v2",
+		RetainHeight: args.retainHeight,
+		V2Migration: cmtcfg.TxIndexV2MigrationConfig{
+			StartHeight: args.startHeight,
+		},
 	}, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer, args.endHeight)
 	if err != nil {
 		return err

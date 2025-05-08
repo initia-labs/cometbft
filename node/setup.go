@@ -178,8 +178,8 @@ func createAndStartIndexerService(
 
 	indexerService := txindex.NewIndexerService(txIndexer, txIndexerV2, blockIndexer, blockIndexerV2, eventBus, false)
 	indexerService.SetLogger(logger.With("module", "indexer"))
-	if config.TxIndex.MigrationEvents {
-		reindexFunc, err := txindex.StartReindexEvents(ctx, logger.With("module", "reindex"), config.TxIndex, blockStore, stateStore, blockIndexerV2, txIndexerV2, 0)
+	if config.TxIndex.V2Migration.Enable {
+		reindexFunc, err := txindex.ReindexEvents(ctx, logger.With("module", "reindex"), config.TxIndex, blockStore, stateStore, blockIndexerV2, txIndexerV2, 0)
 		if err != nil {
 			return nil, nil, nil, nil, nil, err
 		} else if reindexFunc != nil {
