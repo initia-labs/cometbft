@@ -194,11 +194,13 @@ func (env *Environment) txSearchV2(
 	results := make([]*ctypes.ResultTx, 0, perPage)
 	totalCount := 0
 
+	// cache for block and response
 	type cache struct {
 		block    *types.Block
 		response *abci.ResponseFinalizeBlock
 	}
 
+	// use cache to avoid loading the same block and response multiple times
 	blockCache := make(map[int64]cache)
 RESULT_LOOP:
 	for {
