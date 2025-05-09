@@ -251,7 +251,7 @@ func ReindexEvents(
 		}
 		lastSavedMigrationHeight := min(txLastSavedMigrationHeight, blockLastSavedMigrationHeight)
 
-		startHeight = max(baseHeight, lastSavedMigrationHeight)
+		startHeight = max(baseHeight, lastSavedMigrationHeight+1)
 	} else {
 		startHeight = max(baseHeight, config.V2Migration.StartHeight)
 	}
@@ -268,8 +268,8 @@ func ReindexEvents(
 		endHeight = max(endHeight, minRetainHeight)
 	}
 
-	// if the start height is greater than or equal to the end height, return a no-op function
-	if startHeight >= endHeight {
+	// if the start height is greater than the end height, return a no-op function
+	if startHeight > endHeight {
 		return func() {}, nil
 	}
 
