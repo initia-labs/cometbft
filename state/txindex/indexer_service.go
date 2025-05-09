@@ -92,7 +92,6 @@ func (is *IndexerService) OnStart() error {
 				numTxs := eventNewBlockEvents.NumTxs
 
 				batch := NewBatch(numTxs)
-
 				for i := int64(0); i < numTxs; i++ {
 					msg2 := <-txsSub.Out()
 					txResult := msg2.Data().(types.EventDataTx).TxResult
@@ -219,12 +218,28 @@ func (is *IndexerService) OnStop() {
 	}
 }
 
-func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIndexConfig, blockStore state.BlockStore, stateStore state.Store, blockIndexerV2 indexerv2.BlockIndexer, txIndexerV2 TxIndexerV2, endHeight int64) (func(), error) {
+////////////////////////////////////////////////////
+// Reindex events //////////////////////////////////
+////////////////////////////////////////////////////
+
+// ReindexEvents reindexes the events for the given height range.
+func ReindexEvents(
+	ctx context.Context,
+	logger log.Logger,
+	config *cfg.TxIndexConfig,
+	blockStore state.BlockStore,
+	stateStore state.Store,
+	blockIndexerV2 indexerv2.BlockIndexer,
+	txIndexerV2 TxIndexerV2,
+	endHeight int64,
+) (func(), error) {
 	blockIndexerV2.StartMigration()
 	txIndexerV2.StartMigration()
 
 	startHeight := int64(1)
-	if config.ForceStartHeight == 0 {
+	baseHeight := blockStore.Base()
+	storeHeight := blockStore.Height()
+	if config.V2Migration.StartHeight == 0 {
 		txLastSavedMigrationHeight, err := txIndexerV2.MigrationHeight()
 		if err != nil {
 			return nil, err
@@ -235,21 +250,27 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 			return nil, err
 		}
 		lastSavedMigrationHeight := min(txLastSavedMigrationHeight, blockLastSavedMigrationHeight)
-		startHeight = max(blockStore.Base(), lastSavedMigrationHeight)
+
+		startHeight = max(baseHeight, lastSavedMigrationHeight+1)
 	} else {
-		startHeight = max(blockStore.Base(), config.ForceStartHeight)
+		startHeight = max(baseHeight, config.V2Migration.StartHeight)
 	}
 
 	if endHeight > 0 {
-		endHeight = min(endHeight, blockStore.Height())
+		endHeight = min(endHeight, storeHeight)
 	} else {
-		endHeight = blockStore.Height()
+		endHeight = storeHeight
 	}
 
 	if config.RetainHeight > 0 {
-		minRetainHeight := blockStore.Height() - config.RetainHeight + 1
+		minRetainHeight := storeHeight - config.RetainHeight + 1
 		startHeight = max(startHeight, minRetainHeight)
 		endHeight = max(endHeight, minRetainHeight)
+	}
+
+	// if the start height is greater than the end height, return a no-op function
+	if startHeight > endHeight {
+		return func() {}, nil
 	}
 
 	logger.Info("start re-indexing events", "startHeight", startHeight, "endHeight", endHeight)
@@ -261,7 +282,7 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 			case <-ctx.Done():
 				return
 			default:
-				if err := ReindexEvents(height, blockStore, stateStore, blockIndexerV2, txIndexerV2); err != nil {
+				if err := reindexEvents(height, blockStore, stateStore, blockIndexerV2, txIndexerV2); err != nil {
 					logger.Error("event re-index failed", "height", height, "error", err)
 					return
 				}
@@ -287,7 +308,8 @@ func StartReindexEvents(ctx context.Context, logger log.Logger, config *cfg.TxIn
 	}, nil
 }
 
-func ReindexEvents(height int64, blockStore state.BlockStore, stateStore state.Store, blockIndexerV2 indexerv2.BlockIndexer, txIndexerV2 TxIndexerV2) error {
+// reindexEvents reindexes the events for the given height.
+func reindexEvents(height int64, blockStore state.BlockStore, stateStore state.Store, blockIndexerV2 indexerv2.BlockIndexer, txIndexerV2 TxIndexerV2) error {
 	block := blockStore.LoadBlock(height)
 	if block == nil {
 		// skip the block if it is not found
@@ -300,7 +322,7 @@ func ReindexEvents(height int64, blockStore state.BlockStore, stateStore state.S
 		return nil
 	}
 
-	if changed := DisassembleMoveEvent(resp); changed {
+	if modified := ReconstructMoveEvent(resp); modified {
 		err := stateStore.SaveFinalizeBlockResponse(height, resp)
 		if err != nil {
 			return fmt.Errorf("not able to save ABCI Response at height %d to the statestore", height)
@@ -333,61 +355,72 @@ func ReindexEvents(height int64, blockStore state.BlockStore, stateStore state.S
 
 		if err := txIndexerV2.AddBatch(batch); err != nil {
 			return fmt.Errorf("tx event re-index at height %d failed: %w", height, err)
+		} else if err := txIndexerV2.SetMigrationHeight(height); err != nil {
+			return fmt.Errorf("failed to set migration height: %w", err)
 		}
 	}
 
+	// index the block events and set the migration height
 	if err := blockIndexerV2.Index(e); err != nil {
 		return fmt.Errorf("block event re-index at height %d failed: %w", height, err)
+	} else if err := blockIndexerV2.SetMigrationHeight(height); err != nil {
+		return fmt.Errorf("failed to set migration height: %w", err)
 	}
+
 	return nil
 }
 
-func DisassembleMoveEvent(resp *abcitypes.ResponseFinalizeBlock) bool {
-	disassembleFunc := func(attrs []abcitypes.EventAttribute) []abcitypes.EventAttribute {
-		changedEvent := false
-		newAttributes := make([]abcitypes.EventAttribute, 0)
+// ReconstructMoveEvent is a helper function to reconstruct the move event of the ResponseFinalizeBlock
+func ReconstructMoveEvent(resp *abcitypes.ResponseFinalizeBlock) (modified bool) {
+	modified = reconstructMoveEvent(resp.Events)
+	for _, txResult := range resp.TxResults {
+		_modified := reconstructMoveEvent(txResult.Events)
+		modified = _modified || modified
+	}
+
+	return
+}
+
+// reconstructMoveEvent is a helper function to reconstruct the move event of the events
+func reconstructMoveEvent(events []abcitypes.Event) (modified bool) {
+	if events == nil {
+		return false
+	}
+
+	reconstructFunc := func(attrs []abcitypes.EventAttribute) []abcitypes.EventAttribute {
 		for _, attr := range attrs {
-			if attr.Key == "data" {
-				var dataEvent map[string]interface{}
-				err := json.Unmarshal([]byte(attr.Value), &dataEvent)
-				if err == nil {
-					changedEvent = true
-					for k, v := range dataEvent {
-						newAttributes = append(newAttributes, abcitypes.EventAttribute{
-							Key:   k,
-							Value: fmt.Sprintf("%v", v),
-							Index: attr.Index,
-						})
-					}
-				}
-			} else {
-				newAttributes = append(newAttributes, attr)
+			if attr.Key != "data" {
+				continue
+			}
+
+			// if the attribute is a data event, disassemble it and add the new attributes to the attrs slice
+			var dataEvent map[string]any
+			err := json.Unmarshal([]byte(attr.Value), &dataEvent)
+			if err != nil {
+				continue
+			}
+
+			for k, v := range dataEvent {
+				attrs = append(attrs, abcitypes.EventAttribute{
+					Key:   k,
+					Value: fmt.Sprintf("%v", v),
+					Index: attr.Index,
+				})
 			}
 		}
-		if changedEvent {
-			return newAttributes
-		}
-		return nil
+		return attrs
 	}
 
-	changed := false
+	for eventIndex, event := range events {
+		if event.Type != "move" {
+			continue
+		}
 
-	for eventIndex, event := range resp.Events {
-		if event.Type == "move" {
-			if newAttributes := disassembleFunc(event.Attributes); newAttributes != nil {
-				resp.Events[eventIndex].Attributes = newAttributes
-				changed = true
-			}
+		if newAttributes := reconstructFunc(event.Attributes); len(newAttributes) != len(event.Attributes) {
+			events[eventIndex].Attributes = newAttributes
+			modified = true
 		}
 	}
 
-	for txIndex, txResult := range resp.TxResults {
-		for eventIndex, event := range txResult.Events {
-			if newAttributes := disassembleFunc(event.Attributes); newAttributes != nil {
-				resp.TxResults[txIndex].Events[eventIndex].Attributes = newAttributes
-				changed = true
-			}
-		}
-	}
-	return changed
+	return
 }

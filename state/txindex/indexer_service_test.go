@@ -116,7 +116,8 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 
 	res, err := txIndexerV2.Get(types.Tx("foo").Hash())
 	require.NoError(t, err)
-	require.Equal(t, txResult1, res)
+	require.Equal(t, txResult1.Height, res.Height)
+	require.Equal(t, txResult1.Index, res.Index)
 
 	ok, err := blockIndexerV2.Has(1)
 	require.NoError(t, err)
@@ -124,10 +125,11 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 
 	res, err = txIndexerV2.Get(types.Tx("bar").Hash())
 	require.NoError(t, err)
-	require.Equal(t, txResult2, res)
+	require.Equal(t, txResult2.Height, res.Height)
+	require.Equal(t, txResult2.Index, res.Index)
 }
 
-func TestDisassembleMoveEvent(t *testing.T) {
+func TestReconstructMoveEvent(t *testing.T) {
 	finalizedBlockResponse := &abcitypes.ResponseFinalizeBlock{
 		Events: []abcitypes.Event{
 			{
@@ -165,7 +167,7 @@ func TestDisassembleMoveEvent(t *testing.T) {
 		},
 	}
 
-	changed := txindex.DisassembleMoveEvent(finalizedBlockResponse)
+	changed := txindex.ReconstructMoveEvent(finalizedBlockResponse)
 	require.True(t, changed)
 
 	require.Equal(t, finalizedBlockResponse.Events[0].Type, "move")
@@ -235,7 +237,7 @@ func TestDisassembleMoveEvent(t *testing.T) {
 		},
 	}
 
-	changed = txindex.DisassembleMoveEvent(unchangedFinalizedBlockResponse)
+	changed = txindex.ReconstructMoveEvent(unchangedFinalizedBlockResponse)
 	require.False(t, changed)
 
 	require.Equal(t, unchangedFinalizedBlockResponse.Events[0].Type, "move")

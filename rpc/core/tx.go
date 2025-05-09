@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	abci "github.com/cometbft/cometbft/abci/types"
 	cmtmath "github.com/cometbft/cometbft/libs/math"
 	cmtquery "github.com/cometbft/cometbft/libs/pubsub/query"
 	ctypes "github.com/cometbft/cometbft/rpc/core/types"
@@ -193,6 +194,14 @@ func (env *Environment) txSearchV2(
 	results := make([]*ctypes.ResultTx, 0, perPage)
 	totalCount := 0
 
+	// cache for block and response
+	type cache struct {
+		block    *types.Block
+		response *abci.ResponseFinalizeBlock
+	}
+
+	// use cache to avoid loading the same block and response multiple times
+	blockCache := make(map[int64]cache)
 RESULT_LOOP:
 	for {
 		select {
@@ -207,15 +216,27 @@ RESULT_LOOP:
 				continue
 			}
 
-			block := env.BlockStore.LoadBlock(result.Height)
-			if block == nil {
-				totalCount--
-				continue
-			}
-			response, err := env.StateStore.LoadFinalizeBlockResponse(result.Height)
-			if err != nil || response == nil {
-				totalCount--
-				continue
+			var block *types.Block
+			var response *abci.ResponseFinalizeBlock
+			if c, ok := blockCache[result.Height]; ok {
+				block = c.block
+				response = c.response
+			} else {
+				block = env.BlockStore.LoadBlock(result.Height)
+				if block == nil {
+					totalCount--
+					continue
+				}
+				response, err = env.StateStore.LoadFinalizeBlockResponse(result.Height)
+				if err != nil || response == nil {
+					totalCount--
+					continue
+				}
+
+				blockCache[result.Height] = cache{
+					block:    block,
+					response: response,
+				}
 			}
 
 			var proof types.TxProof

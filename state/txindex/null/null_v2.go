@@ -57,3 +57,7 @@ func (txi *TxIndexV2) FinishMigration(endHeight int64) error {
 func (txi *TxIndexV2) MigrationHeight() (int64, error) {
 	return 0, nil
 }
+
+func (txi *TxIndexV2) SetMigrationHeight(height int64) error {
+	return nil
+}

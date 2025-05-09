@@ -34,6 +34,9 @@ type BlockIndexer interface {
 	// FinishMigration finalizes the migration process.
 	FinishMigration(endHeight int64) error
 
+	// SetMigrationHeight sets the migration height to the given height.
+	SetMigrationHeight(height int64) error
+
 	// MigrationHeight returns the height of the migration.
 	MigrationHeight() (int64, error)
 }

@@ -166,6 +166,24 @@ func (_m *BlockIndexer) SetLogger(l log.Logger) {
 	_m.Called(l)
 }
 
+// SetMigrationHeight provides a mock function with given fields: height
+func (_m *BlockIndexer) SetMigrationHeight(height int64) error {
+	ret := _m.Called(height)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetMigrationHeight")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(int64) error); ok {
+		r0 = rf(height)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // StartMigration provides a mock function with no fields
 func (_m *BlockIndexer) StartMigration() {
 	_m.Called()
