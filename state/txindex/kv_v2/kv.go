@@ -212,13 +212,13 @@ func (txi *TxIndex) startSectionBloomCreation() {
 			continue
 		}
 
-		sectionIndex := sectionIndexFromHeight(height) - 1
+		sectionIndex := sectionIndexFromHeight(height)
 		if dbSectionIndex >= sectionIndex {
 			continue
 		}
 
 		batch := txi.store.NewBatch()
-		err = txi.createSectionBloom(sectionIndex, batch)
+		err = txi.createSectionBloom(dbSectionIndex+1, batch)
 		if err != nil {
 			logger.Error("failed to do bloom indexing", "err", err)
 			continue
@@ -705,8 +705,16 @@ func (txi *TxIndex) Prune(curHeight int64) error {
 	return pruneBatch.WriteSync()
 }
 
+// sectionIndexFromHeight returns the section index for a given height.
+// The section index is calculated by dividing the height by the bloom section size (4096)
+// and subtracting 1. This creates sections of 4096 blocks each:
+//
+// Section -1: heights [0, 4095]
+// Section 0:  heights [4096, 8191]
+// Section 1:  heights [8192, 12287]
+// And so on...
 func sectionIndexFromHeight(height int64) int64 {
-	return height / bloomSectionSize
+	return height/bloomSectionSize - 1
 }
 
 func eventFilter(eventType string, attrKey string, attrValue string) []byte {
