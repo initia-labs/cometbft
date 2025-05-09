@@ -84,6 +84,7 @@ func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retain
 		store:        store,
 		blockStore:   blockStore,
 		stateStore:   stateStore,
+		log:          log.NewNopLogger(),
 		retainHeight: retainHeight,
 	}
 

@@ -85,6 +85,7 @@ type TxIndex struct {
 func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *TxIndex {
 	txi := &TxIndex{
 		store:        store,
+		log:          log.NewNopLogger(),
 		blockStore:   blockStore,
 		stateStore:   stateStore,
 		retainHeight: retainHeight,
