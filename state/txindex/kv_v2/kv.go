@@ -212,7 +212,7 @@ func (txi *TxIndex) startSectionBloomCreation() {
 			continue
 		}
 
-		sectionIndex := sectionIndexFromHeight(height)
+		sectionIndex := latestReadySectionIndex(height)
 		if dbSectionIndex >= sectionIndex {
 			continue
 		}
@@ -705,15 +705,17 @@ func (txi *TxIndex) Prune(curHeight int64) error {
 	return pruneBatch.WriteSync()
 }
 
-// sectionIndexFromHeight returns the section index for a given height.
-// The section index is calculated by dividing the height by the bloom section size (4096)
-// and subtracting 1. This creates sections of 4096 blocks each:
+// latestReadySectionIndex returns the section index for a given height, where all blocks in that section
+// are guaranteed to be ready. The section index is calculated by dividing the height by the bloom section
+// size (4096) and subtracting 1. This ensures we only return a section once all its blocks are available.
 //
-// Section -1: heights [0, 4095]
-// Section 0:  heights [4096, 8191]
-// Section 1:  heights [8192, 12287]
-// And so on...
-func sectionIndexFromHeight(height int64) int64 {
+// For example, with a section size of 4096 blocks:
+// - Section -1 contains heights [0, 4095]     - Ready when height >= 4096
+// - Section 0 contains heights [4096, 8191]   - Ready when height >= 8192
+// - Section 1 contains heights [8192, 12287]  - Ready when height >= 12288
+//
+// This approach prevents returning incomplete sections that are still being filled with blocks.
+func latestReadySectionIndex(height int64) int64 {
 	return height/bloomSectionSize - 1
 }
 
