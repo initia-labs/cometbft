@@ -552,12 +552,15 @@ psql-conn = "{{ .TxIndex.PsqlConn }}"
 # This value should be set higher than the prune-related retain height specified in app.toml.
 retain-height = {{ .TxIndex.RetainHeight }}
 
-# MigrationEvents is used to migrate events to v2 indexers in background.
-migration-events = {{ .TxIndex.MigrationEvents }}
+# V2Migration is used to migrate txindex to v2 indexers in background.
+[tx_index.v2-migration]
 
-# ForceStartHeight is the height to start migration events from.
+# Enable is used to migrate txindex to v2 indexers in background.
+enable = {{ .TxIndex.V2Migration.Enable }}
+
+# StartHeight is the height to start migration events from.
 # If not set, the migration will start from the last saved height.
-force-start-height = {{ .TxIndex.ForceStartHeight }}
+start-height = {{ .TxIndex.V2Migration.StartHeight }}
 
 #######################################################
 ###       Instrumentation Configuration Options     ###
