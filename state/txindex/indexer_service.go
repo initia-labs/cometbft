@@ -374,7 +374,8 @@ func reindexEvents(height int64, blockStore state.BlockStore, stateStore state.S
 func ReconstructMoveEvent(resp *abcitypes.ResponseFinalizeBlock) (modified bool) {
 	modified = reconstructMoveEvent(resp.Events)
 	for _, txResult := range resp.TxResults {
-		modified = reconstructMoveEvent(txResult.Events) || modified
+		_modified := reconstructMoveEvent(txResult.Events)
+		modified = _modified || modified
 	}
 
 	return
