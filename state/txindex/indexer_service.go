@@ -166,7 +166,7 @@ func (is *IndexerService) OnStart() error {
 					go func() {
 						defer blockIdxPruningRunning.Store(false)
 						if err := is.blockIdxr.Prune(height); err != nil {
-							is.Logger.Error("failed to prune tx index", "height", height, "err", err)
+							is.Logger.Error("failed to prune block index", "height", height, "err", err)
 						}
 
 						is.Logger.Debug("pruned block_index", "height", height)
@@ -177,10 +177,10 @@ func (is *IndexerService) OnStart() error {
 					go func() {
 						defer blockIdxPruningRunningV2.Store(false)
 						if err := is.blockIdxrV2.Prune(height); err != nil {
-							is.Logger.Error("failed to prune tx index", "height", height, "err", err)
+							is.Logger.Error("failed to prune block index v2", "height", height, "err", err)
 						}
 
-						is.Logger.Debug("pruned block_index", "height", height)
+						is.Logger.Debug("pruned block_index v2", "height", height)
 					}()
 				}
 
@@ -199,10 +199,10 @@ func (is *IndexerService) OnStart() error {
 					go func() {
 						defer txIdx2PruningRunning.Store(false)
 						if err := is.txIdxrV2.Prune(height); err != nil {
-							is.Logger.Error("failed to prune tx index", "height", height, "err", err)
+							is.Logger.Error("failed to prune tx index v2", "height", height, "err", err)
 						}
 
-						is.Logger.Debug("pruned tx_index", "height", height)
+						is.Logger.Debug("pruned tx_index v2", "height", height)
 					}()
 				}
 			}
