@@ -77,18 +77,19 @@ type BlockerIndexer struct {
 
 	// isMigrating is true if the indexer is migrating from the old indexer to the new one.
 	isMigrating bool
-
-	// createSectionBloomRunning is used to prevent multiple createSectionBloom goroutines from running concurrently.
-	createSectionBloomRunning atomic.Bool
 }
 
 func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *BlockerIndexer {
-	return &BlockerIndexer{
+	idx := &BlockerIndexer{
 		store:        store,
 		blockStore:   blockStore,
 		stateStore:   stateStore,
 		retainHeight: retainHeight,
 	}
+
+	go idx.startSectionBloomCreation()
+
+	return idx
 }
 
 func (idx *BlockerIndexer) SetLogger(l log.Logger) {
@@ -117,9 +118,6 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 		return err
 	}
 
-	// update section bloom every sectionSize(4096) blocks
-	idx.doCreateSectionBloom(bh.Height)
-
 	base, err := idx.Base()
 	if err != nil {
 		return err
@@ -144,42 +142,47 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 	return batch.WriteSync()
 }
 
-// doCreateSectionBloom creates a section bloom for the given height in a separate goroutine.
-// It uses atomic boolean to prevent multiple goroutines from running concurrently.
-func (idx *BlockerIndexer) doCreateSectionBloom(height int64) {
-	if running := idx.createSectionBloomRunning.Swap(true); running {
-		return
-	}
+// startSectionBloomCreation creates a section bloom for the given height in a separate goroutine.
+func (idx *BlockerIndexer) startSectionBloomCreation() {
+	logger := idx.log.With("function", "startSectionBloomCreation")
+	for {
+		height, err := idx.Height()
+		if err != nil {
+			logger.Error("failed to get height", "err", err)
+			continue
+		}
 
-	go func(height int64) {
-		defer idx.createSectionBloomRunning.Store(false)
 		dbSectionIndex, err := idx.SectionIndex()
 		if err != nil {
-			idx.log.Error("failed to get section index", "err", err)
-			return
+			logger.Error("failed to get section index", "err", err)
+			continue
 		}
 
 		sectionIndex := sectionIndexFromHeight(height) - 1
 		if dbSectionIndex >= sectionIndex {
-			return
+			continue
 		}
 
 		batch := idx.store.NewBatch()
-		defer batch.Close()
-
 		err = idx.createSectionBloom(sectionIndex, batch)
 		if err != nil {
-			idx.log.Error("failed to do bloom indexing", "err", err)
-			return
+			logger.Error("failed to do bloom indexing", "err", err)
+			continue
 		}
-
 		if err := batch.WriteSync(); err != nil {
-			idx.log.Error("failed to write sync", "err", err)
-			return
+			logger.Error("failed to write sync", "err", err)
+			continue
+		}
+		if err := batch.Close(); err != nil {
+			logger.Error("failed to close batch", "err", err)
+			continue
 		}
 
-		idx.log.Debug("bloom indexing finished", "height", height)
-	}(height)
+		logger.Debug("bloom indexing finished", "height", height)
+
+		// sleep for 10 seconds to avoid busy-waiting
+		time.Sleep(10 * time.Second)
+	}
 }
 
 // createSectionBloom creates a section bloom for the given section index.

@@ -79,19 +79,20 @@ type TxIndex struct {
 
 	// isMigrating is true if the indexer is migrating from the old indexer to the new one.
 	isMigrating bool
-
-	// createSectionBloomRunning is used to prevent multiple createSectionBloom goroutines from running concurrently.
-	createSectionBloomRunning atomic.Bool
 }
 
 // NewTxIndex creates new KV indexer.
 func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *TxIndex {
-	return &TxIndex{
+	txi := &TxIndex{
 		store:        store,
 		blockStore:   blockStore,
 		stateStore:   stateStore,
 		retainHeight: retainHeight,
 	}
+
+	go txi.startSectionBloomCreation()
+
+	return txi
 }
 
 func (txi *TxIndex) SetLogger(l log.Logger) {
@@ -170,9 +171,6 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 		return err
 	}
 
-	// update section bloom every sectionSize(4096) blocks
-	txi.doCreateSectionBloom(blockHeight)
-
 	base, err := txi.Base()
 	if err != nil {
 		return err
@@ -197,42 +195,48 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 	return storeBatch.WriteSync()
 }
 
-// doCreateSectionBloom creates a section bloom for the given height in a separate goroutine.
-// It uses atomic boolean to prevent multiple goroutines from running concurrently.
-func (txi *TxIndex) doCreateSectionBloom(height int64) {
-	if running := txi.createSectionBloomRunning.Swap(true); running {
-		return
-	}
+// startSectionBloomCreation creates a section bloom for the given height in a separate goroutine.
+func (txi *TxIndex) startSectionBloomCreation() {
+	logger := txi.log.With("function", "startSectionBloomCreation")
 
-	go func(height int64) {
-		defer txi.createSectionBloomRunning.Store(false)
+	for {
+		height, err := txi.Height()
+		if err != nil {
+			logger.Error("failed to get height", "err", err)
+			continue
+		}
+
 		dbSectionIndex, err := txi.SectionIndex()
 		if err != nil {
-			txi.log.Error("failed to get section index", "err", err)
-			return
+			logger.Error("failed to get section index", "err", err)
+			continue
 		}
 
 		sectionIndex := sectionIndexFromHeight(height) - 1
 		if dbSectionIndex >= sectionIndex {
-			return
+			continue
 		}
 
 		batch := txi.store.NewBatch()
-		defer batch.Close()
-
 		err = txi.createSectionBloom(sectionIndex, batch)
 		if err != nil {
-			txi.log.Error("failed to do bloom indexing", "err", err)
-			return
+			logger.Error("failed to do bloom indexing", "err", err)
+			continue
 		}
-
 		if err := batch.WriteSync(); err != nil {
-			txi.log.Error("failed to write sync", "err", err)
-			return
+			logger.Error("failed to write sync", "err", err)
+			continue
+		}
+		if err := batch.Close(); err != nil {
+			logger.Error("failed to close batch", "err", err)
+			continue
 		}
 
-		txi.log.Debug("bloom indexing finished", "height", height)
-	}(height)
+		logger.Debug("bloom indexing finished", "height", height)
+
+		// sleep for 10 seconds to avoid busy-waiting
+		time.Sleep(10 * time.Second)
+	}
 }
 
 func (txi *TxIndex) createSectionBloom(sectionIndex int64, batch dbm.Batch) error {
