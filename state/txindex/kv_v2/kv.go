@@ -445,8 +445,8 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 	sectionIndex, err := txi.SectionIndex()
 	if err != nil {
 		return err
-	} else if indexed := (sectionIndex + 1) * bloomSectionSize; indexed > begin {
-		endForIndexed := min(end, indexed-1)
+	} else if indexed := (sectionIndex+1)*bloomSectionSize - 1; indexed > begin {
+		endForIndexed := min(end, indexed)
 		matches := make(chan uint64, 64)
 
 		matcher := bloombits.NewMatcher(uint64(bloomSectionSize), [][][]byte{filters})
