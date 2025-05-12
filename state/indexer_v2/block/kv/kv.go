@@ -363,7 +363,6 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 		return err
 	}
 	begin = max(begin, idxBase, idx.blockStore.Base())
-	beginForIndexed := max(begin, bloomSectionSize)
 
 	sectionIndex, err := idx.SectionIndex()
 	if err != nil {
@@ -374,7 +373,7 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 		matches := make(chan uint64, 64)
 
 		matcher := bloombits.NewMatcher(uint64(bloomSectionSize), [][][]byte{filters})
-		session, err := matcher.Start(ctx, uint64(beginForIndexed), uint64(endForIndexed), matches)
+		session, err := matcher.Start(ctx, uint64(begin), uint64(endForIndexed), matches)
 		if err != nil {
 			return err
 		}
@@ -446,7 +445,7 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 
 	g, innerCtx := errgroup.WithContext(ctx)
 	diff := end - begin + 1
-	if diff >= bloomSectionSize {
+	if diff >= bloomSectionSize*2 {
 		return fmt.Errorf("insufficient indexed data, reduce the query range")
 	}
 	batchNum := diff / batchSize

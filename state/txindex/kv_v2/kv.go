@@ -422,7 +422,6 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 		return err
 	}
 	begin = max(begin, idxBase, txi.blockStore.Base())
-	beginForIndexed := max(begin, bloomSectionSize)
 
 	sectionIndex, err := txi.SectionIndex()
 	if err != nil {
@@ -432,7 +431,7 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 		matches := make(chan uint64, 64)
 
 		matcher := bloombits.NewMatcher(uint64(bloomSectionSize), [][][]byte{filters})
-		session, err := matcher.Start(ctx, uint64(beginForIndexed), uint64(endForIndexed), matches)
+		session, err := matcher.Start(ctx, uint64(begin), uint64(endForIndexed), matches)
 		if err != nil {
 			return err
 		}
@@ -507,7 +506,7 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 
 	g, innerCtx := errgroup.WithContext(ctx)
 	diff := end - begin + 1
-	if diff >= bloomSectionSize {
+	if diff >= bloomSectionSize*2 {
 		return fmt.Errorf("insufficient indexed data, reduce the query range")
 	}
 
@@ -520,15 +519,15 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 	for i := int64(0); i < batchNum; i++ {
 		// make local copy of i for goroutine
 		idx := i
-		sectionBegin := begin + i*batchSize
-		sectionEnd := sectionBegin + batchSize - 1
-		if sectionEnd > end {
-			sectionEnd = end
+		batchBegin := begin + i*batchSize
+		batchEnd := batchBegin + batchSize - 1
+		if batchEnd > end {
+			batchEnd = end
 		}
 
 		// fetch logs in parallel
 		g.Go(func() error {
-			for sectionNumber := sectionBegin; sectionNumber <= sectionEnd; sectionNumber++ {
+			for sectionNumber := batchBegin; sectionNumber <= batchEnd; sectionNumber++ {
 				select {
 				case <-innerCtx.Done():
 					return innerCtx.Err()

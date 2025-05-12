@@ -253,7 +253,7 @@ func ReindexEvents(
 
 		startHeight = max(baseHeight, lastSavedMigrationHeight+1)
 	} else {
-		startHeight = max(baseHeight, 1)
+		startHeight = max(baseHeight, startHeight)
 	}
 
 	if endHeight > 0 {
