@@ -3,9 +3,7 @@ package kv
 import (
 	"encoding/binary"
 	"fmt"
-	"math/big"
 
-	idxutil "github.com/cometbft/cometbft/internal/indexer"
 	"github.com/cometbft/cometbft/libs/pubsub/query/syntax"
 	indexer "github.com/cometbft/cometbft/state/indexer_v2"
 	"github.com/cometbft/cometbft/types"
@@ -81,18 +79,4 @@ func dedupHeight(conditions []syntax.Condition) (dedupConditions []syntax.Condit
 		found = false
 	}
 	return dedupConditions, heightInfo, nil
-}
-
-func checkHeightConditions(heightInfo HeightInfo, keyHeight int64) (bool, error) {
-	if heightInfo.heightRange.Key != "" {
-		withinBounds, err := idxutil.CheckBoundsV2(heightInfo.heightRange, big.NewInt(keyHeight))
-		if err != nil || !withinBounds {
-			return false, err
-		}
-	} else {
-		if heightInfo.height != 0 && keyHeight != heightInfo.height {
-			return false, nil
-		}
-	}
-	return true, nil
 }

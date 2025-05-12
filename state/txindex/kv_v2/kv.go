@@ -203,55 +203,69 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 		return err
 	}
 
-	if running := txi.sectionBloomRunning.Load(); !running {
+	// if the section bloom is not running, start it and update the flag
+	if txi.sectionBloomRunning.CompareAndSwap(false, true) {
 		txi.newBlockNotifier <- struct{}{}
 	}
+
 	return nil
 }
 
 // startSectionBloomCreation creates a section bloom for the given height in a separate goroutine.
 func (txi *TxIndex) startSectionBloomCreation() {
-	logger := txi.log.With("function", "startSectionBloomCreation")
+	logger := txi.log.With("function", "SectionBloomCreation")
 
-	batchSaver := func(dbSectionIndex int64) {
-		batch := txi.store.NewBatch()
-		err := txi.createSectionBloom(dbSectionIndex+1, batch)
-		if err != nil {
-			logger.Error("failed to do bloom indexing", "err", err)
-			return
-		}
-		if err := batch.WriteSync(); err != nil {
-			logger.Error("failed to write sync", "err", err)
-			return
-		}
-		if err := batch.Close(); err != nil {
-			logger.Error("failed to close batch", "err", err)
-			return
-		}
-	}
+	creationFn := func() {
+		// reset the flag when the function is done
+		defer txi.sectionBloomRunning.Store(false)
 
-	for range txi.newBlockNotifier {
 		height, err := txi.Height()
 		if err != nil {
 			logger.Error("failed to get height", "err", err)
-			continue
+			return
 		}
 
 		dbSectionIndex, err := txi.SectionIndex()
 		if err != nil {
 			logger.Error("failed to get section index", "err", err)
-			continue
+			return
 		}
 
+		// skip if the section bloom is already up to date
 		sectionIndex := latestReadySectionIndex(height)
 		if dbSectionIndex >= sectionIndex {
-			continue
+			return
 		}
 
-		txi.sectionBloomRunning.Store(true)
-		batchSaver(dbSectionIndex)
-		txi.sectionBloomRunning.Store(false)
-		logger.Debug("bloom indexing finished", "height", height)
+		// start the bloom indexing and log the start
+		logger.Debug("section bloom indexing started", "height", height)
+
+		// create a new batch
+		batch := txi.store.NewBatch()
+		err = txi.createSectionBloom(dbSectionIndex+1, batch)
+		if err != nil {
+			logger.Error("failed to do bloom indexing", "err", err)
+			return
+		}
+
+		// write the batch to the store
+		if err := batch.WriteSync(); err != nil {
+			logger.Error("failed to write sync", "err", err)
+			return
+		}
+
+		// close the batch
+		if err := batch.Close(); err != nil {
+			logger.Error("failed to close batch", "err", err)
+			return
+		}
+
+		// log the completion
+		logger.Debug("section bloom indexing finished", "height", height)
+	}
+
+	for range txi.newBlockNotifier {
+		creationFn()
 	}
 }
 
@@ -423,11 +437,16 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 	}
 	begin = max(begin, idxBase, txi.blockStore.Base())
 
+	// if the begin is greater than the end, return nil
+	if begin > end {
+		return nil
+	}
+
 	sectionIndex, err := txi.SectionIndex()
 	if err != nil {
 		return err
-	} else if sectionIndex >= 0 {
-		endForIndexed := min(end, sectionIndex*bloomSectionSize)
+	} else if indexed := (sectionIndex + 1) * bloomSectionSize; indexed > begin {
+		endForIndexed := min(end, indexed-1)
 		matches := make(chan uint64, 64)
 
 		matcher := bloombits.NewMatcher(uint64(bloomSectionSize), [][][]byte{filters})
@@ -520,20 +539,17 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 		// make local copy of i for goroutine
 		idx := i
 		batchBegin := begin + i*batchSize
-		batchEnd := batchBegin + batchSize - 1
-		if batchEnd > end {
-			batchEnd = end
-		}
+		batchEnd := min(batchBegin+batchSize-1, end)
 
 		// fetch logs in parallel
 		g.Go(func() error {
-			for sectionNumber := batchBegin; sectionNumber <= batchEnd; sectionNumber++ {
+			for batchNumber := batchBegin; batchNumber <= batchEnd; batchNumber++ {
 				select {
 				case <-innerCtx.Done():
 					return innerCtx.Err()
 				default:
 				}
-				events, err := txi.checkMatch(sectionNumber, filters)
+				events, err := txi.checkMatch(batchNumber, filters)
 				if err != nil {
 					return err
 				}
