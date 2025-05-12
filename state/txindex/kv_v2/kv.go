@@ -79,6 +79,9 @@ type TxIndex struct {
 
 	// isMigrating is true if the indexer is migrating from the old indexer to the new one.
 	isMigrating bool
+
+	newBlockNotifier    chan struct{}
+	sectionBloomRunning atomic.Bool
 }
 
 // NewTxIndex creates new KV indexer.
@@ -89,8 +92,10 @@ func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store,
 		blockStore:   blockStore,
 		stateStore:   stateStore,
 		retainHeight: retainHeight,
-	}
 
+		newBlockNotifier: make(chan struct{}, 1000),
+	}
+	txi.sectionBloomRunning.Store(false)
 	go txi.startSectionBloomCreation()
 
 	return txi
@@ -193,14 +198,22 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 		}
 	}
 
-	return storeBatch.WriteSync()
+	err = storeBatch.WriteSync()
+	if err != nil {
+		return err
+	}
+
+	if running := txi.sectionBloomRunning.Load(); !running {
+		txi.newBlockNotifier <- struct{}{}
+	}
+	return nil
 }
 
 // startSectionBloomCreation creates a section bloom for the given height in a separate goroutine.
 func (txi *TxIndex) startSectionBloomCreation() {
 	logger := txi.log.With("function", "startSectionBloomCreation")
 
-	for {
+	for range txi.newBlockNotifier {
 		height, err := txi.Height()
 		if err != nil {
 			logger.Error("failed to get height", "err", err)
@@ -218,6 +231,7 @@ func (txi *TxIndex) startSectionBloomCreation() {
 			continue
 		}
 
+		txi.sectionBloomRunning.Store(true)
 		batch := txi.store.NewBatch()
 		err = txi.createSectionBloom(dbSectionIndex+1, batch)
 		if err != nil {
@@ -232,11 +246,8 @@ func (txi *TxIndex) startSectionBloomCreation() {
 			logger.Error("failed to close batch", "err", err)
 			continue
 		}
-
+		txi.sectionBloomRunning.Store(false)
 		logger.Debug("bloom indexing finished", "height", height)
-
-		// sleep for 10 seconds to avoid busy-waiting
-		time.Sleep(10 * time.Second)
 	}
 }
 
