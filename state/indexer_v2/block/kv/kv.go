@@ -151,7 +151,8 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 		return err
 	}
 
-	if running := idx.sectionBloomRunning.Load(); !running {
+	// if the section bloom is not running, start it and update the flag
+	if idx.sectionBloomRunning.CompareAndSwap(false, true) {
 		idx.newBlockNotifier <- struct{}{}
 	}
 	return nil
@@ -159,47 +160,59 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 
 // startSectionBloomCreation creates a section bloom for the given height in a separate goroutine.
 func (idx *BlockerIndexer) startSectionBloomCreation() {
-	logger := idx.log.With("function", "startSectionBloomCreation")
-	batchSaver := func(dbSectionIndex int64) {
-		batch := idx.store.NewBatch()
-		err := idx.createSectionBloom(dbSectionIndex+1, batch)
-		if err != nil {
-			logger.Error("failed to do bloom indexing", "err", err)
-			return
-		}
-		if err := batch.WriteSync(); err != nil {
-			logger.Error("failed to write sync", "err", err)
-			return
-		}
-		if err := batch.Close(); err != nil {
-			logger.Error("failed to close batch", "err", err)
-			return
-		}
-	}
+	logger := idx.log.With("function", "SectionBloomCreation")
 
-	for range idx.newBlockNotifier {
+	creationFn := func() {
+		// reset the flag when the function is done
+		defer idx.sectionBloomRunning.Store(false)
+
 		height, err := idx.Height()
 		if err != nil {
 			logger.Error("failed to get height", "err", err)
-			continue
+			return
 		}
 
 		dbSectionIndex, err := idx.SectionIndex()
 		if err != nil {
 			logger.Error("failed to get section index", "err", err)
-			continue
+			return
 		}
 
+		// skip if the section bloom is already up to date
 		sectionIndex := latestReadySectionIndex(height)
 		if dbSectionIndex >= sectionIndex {
-			continue
+			return
 		}
 
-		idx.sectionBloomRunning.Store(true)
-		batchSaver(dbSectionIndex)
-		idx.sectionBloomRunning.Store(false)
+		// start the bloom indexing and log the start
+		logger.Debug("section bloom indexing started", "height", height)
 
-		logger.Debug("bloom indexing finished", "height", height)
+		// create a new batch
+		batch := idx.store.NewBatch()
+		err = idx.createSectionBloom(dbSectionIndex+1, batch)
+		if err != nil {
+			logger.Error("failed to do bloom indexing", "err", err)
+			return
+		}
+
+		// write the batch to the store
+		if err := batch.WriteSync(); err != nil {
+			logger.Error("failed to write sync", "err", err)
+			return
+		}
+
+		// close the batch
+		if err := batch.Close(); err != nil {
+			logger.Error("failed to close batch", "err", err)
+			return
+		}
+
+		// log the completion
+		logger.Debug("section bloom indexing finished", "height", height)
+	}
+
+	for range idx.newBlockNotifier {
+		creationFn()
 	}
 }
 
@@ -364,12 +377,16 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 	}
 	begin = max(begin, idxBase, idx.blockStore.Base())
 
+	// if the begin is greater than the end, return nil
+	if begin > end {
+		return nil
+	}
+
 	sectionIndex, err := idx.SectionIndex()
 	if err != nil {
 		return err
-	} else if sectionIndex >= 0 {
-		endForIndexed := min(end, sectionIndex*bloomSectionSize)
-
+	} else if indexed := (sectionIndex + 1) * bloomSectionSize; indexed > begin {
+		endForIndexed := min(end, indexed-1)
 		matches := make(chan uint64, 64)
 
 		matcher := bloombits.NewMatcher(uint64(bloomSectionSize), [][][]byte{filters})
@@ -379,7 +396,7 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 		}
 
 		bloomRequests := make(chan chan *bloombits.Retrieval)
-		for i := 0; i < bloomServiceThreads; i++ {
+		for range bloomServiceThreads {
 			go func() {
 				for {
 					select {
@@ -456,23 +473,20 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 	resultsArray := make([][]int64, batchNum)
 	for i := int64(0); i < batchNum; i++ {
 		// make local copy of i for goroutine
-		sectionIdx := i
-		sectionBegin := begin + i*batchSize
-		sectionEnd := sectionBegin + batchSize - 1
-		if sectionEnd > end {
-			sectionEnd = end
-		}
+		batchIdx := i
+		batchBegin := begin + i*batchSize
+		batchEnd := min(batchBegin+batchSize-1, end)
 
 		// fetch logs in parallel
 		g.Go(func() error {
-			for sectionNumber := sectionBegin; sectionNumber <= sectionEnd; sectionNumber++ {
+			for batchNumber := batchBegin; batchNumber <= batchEnd; batchNumber++ {
 				select {
 				case <-innerCtx.Done():
 					return innerCtx.Err()
 				default:
 				}
 
-				found, err := idx.checkMatch(sectionNumber, filters)
+				found, err := idx.checkMatch(batchNumber, filters)
 				if err != nil {
 					return err
 				} else if found {
@@ -480,7 +494,7 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 					if innerCountForUnindexed.Load()+innerCountForIndexed >= maxCount {
 						return errors.New("too many results, reduce the query range")
 					}
-					resultsArray[sectionIdx] = append(resultsArray[sectionIdx], sectionNumber)
+					resultsArray[batchIdx] = append(resultsArray[batchIdx], batchNumber)
 				}
 			}
 			return nil
