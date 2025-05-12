@@ -77,6 +77,9 @@ type BlockerIndexer struct {
 
 	// isMigrating is true if the indexer is migrating from the old indexer to the new one.
 	isMigrating bool
+
+	newBlockNotifier    chan struct{}
+	sectionBloomRunning atomic.Bool
 }
 
 func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *BlockerIndexer {
@@ -86,7 +89,10 @@ func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retain
 		stateStore:   stateStore,
 		log:          log.NewNopLogger(),
 		retainHeight: retainHeight,
+
+		newBlockNotifier: make(chan struct{}),
 	}
+	idx.sectionBloomRunning.Store(false)
 
 	go idx.startSectionBloomCreation()
 
@@ -140,13 +146,38 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 		}
 	}
 
-	return batch.WriteSync()
+	err = batch.WriteSync()
+	if err != nil {
+		return err
+	}
+
+	if running := idx.sectionBloomRunning.Load(); !running {
+		idx.newBlockNotifier <- struct{}{}
+	}
+	return nil
 }
 
 // startSectionBloomCreation creates a section bloom for the given height in a separate goroutine.
 func (idx *BlockerIndexer) startSectionBloomCreation() {
 	logger := idx.log.With("function", "startSectionBloomCreation")
-	for {
+	batchSaver := func(dbSectionIndex int64) {
+		batch := idx.store.NewBatch()
+		err := idx.createSectionBloom(dbSectionIndex+1, batch)
+		if err != nil {
+			logger.Error("failed to do bloom indexing", "err", err)
+			return
+		}
+		if err := batch.WriteSync(); err != nil {
+			logger.Error("failed to write sync", "err", err)
+			return
+		}
+		if err := batch.Close(); err != nil {
+			logger.Error("failed to close batch", "err", err)
+			return
+		}
+	}
+
+	for range idx.newBlockNotifier {
 		height, err := idx.Height()
 		if err != nil {
 			logger.Error("failed to get height", "err", err)
@@ -164,25 +195,11 @@ func (idx *BlockerIndexer) startSectionBloomCreation() {
 			continue
 		}
 
-		batch := idx.store.NewBatch()
-		err = idx.createSectionBloom(dbSectionIndex+1, batch)
-		if err != nil {
-			logger.Error("failed to do bloom indexing", "err", err)
-			continue
-		}
-		if err := batch.WriteSync(); err != nil {
-			logger.Error("failed to write sync", "err", err)
-			continue
-		}
-		if err := batch.Close(); err != nil {
-			logger.Error("failed to close batch", "err", err)
-			continue
-		}
+		idx.sectionBloomRunning.Store(true)
+		batchSaver(dbSectionIndex)
+		idx.sectionBloomRunning.Store(false)
 
 		logger.Debug("bloom indexing finished", "height", height)
-
-		// sleep for 10 seconds to avoid busy-waiting
-		time.Sleep(10 * time.Second)
 	}
 }
 
