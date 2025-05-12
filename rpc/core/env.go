@@ -14,6 +14,7 @@ import (
 	"github.com/cometbft/cometbft/proxy"
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/state/indexer"
+	indexerv2 "github.com/cometbft/cometbft/state/indexer_v2"
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/types"
 )
@@ -79,12 +80,14 @@ type Environment struct {
 	P2PTransport     transport
 
 	// objects
-	PubKey       crypto.PubKey
-	GenDoc       *types.GenesisDoc // cache the genesis structure
-	TxIndexer    txindex.TxIndexer
-	BlockIndexer indexer.BlockIndexer
-	EventBus     *types.EventBus // thread safe
-	Mempool      mempl.Mempool
+	PubKey         crypto.PubKey
+	GenDoc         *types.GenesisDoc // cache the genesis structure
+	TxIndexer      txindex.TxIndexer
+	TxIndexerV2    txindex.TxIndexerV2
+	BlockIndexer   indexer.BlockIndexer
+	BlockIndexerV2 indexerv2.BlockIndexer
+	EventBus       *types.EventBus // thread safe
+	Mempool        mempl.Mempool
 
 	Logger log.Logger
 

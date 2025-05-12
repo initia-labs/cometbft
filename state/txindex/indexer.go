@@ -36,6 +36,42 @@ type TxIndexer interface {
 	Prune(curHeight int64) error
 }
 
+//go:generate ../../scripts/mockery_generate.sh TxIndexerV2
+
+// TxIndexerV2 interface defines methods to index and search transactions.
+type TxIndexerV2 interface {
+	// AddBatch analyzes, indexes and stores a batch of transactions.
+	AddBatch(b *Batch) error
+
+	// Get returns the transaction specified by hash or nil if the transaction is not indexed
+	// or stored.
+	Get(hash []byte) (*abci.TxResult, error)
+
+	// Search allows you to query for transactions.
+	Search(ctx context.Context, q *query.Query, maxCount int64) (chan abci.TxResult, chan error)
+
+	//Set Logger
+	SetLogger(l log.Logger)
+
+	// Prune removes all tx indexes below a certain height.
+	Prune(curHeight int64) error
+
+	// StartMigration starts the migration process.
+	StartMigration()
+
+	// FinishMigration finalizes the migration process.
+	FinishMigration(endHeight int64) error
+
+	// MigrationHeight returns the height of the migration.
+	MigrationHeight() (int64, error)
+
+	// IsMigrating returns true if the migration is active.
+	IsMigrating() bool
+
+	// SetMigrationHeight sets the migration height to the given height.
+	SetMigrationHeight(height int64) error
+}
+
 // Batch groups together multiple Index operations to be performed at the same time.
 // NOTE: Batch is NOT thread-safe and must not be modified after starting its execution.
 type Batch struct {

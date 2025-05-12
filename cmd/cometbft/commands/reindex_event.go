@@ -3,22 +3,21 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	dbm "github.com/cometbft/cometbft-db"
 
-	abcitypes "github.com/cometbft/cometbft/abci/types"
 	cmtcfg "github.com/cometbft/cometbft/config"
-	"github.com/cometbft/cometbft/libs/progressbar"
+	"github.com/cometbft/cometbft/libs/log"
 	"github.com/cometbft/cometbft/state"
-	"github.com/cometbft/cometbft/state/indexer"
-	blockidxkv "github.com/cometbft/cometbft/state/indexer/block/kv"
-	"github.com/cometbft/cometbft/state/indexer/sink/psql"
+	indexerv2 "github.com/cometbft/cometbft/state/indexer_v2"
+	blockidxkvv2 "github.com/cometbft/cometbft/state/indexer_v2/block/kv"
 	"github.com/cometbft/cometbft/state/txindex"
-	"github.com/cometbft/cometbft/state/txindex/kv"
-	"github.com/cometbft/cometbft/types"
+	kvv2 "github.com/cometbft/cometbft/state/txindex/kv_v2"
+	"github.com/cometbft/cometbft/store"
 )
 
 const (
@@ -53,6 +52,11 @@ want to use this command.
 	cometbft reindex-event --start-height 2 --end-height 10
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
+		config, err := ParseConfig(cmd)
+		if err != nil {
+			fmt.Println(reindexFailed, err)
+			return
+		}
 		bs, ss, err := loadStateAndBlockStore(config)
 		if err != nil {
 			fmt.Println(reindexFailed, err)
@@ -70,7 +74,7 @@ want to use this command.
 			return
 		}
 
-		bi, ti, err := loadEventSinks(config, state.ChainID)
+		bi, ti, err := loadEventSinks(config, state.ChainID, bs, ss)
 		if err != nil {
 			fmt.Println(reindexFailed, err)
 			return
@@ -83,6 +87,7 @@ want to use this command.
 			txIndexer:    ti,
 			blockStore:   bs,
 			stateStore:   ss,
+			retainHeight: config.TxIndex.RetainHeight,
 		}
 		if err := eventReIndex(cmd, riArgs); err != nil {
 			panic(fmt.Errorf("%s: %w", reindexFailed, err))
@@ -102,28 +107,18 @@ func init() {
 	ReIndexEventCmd.Flags().Int64Var(&endHeight, "end-height", 0, "the block height would like to finish for re-index")
 }
 
-func loadEventSinks(cfg *cmtcfg.Config, chainID string) (indexer.BlockIndexer, txindex.TxIndexer, error) {
+func loadEventSinks(cfg *cmtcfg.Config, chainID string, blockStore *store.BlockStore, stateStore state.Store) (indexerv2.BlockIndexer, txindex.TxIndexerV2, error) {
 	switch strings.ToLower(cfg.TxIndex.Indexer) {
 	case "null":
 		return nil, nil, errors.New("found null event sink, please check the tx-index section in the config.toml")
-	case "psql":
-		conn := cfg.TxIndex.PsqlConn
-		if conn == "" {
-			return nil, nil, errors.New("the psql connection settings cannot be empty")
-		}
-		es, err := psql.NewEventSink(conn, chainID)
-		if err != nil {
-			return nil, nil, err
-		}
-		return es.BlockIndexer(), es.TxIndexer(), nil
 	case "kv":
-		store, err := dbm.NewDB("tx_index", dbm.BackendType(cfg.DBBackend), cfg.DBDir())
+		store, err := dbm.NewDB("tx_index_v2", dbm.BackendType(cfg.DBBackend), cfg.DBDir())
 		if err != nil {
 			return nil, nil, err
 		}
 
-		txIndexer := kv.NewTxIndex(store, cfg.TxIndex.RetainHeight)
-		blockIndexer := blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events")), cfg.TxIndex.RetainHeight)
+		txIndexer := kvv2.NewTxIndex(store, blockStore, stateStore, cfg.TxIndex.RetainHeight)
+		blockIndexer := blockidxkvv2.New(dbm.NewPrefixDB(store, []byte("block_events")), blockStore, stateStore, cfg.TxIndex.RetainHeight)
 		return blockIndexer, txIndexer, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported event sink type: %s", cfg.TxIndex.Indexer)
@@ -133,70 +128,22 @@ func loadEventSinks(cfg *cmtcfg.Config, chainID string) (indexer.BlockIndexer, t
 type eventReIndexArgs struct {
 	startHeight  int64
 	endHeight    int64
-	blockIndexer indexer.BlockIndexer
-	txIndexer    txindex.TxIndexer
+	blockIndexer indexerv2.BlockIndexer
+	txIndexer    txindex.TxIndexerV2
 	blockStore   state.BlockStore
 	stateStore   state.Store
+	retainHeight int64
 }
 
 func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
-	var bar progressbar.Bar
-	bar.NewOption(args.startHeight-1, args.endHeight)
-
-	fmt.Println("start re-indexing events:")
-	defer bar.Finish()
-	for height := args.startHeight; height <= args.endHeight; height++ {
-		select {
-		case <-cmd.Context().Done():
-			return fmt.Errorf("event re-index terminated at height %d: %w", height, cmd.Context().Err())
-		default:
-			block := args.blockStore.LoadBlock(height)
-			if block == nil {
-				return fmt.Errorf("not able to load block at height %d from the blockstore", height)
-			}
-
-			resp, err := args.stateStore.LoadFinalizeBlockResponse(height)
-			if err != nil {
-				return fmt.Errorf("not able to load ABCI Response at height %d from the statestore", height)
-			}
-
-			e := types.EventDataNewBlockEvents{
-				Height: height,
-				Events: resp.Events,
-			}
-
-			numTxs := len(resp.TxResults)
-
-			var batch *txindex.Batch
-			if numTxs > 0 {
-				batch = txindex.NewBatch(int64(numTxs))
-
-				for idx, txResult := range resp.TxResults {
-					tr := abcitypes.TxResult{
-						Height: height,
-						Index:  uint32(idx),
-						Tx:     block.Txs[idx],
-						Result: *txResult,
-					}
-
-					if err = batch.Add(&tr); err != nil {
-						return fmt.Errorf("adding tx to batch: %w", err)
-					}
-				}
-
-				if err := args.txIndexer.AddBatch(batch); err != nil {
-					return fmt.Errorf("tx event re-index at height %d failed: %w", height, err)
-				}
-			}
-
-			if err := args.blockIndexer.Index(e); err != nil {
-				return fmt.Errorf("block event re-index at height %d failed: %w", height, err)
-			}
-		}
-
-		bar.Play(height)
+	reindexFunc, err := txindex.ReindexEvents(cmd.Context(), log.NewTMLogger(log.NewSyncWriter(os.Stdout)), &cmtcfg.TxIndexConfig{
+		Indexer:      "kv",
+		RetainHeight: args.retainHeight,
+	}, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer, args.startHeight, args.endHeight)
+	if err != nil {
+		return err
 	}
-
+	reindexFunc()
 	return nil
 }
 

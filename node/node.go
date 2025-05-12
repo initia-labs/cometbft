@@ -31,6 +31,7 @@ import (
 	rpcserver "github.com/cometbft/cometbft/rpc/jsonrpc/server"
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/state/indexer"
+	indexerv2 "github.com/cometbft/cometbft/state/indexer_v2"
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/state/txindex/null"
 	"github.com/cometbft/cometbft/statesync"
@@ -78,7 +79,9 @@ type Node struct {
 	proxyApp          proxy.AppConns          // connection to the application
 	rpcListeners      []net.Listener          // rpc servers
 	txIndexer         txindex.TxIndexer
+	txIndexerV2       txindex.TxIndexerV2
 	blockIndexer      indexer.BlockIndexer
+	blockIndexerV2    indexerv2.BlockIndexer
 	indexerService    *txindex.IndexerService
 	prometheusSrv     *http.Server
 	pprofSrv          *http.Server
@@ -324,7 +327,7 @@ func NewNodeWithContext(ctx context.Context,
 		return nil, err
 	}
 
-	indexerService, txIndexer, blockIndexer, err := createAndStartIndexerService(config,
+	indexerService, txIndexer, txIndexerV2, blockIndexer, blockIndexerV2, err := createAndStartIndexerService(ctx, config, blockStore, stateStore,
 		genDoc.ChainID, dbProvider, eventBus, logger)
 	if err != nil {
 		return nil, err
@@ -501,8 +504,10 @@ func NewNodeWithContext(ctx context.Context,
 		evidencePool:     evidencePool,
 		proxyApp:         proxyApp,
 		txIndexer:        txIndexer,
+		txIndexerV2:      txIndexerV2,
 		indexerService:   indexerService,
 		blockIndexer:     blockIndexer,
+		blockIndexerV2:   blockIndexerV2,
 		eventBus:         eventBus,
 	}
 	node.BaseService = *service.NewBaseService(logger, "Node", node)
@@ -672,16 +677,20 @@ func (n *Node) ConfigureRPC() (*rpccore.Environment, error) {
 		PubKey:         pubKey,
 
 		GenDoc:           n.genesisDoc,
-		TxIndexer:        n.txIndexer,
-		BlockIndexer:     n.blockIndexer,
 		ConsensusReactor: n.consensusReactor,
 		EventBus:         n.eventBus,
 		Mempool:          n.mempool,
+
+		TxIndexer:      n.txIndexer,
+		TxIndexerV2:    n.txIndexerV2,
+		BlockIndexer:   n.blockIndexer,
+		BlockIndexerV2: n.blockIndexerV2,
 
 		Logger: n.Logger.With("module", "rpc"),
 
 		Config: *n.config.RPC,
 	}
+
 	if err := rpcCoreEnv.InitGenesisChunks(); err != nil {
 		return nil, err
 	}

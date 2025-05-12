@@ -852,7 +852,8 @@ func TestTxIndexPruning(t *testing.T) {
 	}
 
 	// prune index
-	indexer.Prune(101)
+	err = indexer.Prune(101)
+	require.NoError(t, err)
 
 	// after pruning
 	for _, tc := range testCases {

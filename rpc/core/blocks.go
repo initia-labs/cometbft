@@ -11,6 +11,7 @@ import (
 	ctypes "github.com/cometbft/cometbft/rpc/core/types"
 	rpctypes "github.com/cometbft/cometbft/rpc/jsonrpc/types"
 	blockidxnull "github.com/cometbft/cometbft/state/indexer/block/null"
+	blockidxv2null "github.com/cometbft/cometbft/state/indexer_v2/block/null"
 	"github.com/cometbft/cometbft/types"
 )
 
@@ -211,6 +212,18 @@ func (env *Environment) BlockSearch(
 	pagePtr, perPagePtr *int,
 	orderBy string,
 ) (*ctypes.ResultBlockSearch, error) {
+	if !env.BlockIndexerV2.IsMigrating() {
+		return env.blockSearchV2(ctx, query, pagePtr, perPagePtr, orderBy)
+	}
+	return env.blockSearch(ctx, query, pagePtr, perPagePtr, orderBy)
+}
+
+func (env *Environment) blockSearch(
+	ctx *rpctypes.Context,
+	query string,
+	pagePtr, perPagePtr *int,
+	orderBy string,
+) (*ctypes.ResultBlockSearch, error) {
 	// skip if block indexing is disabled
 	if _, ok := env.BlockIndexer.(*blockidxnull.BlockerIndexer); ok {
 		return nil, errors.New("block indexing is disabled")
@@ -265,4 +278,77 @@ func (env *Environment) BlockSearch(
 	}
 
 	return &ctypes.ResultBlockSearch{Blocks: apiResults, TotalCount: totalCount}, nil
+}
+
+func (env *Environment) blockSearchV2(
+	ctx *rpctypes.Context,
+	query string,
+	pagePtr, perPagePtr *int,
+	orderBy string,
+) (*ctypes.ResultBlockSearch, error) {
+	// skip if block indexing is disabled
+	if _, ok := env.BlockIndexerV2.(*blockidxv2null.BlockerIndexer); ok {
+		return nil, errors.New("block indexing is disabled")
+	}
+
+	if orderBy == "desc" {
+		return nil, errors.New("order_by is not supported")
+	}
+
+	q, err := cmtquery.New(query)
+	if err != nil {
+		return nil, err
+	}
+
+	perPage := env.validatePerPage(perPagePtr)
+	page := 1
+	if pagePtr != nil {
+		page = *pagePtr
+	}
+	if page <= 0 {
+		return nil, fmt.Errorf("page should be greater than 0")
+	} else if page*perPage > maxTotalCount {
+		return nil, fmt.Errorf("page size is too large, max count is %d", maxTotalCount)
+	}
+
+	resultChan, errChan := env.BlockIndexerV2.Search(ctx.Context(), q, maxTotalCount)
+	results := make([]*ctypes.ResultBlock, 0, perPage)
+	totalCount := 0
+
+RESULT_LOOP:
+	for {
+		select {
+		case result, ok := <-resultChan:
+			if !ok {
+				break RESULT_LOOP
+			}
+			totalCount++
+			if totalCount > maxTotalCount {
+				break RESULT_LOOP
+			} else if totalCount <= (page-1)*perPage || totalCount > page*perPage {
+				continue
+			}
+
+			block := env.BlockStore.LoadBlock(result)
+			if block == nil {
+				totalCount--
+				continue
+			}
+			blockMeta := env.BlockStore.LoadBlockMeta(block.Height)
+			if blockMeta == nil {
+				totalCount--
+				continue
+			}
+			results = append(results, &ctypes.ResultBlock{
+				Block:   block,
+				BlockID: blockMeta.BlockID,
+			})
+
+		case err := <-errChan:
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	return &ctypes.ResultBlockSearch{Blocks: results, TotalCount: totalCount}, nil
 }

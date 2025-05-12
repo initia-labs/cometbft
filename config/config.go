@@ -1180,21 +1180,18 @@ type TxIndexConfig struct {
 	// What indexer to use for transactions
 	//
 	// Options:
-	//   1) "null"
-	//   2) "kv" (default) - the simplest possible indexer,
-	//      backed by key-value storage (defaults to levelDB; see DBBackend).
-	//   3) "psql" - the indexer services backed by PostgreSQL.
+	//   1) "null" - no indexer
+	//   2) "kv" (default) -  the new indexer,
+	//		which uses bloom filters to speed up queries and reduce storage.
 	Indexer string `mapstructure:"indexer"`
-
-	// The PostgreSQL connection configuration, the connection format:
-	// postgresql://<user>:<password>@<host>:<port>/<db>?<opts>
-	PsqlConn string `mapstructure:"psql-conn"`
 
 	// The minimum tx height offsets from the current block being committed,
 	// such that all txs past this offset are pruned.
 	//
 	// If set to 0, the index will retain all tx index.
 	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight).
+	//
+	// This value should be set higher than the prune-related retain height specified in app.toml.
 	RetainHeight int64 `mapstructure:"retain-height"`
 }
 

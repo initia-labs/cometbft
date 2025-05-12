@@ -533,22 +533,17 @@ discard_abci_responses = {{ .Storage.DiscardABCIResponses}}
 #
 # Options:
 #   1) "null"
-#   2) "kv" (default) - the simplest possible indexer, backed by key-value storage (defaults to levelDB; see DBBackend).
-# 		- When "kv" is chosen "tx.height" and "tx.hash" will always be indexed.
-#   3) "psql" - the indexer services backed by PostgreSQL.
-# When "kv" or "psql" is chosen "tx.height" and "tx.hash" will always be indexed.
+#   2) "kv" (default) - the new indexer,
+#		which uses bloom filters to speed up queries and reduce storage.
 indexer = "{{ .TxIndex.Indexer }}"
-
-# The PostgreSQL connection configuration, the connection format:
-#   postgresql://<user>:<password>@<host>:<port>/<db>?<opts>
-psql-conn = "{{ .TxIndex.PsqlConn }}"
 
 # RetainHeight sets the minimum tx height offsets from the current block being committed,
 # such that all txs past this offset are pruned.
 #
 # If set to 0, the index will retain all tx index.
 # Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
-# except "tx.hash" and "tx.height" and "block.height" which are always retained.
+
+# This value should be set higher than the prune-related retain height specified in app.toml.
 retain-height = {{ .TxIndex.RetainHeight }}
 
 #######################################################
