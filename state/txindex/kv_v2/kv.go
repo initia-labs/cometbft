@@ -93,7 +93,7 @@ func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store,
 		stateStore:   stateStore,
 		retainHeight: retainHeight,
 
-		newBlockNotifier: make(chan struct{}, 1000),
+		newBlockNotifier: make(chan struct{}),
 	}
 	txi.sectionBloomRunning.Store(false)
 	go txi.startSectionBloomCreation()
@@ -213,6 +213,23 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 func (txi *TxIndex) startSectionBloomCreation() {
 	logger := txi.log.With("function", "startSectionBloomCreation")
 
+	batchSaver := func(dbSectionIndex int64) {
+		batch := txi.store.NewBatch()
+		err := txi.createSectionBloom(dbSectionIndex+1, batch)
+		if err != nil {
+			logger.Error("failed to do bloom indexing", "err", err)
+			return
+		}
+		if err := batch.WriteSync(); err != nil {
+			logger.Error("failed to write sync", "err", err)
+			return
+		}
+		if err := batch.Close(); err != nil {
+			logger.Error("failed to close batch", "err", err)
+			return
+		}
+	}
+
 	for range txi.newBlockNotifier {
 		height, err := txi.Height()
 		if err != nil {
@@ -232,20 +249,7 @@ func (txi *TxIndex) startSectionBloomCreation() {
 		}
 
 		txi.sectionBloomRunning.Store(true)
-		batch := txi.store.NewBatch()
-		err = txi.createSectionBloom(dbSectionIndex+1, batch)
-		if err != nil {
-			logger.Error("failed to do bloom indexing", "err", err)
-			continue
-		}
-		if err := batch.WriteSync(); err != nil {
-			logger.Error("failed to write sync", "err", err)
-			continue
-		}
-		if err := batch.Close(); err != nil {
-			logger.Error("failed to close batch", "err", err)
-			continue
-		}
+		batchSaver(dbSectionIndex)
 		txi.sectionBloomRunning.Store(false)
 		logger.Debug("bloom indexing finished", "height", height)
 	}
