@@ -388,12 +388,18 @@ func reconstructMoveEvent(events []abcitypes.Event) (modified bool) {
 	}
 
 	reconstructFunc := func(attrs []abcitypes.EventAttribute) []abcitypes.EventAttribute {
+		// Create a new slice to store the reconstructed attributes
+		newAttrs := make([]abcitypes.EventAttribute, 0, 32) // Pre-allocate space for potential new attrs
+
+		// Process attributes in order, inserting new ones right after data
 		for _, attr := range attrs {
+			newAttrs = append(newAttrs, attr)
+
 			if attr.Key != "data" {
 				continue
 			}
 
-			// if the attribute is a data event, disassemble it and add the new attributes to the attrs slice
+			// if the attribute is a data event, disassemble it and add the new attributes immediately after
 			var dataEvent map[string]any
 			err := json.Unmarshal([]byte(attr.Value), &dataEvent)
 			if err != nil {
@@ -401,14 +407,15 @@ func reconstructMoveEvent(events []abcitypes.Event) (modified bool) {
 			}
 
 			for k, v := range dataEvent {
-				attrs = append(attrs, abcitypes.EventAttribute{
+				newAttrs = append(newAttrs, abcitypes.EventAttribute{
 					Key:   k,
 					Value: fmt.Sprintf("%v", v),
 					Index: attr.Index,
 				})
 			}
 		}
-		return attrs
+
+		return newAttrs
 	}
 
 	for eventIndex, event := range events {
