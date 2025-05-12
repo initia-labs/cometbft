@@ -13,6 +13,7 @@ import (
 	"github.com/cometbft/cometbft/rpc/jsonrpc/server"
 	"github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/state/indexer"
+	indexerv2 "github.com/cometbft/cometbft/state/indexer_v2"
 	"github.com/cometbft/cometbft/state/txindex"
 )
 
@@ -25,11 +26,13 @@ type Server struct {
 }
 
 // Routes returns the set of routes used by the Inspector server.
-func Routes(cfg config.RPCConfig, s state.Store, bs state.BlockStore, txidx txindex.TxIndexer, blkidx indexer.BlockIndexer, logger log.Logger) core.RoutesMap { //nolint: lll
+func Routes(cfg config.RPCConfig, s state.Store, bs state.BlockStore, txidx txindex.TxIndexer, txidxV2 txindex.TxIndexerV2, blkidx indexer.BlockIndexer, blkidxV2 indexerv2.BlockIndexer, logger log.Logger) core.RoutesMap { //nolint: lll
 	env := &core.Environment{
 		Config:           cfg,
 		BlockIndexer:     blkidx,
+		BlockIndexerV2:   blkidxV2,
 		TxIndexer:        txidx,
+		TxIndexerV2:      txidxV2,
 		StateStore:       s,
 		BlockStore:       bs,
 		ConsensusReactor: waitSyncCheckerImpl{},

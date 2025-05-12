@@ -4,9 +4,10 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/cometbft/cometbft/abci/example/kvstore"
 	"github.com/cometbft/cometbft/proxy"
-	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkReap(b *testing.B) {

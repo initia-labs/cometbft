@@ -69,6 +69,10 @@ func (_m *BlockIndexer) Index(_a0 types.EventDataNewBlockEvents) error {
 func (_m *BlockIndexer) Prune(curHeight int64) error {
 	ret := _m.Called(curHeight)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Prune")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(int64) error); ok {
 		r0 = rf(curHeight)

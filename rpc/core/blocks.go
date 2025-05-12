@@ -11,6 +11,7 @@ import (
 	ctypes "github.com/cometbft/cometbft/rpc/core/types"
 	rpctypes "github.com/cometbft/cometbft/rpc/jsonrpc/types"
 	blockidxnull "github.com/cometbft/cometbft/state/indexer/block/null"
+	blockidxv2null "github.com/cometbft/cometbft/state/indexer_v2/block/null"
 	"github.com/cometbft/cometbft/types"
 )
 
@@ -211,6 +212,15 @@ func (env *Environment) BlockSearch(
 	pagePtr, perPagePtr *int,
 	orderBy string,
 ) (*ctypes.ResultBlockSearch, error) {
+	return env.blockSearch(ctx, query, pagePtr, perPagePtr, orderBy)
+}
+
+func (env *Environment) blockSearch(
+	ctx *rpctypes.Context,
+	query string,
+	pagePtr, perPagePtr *int,
+	orderBy string,
+) (*ctypes.ResultBlockSearch, error) {
 	// skip if block indexing is disabled
 	if _, ok := env.BlockIndexer.(*blockidxnull.BlockerIndexer); ok {
 		return nil, errors.New("block indexing is disabled")
@@ -265,4 +275,108 @@ func (env *Environment) BlockSearch(
 	}
 
 	return &ctypes.ResultBlockSearch{Blocks: apiResults, TotalCount: totalCount}, nil
+}
+
+// BlockSearchV2 allows you to query for a paginated set of blocks matching
+// FinalizeBlock event search criteria.
+// This method uses a filtermap to speed up queries in most cases.
+// More: https://docs.cometbft.com/v0.38.x/rpc/#/Info/block_search/v2
+func (env *Environment) BlockSearchV2(
+	ctx *rpctypes.Context,
+	query string,
+	pagePtr, perPagePtr *int,
+	orderBy string,
+) (*ctypes.ResultBlockSearch, error) {
+	return env.blockSearchV2(ctx, query, pagePtr, perPagePtr, orderBy)
+}
+
+func (env *Environment) blockSearchV2(
+	ctx *rpctypes.Context,
+	query string,
+	pagePtr, perPagePtr *int,
+	orderBy string,
+) (*ctypes.ResultBlockSearch, error) {
+	// skip if block indexing is disabled
+	if _, ok := env.BlockIndexerV2.(*blockidxv2null.BlockerIndexer); ok {
+		return nil, errors.New("block indexing is disabled")
+	}
+
+	if orderBy == "desc" {
+		return nil, errors.New("order_by is not supported")
+	}
+
+	q, err := cmtquery.New(query)
+	if err != nil {
+		return nil, err
+	}
+
+	perPage := env.validatePerPage(perPagePtr)
+	page := 1
+	if pagePtr != nil {
+		page = *pagePtr
+	}
+	if page <= 0 {
+		return nil, fmt.Errorf("page should be greater than 0")
+	}
+
+	resultChan, errChan := env.BlockIndexerV2.Search(ctx.Context(), q)
+	results := make([]*ctypes.ResultBlock, 0, perPage)
+	totalCount := 0
+
+	// cache for block and response
+	type cache struct {
+		block     *types.Block
+		blockMeta *types.BlockMeta
+	}
+
+	// use cache to avoid loading the same block and response multiple times
+	blockCache := make(map[int64]cache)
+RESULT_LOOP:
+	for {
+		select {
+		case result, ok := <-resultChan:
+			if !ok {
+				break RESULT_LOOP
+			}
+			totalCount++
+			if totalCount > page*perPage {
+				break RESULT_LOOP
+			} else if totalCount <= (page-1)*perPage {
+				continue
+			}
+
+			var block *types.Block
+			var blockMeta *types.BlockMeta
+			if c, ok := blockCache[result]; ok {
+				block = c.block
+				blockMeta = c.blockMeta
+			} else {
+				block = env.BlockStore.LoadBlock(result)
+				if block == nil {
+					totalCount--
+					continue
+				}
+				blockMeta = env.BlockStore.LoadBlockMeta(block.Height)
+				if blockMeta == nil {
+					totalCount--
+					continue
+				}
+				blockCache[result] = cache{
+					block:     block,
+					blockMeta: blockMeta,
+				}
+			}
+
+			results = append(results, &ctypes.ResultBlock{
+				Block:   block,
+				BlockID: blockMeta.BlockID,
+			})
+
+		case err := <-errChan:
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	return &ctypes.ResultBlockSearch{Blocks: results, TotalCount: totalCount}, nil
 }

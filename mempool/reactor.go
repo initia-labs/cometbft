@@ -7,13 +7,14 @@ import (
 
 	"fmt"
 
+	"golang.org/x/sync/semaphore"
+
 	cfg "github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/libs/clist"
 	"github.com/cometbft/cometbft/libs/log"
 	"github.com/cometbft/cometbft/p2p"
 	protomem "github.com/cometbft/cometbft/proto/tendermint/mempool"
 	"github.com/cometbft/cometbft/types"
-	"golang.org/x/sync/semaphore"
 )
 
 // Reactor handles mempool tx broadcasting amongst peers.

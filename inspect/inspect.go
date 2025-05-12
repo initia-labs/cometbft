@@ -14,6 +14,8 @@ import (
 	"github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/state/indexer"
 	"github.com/cometbft/cometbft/state/indexer/block"
+	indexerv2 "github.com/cometbft/cometbft/state/indexer_v2"
+	blockv2 "github.com/cometbft/cometbft/state/indexer_v2/block"
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/store"
 	"github.com/cometbft/cometbft/types"
@@ -53,9 +55,11 @@ func New(
 	bs state.BlockStore,
 	ss state.Store,
 	txidx txindex.TxIndexer,
+	txidxV2 txindex.TxIndexerV2,
 	blkidx indexer.BlockIndexer,
+	blkidxV2 indexerv2.BlockIndexer,
 ) *Inspector {
-	routes := rpc.Routes(*cfg, ss, bs, txidx, blkidx, logger)
+	routes := rpc.Routes(*cfg, ss, bs, txidx, txidxV2, blkidx, blkidxV2, logger)
 	eb := types.NewEventBus()
 	eb.SetLogger(logger.With("module", "events"))
 	return &Inspector{
@@ -86,8 +90,12 @@ func NewFromConfig(cfg *config.Config) (*Inspector, error) {
 	if err != nil {
 		return nil, err
 	}
+	txidxV2, blkidxV2, err := blockv2.IndexerFromConfig(cfg, config.DefaultDBProvider, genDoc.ChainID)
+	if err != nil {
+		return nil, err
+	}
 	ss := state.NewStore(sDB, state.StoreOptions{})
-	return New(cfg.RPC, bs, ss, txidx, blkidx), nil
+	return New(cfg.RPC, bs, ss, txidx, txidxV2, blkidx, blkidxV2), nil
 }
 
 // Run starts the Inspector servers and blocks until the servers shut down. The passed

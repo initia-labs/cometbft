@@ -6,6 +6,7 @@ import (
 
 	"github.com/cometbft/cometbft/libs/service"
 	"github.com/cometbft/cometbft/state/indexer"
+	indexerv2 "github.com/cometbft/cometbft/state/indexer_v2"
 	"github.com/cometbft/cometbft/types"
 )
 
@@ -21,7 +22,9 @@ type IndexerService struct {
 	service.BaseService
 
 	txIdxr           TxIndexer
+	txIdxrV2         TxIndexerV2
 	blockIdxr        indexer.BlockIndexer
+	blockIdxrV2      indexerv2.BlockIndexer
 	eventBus         *types.EventBus
 	terminateOnError bool
 }
@@ -29,12 +32,13 @@ type IndexerService struct {
 // NewIndexerService returns a new service instance.
 func NewIndexerService(
 	txIdxr TxIndexer,
+	txIdxrV2 TxIndexerV2,
 	blockIdxr indexer.BlockIndexer,
+	blockIdxrV2 indexerv2.BlockIndexer,
 	eventBus *types.EventBus,
 	terminateOnError bool,
 ) *IndexerService {
-
-	is := &IndexerService{txIdxr: txIdxr, blockIdxr: blockIdxr, eventBus: eventBus, terminateOnError: terminateOnError}
+	is := &IndexerService{txIdxr: txIdxr, txIdxrV2: txIdxrV2, blockIdxr: blockIdxr, blockIdxrV2: blockIdxrV2, eventBus: eventBus, terminateOnError: terminateOnError}
 	is.BaseService = *service.NewBaseService(nil, "IndexerService", is)
 	return is
 }
@@ -65,6 +69,12 @@ func (is *IndexerService) OnStart() error {
 		txIdxPruningRunning := atomic.Bool{}
 		txIdxPruningRunning.Store(false)
 
+		txIdx2PruningRunning := atomic.Bool{}
+		txIdx2PruningRunning.Store(false)
+
+		is.txIdxrV2.Start()
+		is.blockIdxrV2.Start()
+
 		for {
 			select {
 			case <-blockSub.Canceled():
@@ -75,7 +85,6 @@ func (is *IndexerService) OnStart() error {
 				numTxs := eventNewBlockEvents.NumTxs
 
 				batch := NewBatch(numTxs)
-
 				for i := int64(0); i < numTxs; i++ {
 					msg2 := <-txsSub.Out()
 					txResult := msg2.Data().(types.EventDataTx).TxResult
@@ -109,6 +118,16 @@ func (is *IndexerService) OnStart() error {
 					is.Logger.Info("indexed block events", "height", height)
 				}
 
+				if err := is.blockIdxrV2.Index(eventNewBlockEvents); err != nil {
+					is.Logger.Error("failed to index block v2", "height", height, "err", err)
+					if is.terminateOnError {
+						if err := is.Stop(); err != nil {
+							is.Logger.Error("failed to stop", "err", err)
+						}
+						return
+					}
+				}
+
 				if err = is.txIdxr.AddBatch(batch); err != nil {
 					is.Logger.Error("failed to index block txs", "height", height, "err", err)
 					if is.terminateOnError {
@@ -118,14 +137,24 @@ func (is *IndexerService) OnStart() error {
 						return
 					}
 				} else {
-					is.Logger.Debug("indexed transactions", "height", height, "num_txs", numTxs)
+					is.Logger.Info("indexed transactions", "height", height, "num_txs", numTxs)
+				}
+
+				if err = is.txIdxrV2.AddBatch(batch, height); err != nil {
+					is.Logger.Error("failed to index block txs v2", "height", height, "err", err)
+					if is.terminateOnError {
+						if err := is.Stop(); err != nil {
+							is.Logger.Error("failed to stop", "err", err)
+						}
+						return
+					}
 				}
 
 				if running := blockIdxPruningRunning.Swap(true); !running {
 					go func() {
 						defer blockIdxPruningRunning.Store(false)
 						if err := is.blockIdxr.Prune(height); err != nil {
-							is.Logger.Error("failed to prune tx index", "height", height, "err", err)
+							is.Logger.Error("failed to prune block index", "height", height, "err", err)
 						}
 
 						is.Logger.Debug("pruned block_index", "height", height)
@@ -140,6 +169,17 @@ func (is *IndexerService) OnStart() error {
 						}
 
 						is.Logger.Debug("pruned tx_index", "height", height)
+					}()
+				}
+
+				if running := txIdx2PruningRunning.Swap(true); !running {
+					go func() {
+						defer txIdx2PruningRunning.Store(false)
+						if err := is.txIdxrV2.Prune(height); err != nil {
+							is.Logger.Error("failed to prune tx index v2", "height", height, "err", err)
+						}
+
+						is.Logger.Debug("pruned tx_index v2", "height", height)
 					}()
 				}
 			}
