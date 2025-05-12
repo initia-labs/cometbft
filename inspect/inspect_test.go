@@ -147,6 +147,8 @@ func TestTxSearch(t *testing.T) {
 		}), int64(1000)).
 		Return(resultChan, errChan)
 
+	txIndexerMockV2.On("IsMigrating").Return(false)
+
 	rpcConfig := config.TestRPCConfig()
 	txIndexerMock := &txindexmocks.TxIndexer{}
 	blkIdxMock := &indexermocks.BlockIndexer{}
@@ -585,6 +587,7 @@ func TestBlockSearch(t *testing.T) {
 	rpcConfig := config.TestRPCConfig()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, txIndexerMock, txIndexerMockV2, blkIdxMock, blkIdxMockV2)
 
+	blkIdxMockV2.On("IsMigrating").Return(false)
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 	wg.Add(1)

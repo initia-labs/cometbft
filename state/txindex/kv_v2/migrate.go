@@ -42,3 +42,7 @@ func (txi *TxIndex) FinishMigration(endHeight int64) error {
 	}
 	return storeBatch.WriteSync()
 }
+
+func (txi *TxIndex) IsMigrating() bool {
+	return txi.isMigrating
+}

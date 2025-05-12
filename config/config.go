@@ -1184,9 +1184,7 @@ type TxIndexConfig struct {
 	//
 	// Options:
 	//   1) "null" - no indexer
-	//   2) "kv" (default) - the legacy indexer,
-	//      backed by key-value storage (defaults to levelDB; see DBBackend).
-	//   3) "kv_v2" - the new indexer,
+	//   2) "kv" (default) -  the new indexer,
 	//		which uses bloom filters to speed up queries and reduce storage.
 	Indexer string `mapstructure:"indexer"`
 
@@ -1202,9 +1200,6 @@ type TxIndexConfig struct {
 	//
 	// This value should be set higher than the prune-related retain height specified in app.toml.
 	RetainHeight int64 `mapstructure:"retain-height"`
-
-	// V2Migration is used to migrate txindex to v2 indexers in background.
-	V2Migration TxIndexV2MigrationConfig `mapstructure:"v2-migration"`
 }
 
 // TxIndexV2MigrationConfig defines the configuration for the transaction indexer v2 migration.

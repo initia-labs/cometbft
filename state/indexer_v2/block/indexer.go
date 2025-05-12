@@ -30,7 +30,7 @@ func IndexerFromConfigWithDisabledIndexers(cfg *config.Config, blockStore *store
 	txIdxV2 txindex.TxIndexerV2, blockIdxV2 indexerv2.BlockIndexer, allIndexersDisabled bool, err error,
 ) {
 	switch cfg.TxIndex.Indexer {
-	case "kv", "kv_v2":
+	case "kv":
 		store, err := dbProvider(&config.DBContext{ID: "tx_index_v2", Config: cfg})
 		if err != nil {
 			return nil, nil, false, err

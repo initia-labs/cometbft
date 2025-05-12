@@ -212,12 +212,10 @@ func (env *Environment) BlockSearch(
 	pagePtr, perPagePtr *int,
 	orderBy string,
 ) (*ctypes.ResultBlockSearch, error) {
-	if env.BlockIndexerV2 != nil {
+	if !env.BlockIndexerV2.IsMigrating() {
 		return env.blockSearchV2(ctx, query, pagePtr, perPagePtr, orderBy)
-	} else if env.BlockIndexer != nil {
-		return env.blockSearch(ctx, query, pagePtr, perPagePtr, orderBy)
 	}
-	return nil, errors.New("block indexing is disabled")
+	return env.blockSearch(ctx, query, pagePtr, perPagePtr, orderBy)
 }
 
 func (env *Environment) blockSearch(

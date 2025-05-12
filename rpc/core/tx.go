@@ -65,13 +65,10 @@ func (env *Environment) TxSearch(
 	pagePtr, perPagePtr *int,
 	orderBy string,
 ) (*ctypes.ResultTxSearch, error) {
-	if env.TxIndexerV2 != nil {
+	if !env.TxIndexerV2.IsMigrating() {
 		return env.txSearchV2(ctx, query, prove, pagePtr, perPagePtr, orderBy)
-	} else if env.TxIndexer != nil {
-		return env.txSearch(ctx, query, prove, pagePtr, perPagePtr, orderBy)
 	}
-
-	return nil, errors.New("transaction indexing is disabled")
+	return env.txSearch(ctx, query, prove, pagePtr, perPagePtr, orderBy)
 }
 
 func (env *Environment) txSearch(

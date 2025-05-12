@@ -231,15 +231,15 @@ func ReindexEvents(
 	stateStore state.Store,
 	blockIndexerV2 indexerv2.BlockIndexer,
 	txIndexerV2 TxIndexerV2,
+	startHeight int64,
 	endHeight int64,
 ) (func(), error) {
 	blockIndexerV2.StartMigration()
 	txIndexerV2.StartMigration()
 
-	startHeight := int64(1)
 	baseHeight := blockStore.Base()
 	storeHeight := blockStore.Height()
-	if config.V2Migration.StartHeight == 0 {
+	if startHeight == 0 {
 		txLastSavedMigrationHeight, err := txIndexerV2.MigrationHeight()
 		if err != nil {
 			return nil, err
@@ -253,7 +253,7 @@ func ReindexEvents(
 
 		startHeight = max(baseHeight, lastSavedMigrationHeight+1)
 	} else {
-		startHeight = max(baseHeight, config.V2Migration.StartHeight)
+		startHeight = max(baseHeight, 1)
 	}
 
 	if endHeight > 0 {

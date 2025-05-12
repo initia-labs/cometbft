@@ -681,16 +681,14 @@ func (n *Node) ConfigureRPC() (*rpccore.Environment, error) {
 		EventBus:         n.eventBus,
 		Mempool:          n.mempool,
 
+		TxIndexer:      n.txIndexer,
+		TxIndexerV2:    n.txIndexerV2,
+		BlockIndexer:   n.blockIndexer,
+		BlockIndexerV2: n.blockIndexerV2,
+
 		Logger: n.Logger.With("module", "rpc"),
 
 		Config: *n.config.RPC,
-	}
-	if n.config.TxIndex.Indexer == "kv" {
-		rpcCoreEnv.TxIndexer = n.txIndexer
-		rpcCoreEnv.BlockIndexer = n.blockIndexer
-	} else if n.config.TxIndex.Indexer == "kv_v2" {
-		rpcCoreEnv.TxIndexerV2 = n.txIndexerV2
-		rpcCoreEnv.BlockIndexerV2 = n.blockIndexerV2
 	}
 
 	if err := rpcCoreEnv.InitGenesisChunks(); err != nil {

@@ -39,4 +39,7 @@ type BlockIndexer interface {
 
 	// MigrationHeight returns the height of the migration.
 	MigrationHeight() (int64, error)
+
+	// IsMigrating returns true if the migration is active.
+	IsMigrating() bool
 }

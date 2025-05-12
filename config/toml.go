@@ -533,10 +533,8 @@ discard_abci_responses = {{ .Storage.DiscardABCIResponses}}
 #
 # Options:
 #   1) "null"
-#   2) "kv" (default) - the simplest possible indexer, backed by key-value storage (defaults to levelDB; see DBBackend).
-# 		- When "kv" is chosen "tx.height" and "tx.hash" will always be indexed.
-#   3) "psql" - the indexer services backed by PostgreSQL.
-# When "kv" or "psql" is chosen "tx.height" and "tx.hash" will always be indexed.
+#   2) "kv" (default) - the new indexer,
+#		which uses bloom filters to speed up queries and reduce storage.
 indexer = "{{ .TxIndex.Indexer }}"
 
 # The PostgreSQL connection configuration, the connection format:
@@ -551,16 +549,6 @@ psql-conn = "{{ .TxIndex.PsqlConn }}"
 
 # This value should be set higher than the prune-related retain height specified in app.toml.
 retain-height = {{ .TxIndex.RetainHeight }}
-
-# V2Migration is used to migrate txindex to v2 indexers in background.
-[tx_index.v2-migration]
-
-# Enable is used to migrate txindex to v2 indexers in background.
-enable = {{ .TxIndex.V2Migration.Enable }}
-
-# StartHeight is the height to start migration events from.
-# If not set, the migration will start from the last saved height.
-start-height = {{ .TxIndex.V2Migration.StartHeight }}
 
 #######################################################
 ###       Instrumentation Configuration Options     ###

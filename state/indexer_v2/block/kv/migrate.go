@@ -48,3 +48,7 @@ func (idx *BlockerIndexer) MigrationHeight() (int64, error) {
 	}
 	return int64FromBytes(migrationHeight), nil
 }
+
+func (idx *BlockerIndexer) IsMigrating() bool {
+	return idx.isMigrating
+}

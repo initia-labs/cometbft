@@ -111,17 +111,7 @@ func loadEventSinks(cfg *cmtcfg.Config, chainID string, blockStore *store.BlockS
 	switch strings.ToLower(cfg.TxIndex.Indexer) {
 	case "null":
 		return nil, nil, errors.New("found null event sink, please check the tx-index section in the config.toml")
-	// case "psql":
-	// 	conn := cfg.TxIndex.PsqlConn
-	// 	if conn == "" {
-	// 		return nil, nil, errors.New("the psql connection settings cannot be empty")
-	// 	}
-	// 	es, err := psql.NewEventSink(conn, chainID)
-	// 	if err != nil {
-	// 		return nil, nil, err
-	// 	}
-	// 	return es.BlockIndexer(), es.TxIndexer(), nil
-	case "kv", "kv_v2":
+	case "kv":
 		store, err := dbm.NewDB("tx_index_v2", dbm.BackendType(cfg.DBBackend), cfg.DBDir())
 		if err != nil {
 			return nil, nil, err
@@ -147,12 +137,9 @@ type eventReIndexArgs struct {
 
 func eventReIndex(cmd *cobra.Command, args eventReIndexArgs) error {
 	reindexFunc, err := txindex.ReindexEvents(cmd.Context(), log.NewTMLogger(log.NewSyncWriter(os.Stdout)), &cmtcfg.TxIndexConfig{
-		Indexer:      "kv_v2",
+		Indexer:      "kv",
 		RetainHeight: args.retainHeight,
-		V2Migration: cmtcfg.TxIndexV2MigrationConfig{
-			StartHeight: args.startHeight,
-		},
-	}, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer, args.endHeight)
+	}, args.blockStore, args.stateStore, args.blockIndexer, args.txIndexer, args.startHeight, args.endHeight)
 	if err != nil {
 		return err
 	}

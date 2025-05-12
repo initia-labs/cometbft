@@ -86,6 +86,24 @@ func (_m *TxIndexerV2) Get(hash []byte) (*types.TxResult, error) {
 	return r0, r1
 }
 
+// IsMigrating provides a mock function with no fields
+func (_m *TxIndexerV2) IsMigrating() bool {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsMigrating")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
 // MigrationHeight provides a mock function with no fields
 func (_m *TxIndexerV2) MigrationHeight() (int64, error) {
 	ret := _m.Called()
