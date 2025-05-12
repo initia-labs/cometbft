@@ -537,10 +537,6 @@ discard_abci_responses = {{ .Storage.DiscardABCIResponses}}
 #		which uses bloom filters to speed up queries and reduce storage.
 indexer = "{{ .TxIndex.Indexer }}"
 
-# The PostgreSQL connection configuration, the connection format:
-#   postgresql://<user>:<password>@<host>:<port>/<db>?<opts>
-psql-conn = "{{ .TxIndex.PsqlConn }}"
-
 # RetainHeight sets the minimum tx height offsets from the current block being committed,
 # such that all txs past this offset are pruned.
 #

@@ -1179,18 +1179,11 @@ func TestStorageConfig() *StorageConfig {
 type TxIndexConfig struct {
 	// What indexer to use for transactions
 	//
-	// NOTE: Events are indexed in both legacy and v2 indexers, but this option determines
-	// which indexer to use for TxSearch and BlockSearch operations.
-	//
 	// Options:
 	//   1) "null" - no indexer
 	//   2) "kv" (default) -  the new indexer,
 	//		which uses bloom filters to speed up queries and reduce storage.
 	Indexer string `mapstructure:"indexer"`
-
-	// The PostgreSQL connection configuration, the connection format:
-	// postgresql://<user>:<password>@<host>:<port>/<db>?<opts>
-	PsqlConn string `mapstructure:"psql-conn"`
 
 	// The minimum tx height offsets from the current block being committed,
 	// such that all txs past this offset are pruned.
@@ -1200,16 +1193,6 @@ type TxIndexConfig struct {
 	//
 	// This value should be set higher than the prune-related retain height specified in app.toml.
 	RetainHeight int64 `mapstructure:"retain-height"`
-}
-
-// TxIndexV2MigrationConfig defines the configuration for the transaction indexer v2 migration.
-type TxIndexV2MigrationConfig struct {
-	// Enable is used to migrate txindex to v2 indexers in background.
-	Enable bool `mapstructure:"enable"`
-
-	// StartHeight is the height to start migration events from.
-	// If not set, the migration will start from the last saved height.
-	StartHeight int64 `mapstructure:"start-height"`
 }
 
 // DefaultTxIndexConfig returns a default configuration for the transaction indexer.
