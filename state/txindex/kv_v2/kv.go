@@ -233,7 +233,11 @@ func (txi *TxIndex) startSectionBloomCreation() {
 
 		// create a new batch
 		batch := txi.store.NewBatch()
-		err = txi.createSectionBloom(dbSectionIndex+1, batch)
+		nextSectionIndex := dbSectionIndex + 1
+		if nextSectionIndex == 0 {
+			nextSectionIndex = sectionIndex
+		}
+		err = txi.createSectionBloom(nextSectionIndex, batch)
 		if err != nil {
 			logger.Error("failed to do bloom indexing", "err", err)
 			return

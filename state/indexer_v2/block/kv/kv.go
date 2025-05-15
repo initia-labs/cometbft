@@ -160,15 +160,9 @@ func (idx *BlockerIndexer) NotifyNewBlock(height int64) {
 func (idx *BlockerIndexer) startSectionBloomCreation() {
 	logger := idx.log.With("function", "SectionBloomCreation")
 
-	creationFn := func() {
+	creationFn := func(height int64) {
 		// reset the flag when the function is done
 		defer idx.sectionBloomRunning.Store(false)
-
-		height, err := idx.Height()
-		if err != nil {
-			logger.Error("failed to get height", "err", err)
-			return
-		}
 
 		dbSectionIndex, err := idx.SectionIndex()
 		if err != nil {
@@ -187,7 +181,11 @@ func (idx *BlockerIndexer) startSectionBloomCreation() {
 
 		// create a new batch
 		batch := idx.store.NewBatch()
-		err = idx.createSectionBloom(dbSectionIndex+1, batch)
+		nextSectionIndex := dbSectionIndex + 1
+		if nextSectionIndex == 0 {
+			nextSectionIndex = sectionIndex
+		}
+		err = idx.createSectionBloom(nextSectionIndex, batch)
 		if err != nil {
 			logger.Error("failed to do bloom indexing", "err", err)
 			return
@@ -209,8 +207,8 @@ func (idx *BlockerIndexer) startSectionBloomCreation() {
 		logger.Info("section bloom indexing finished", "height", height, "sectionIndex", sectionIndex)
 	}
 
-	for range idx.newBlockNotifier {
-		creationFn()
+	for height := range idx.newBlockNotifier {
+		creationFn(height)
 	}
 }
 
