@@ -50,7 +50,7 @@ func (txi *TxIndexV2) Prune(curHeight int64) error {
 func (txi *TxIndexV2) StartMigration() {
 }
 
-func (txi *TxIndexV2) FinishMigration(endHeight int64) error {
+func (txi *TxIndexV2) FinishMigration() error {
 	return nil
 }
 

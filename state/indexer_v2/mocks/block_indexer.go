@@ -19,17 +19,17 @@ type BlockIndexer struct {
 	mock.Mock
 }
 
-// FinishMigration provides a mock function with given fields: endHeight
-func (_m *BlockIndexer) FinishMigration(endHeight int64) error {
-	ret := _m.Called(endHeight)
+// FinishMigration provides a mock function with no fields
+func (_m *BlockIndexer) FinishMigration() error {
+	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for FinishMigration")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(int64) error); ok {
-		r0 = rf(endHeight)
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
 	} else {
 		r0 = ret.Error(0)
 	}

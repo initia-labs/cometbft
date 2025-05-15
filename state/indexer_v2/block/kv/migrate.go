@@ -16,26 +16,9 @@ func (idx *BlockerIndexer) SetMigrationHeight(height int64) error {
 // 1. Re-creating a section bloom filter for the given end height because the old indexer might have not created it
 // 2. Setting the migration height to int64 max to prevent any future migrations
 // 3. Disabling migration mode on the indexer
-func (idx *BlockerIndexer) FinishMigration(endHeight int64) error {
-	if !idx.isMigrating {
-		return nil
-	}
-
-	sectionIndex := (endHeight + (bloomSectionSize - 1)) / bloomSectionSize
-	batch := idx.store.NewBatch()
-	defer func() {
-		batch.Close()
-		idx.isMigrating = false
-	}()
-	err := idx.createSectionBloom(sectionIndex, batch)
-	if err != nil {
-		return err
-	}
-	err = batch.Set([]byte(migrationKey), int64ToBytes(math.MaxInt64))
-	if err != nil {
-		return err
-	}
-	return batch.WriteSync()
+func (idx *BlockerIndexer) FinishMigration() error {
+	idx.isMigrating = false
+	return idx.SetMigrationHeight(math.MaxInt64)
 }
 
 // MigrationHeight returns the height of the migration.

@@ -60,7 +60,7 @@ type TxIndexerV2 interface {
 	StartMigration()
 
 	// FinishMigration finalizes the migration process.
-	FinishMigration(endHeight int64) error
+	FinishMigration() error
 
 	// MigrationHeight returns the height of the migration.
 	MigrationHeight() (int64, error)

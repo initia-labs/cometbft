@@ -20,27 +20,9 @@ func (txi *TxIndex) StartMigration() {
 	txi.isMigrating = true
 }
 
-func (txi *TxIndex) FinishMigration(endHeight int64) error {
-	if !txi.isMigrating {
-		return nil
-	}
-
-	sectionIndex := (endHeight + (bloomSectionSize - 1)) / bloomSectionSize
-	storeBatch := txi.store.NewBatch()
-	defer func() {
-		storeBatch.Close()
-		txi.isMigrating = false
-	}()
-	err := txi.createSectionBloom(sectionIndex, storeBatch)
-	if err != nil {
-		return err
-	}
-
-	err = storeBatch.Set([]byte(migrationKey), int64ToBytes(math.MaxInt64))
-	if err != nil {
-		return err
-	}
-	return storeBatch.WriteSync()
+func (txi *TxIndex) FinishMigration() error {
+	txi.isMigrating = false
+	return txi.SetMigrationHeight(math.MaxInt64)
 }
 
 func (txi *TxIndex) IsMigrating() bool {
