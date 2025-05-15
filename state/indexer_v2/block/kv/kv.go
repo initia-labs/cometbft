@@ -146,16 +146,14 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 		}
 	}
 
-	err = batch.WriteSync()
-	if err != nil {
-		return err
-	}
+	return batch.WriteSync()
+}
 
+func (idx *BlockerIndexer) NotifyNewBlock() {
 	// if the section bloom is not running, start it and update the flag
 	if idx.sectionBloomRunning.CompareAndSwap(false, true) {
 		idx.newBlockNotifier <- struct{}{}
 	}
-	return nil
 }
 
 // startSectionBloomCreation creates a section bloom for the given height in a separate goroutine.

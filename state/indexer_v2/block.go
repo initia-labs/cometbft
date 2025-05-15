@@ -42,4 +42,7 @@ type BlockIndexer interface {
 
 	// IsMigrating returns true if the migration is active.
 	IsMigrating() bool
+
+	// NotifyNewBlock notifies the indexer that a new block has been added.
+	NotifyNewBlock()
 }

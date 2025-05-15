@@ -198,17 +198,14 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 		}
 	}
 
-	err = storeBatch.WriteSync()
-	if err != nil {
-		return err
-	}
+	return storeBatch.WriteSync()
+}
 
+func (txi *TxIndex) NotifyNewBlock() {
 	// if the section bloom is not running, start it and update the flag
 	if txi.sectionBloomRunning.CompareAndSwap(false, true) {
 		txi.newBlockNotifier <- struct{}{}
 	}
-
-	return nil
 }
 
 // startSectionBloomCreation creates a section bloom for the given height in a separate goroutine.

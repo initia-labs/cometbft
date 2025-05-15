@@ -161,6 +161,14 @@ func (is *IndexerService) OnStart() error {
 					is.Logger.Debug("indexed transactions v2", "height", height, "num_txs", numTxs)
 				}
 
+				if !is.txIdxrV2.IsMigrating() {
+					is.txIdxrV2.NotifyNewBlock()
+				}
+
+				if !is.blockIdxrV2.IsMigrating() {
+					is.blockIdxrV2.NotifyNewBlock()
+				}
+
 				if running := blockIdxPruningRunning.Swap(true); !running {
 					go func() {
 						defer blockIdxPruningRunning.Store(false)
@@ -366,6 +374,9 @@ func reindexEvents(height int64, blockStore state.BlockStore, stateStore state.S
 	} else if err := blockIndexerV2.SetMigrationHeight(height); err != nil {
 		return fmt.Errorf("failed to set migration height: %w", err)
 	}
+
+	txIndexerV2.NotifyNewBlock()
+	blockIndexerV2.NotifyNewBlock()
 
 	return nil
 }

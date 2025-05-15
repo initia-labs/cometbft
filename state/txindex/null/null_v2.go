@@ -65,3 +65,6 @@ func (txi *TxIndexV2) SetMigrationHeight(height int64) error {
 func (txi *TxIndexV2) IsMigrating() bool {
 	return false
 }
+
+func (txi *TxIndexV2) NotifyNewBlock() {
+}

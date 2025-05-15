@@ -59,3 +59,6 @@ func (idx *BlockerIndexer) SetMigrationHeight(height int64) error {
 func (idx *BlockerIndexer) IsMigrating() bool {
 	return false
 }
+
+func (idx *BlockerIndexer) NotifyNewBlock() {
+}
