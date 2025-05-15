@@ -66,5 +66,5 @@ func (txi *TxIndexV2) IsMigrating() bool {
 	return false
 }
 
-func (txi *TxIndexV2) NotifyNewBlock() {
+func (txi *TxIndexV2) NotifyNewBlock(_ int64) {
 }

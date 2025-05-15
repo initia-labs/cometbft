@@ -78,7 +78,7 @@ type BlockerIndexer struct {
 	// isMigrating is true if the indexer is migrating from the old indexer to the new one.
 	isMigrating bool
 
-	newBlockNotifier    chan struct{}
+	newBlockNotifier    chan int64
 	sectionBloomRunning atomic.Bool
 }
 
@@ -90,7 +90,7 @@ func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retain
 		log:          log.NewNopLogger(),
 		retainHeight: retainHeight,
 
-		newBlockNotifier: make(chan struct{}),
+		newBlockNotifier: make(chan int64),
 	}
 	idx.sectionBloomRunning.Store(false)
 
@@ -149,10 +149,10 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 	return batch.WriteSync()
 }
 
-func (idx *BlockerIndexer) NotifyNewBlock() {
+func (idx *BlockerIndexer) NotifyNewBlock(height int64) {
 	// if the section bloom is not running, start it and update the flag
 	if idx.sectionBloomRunning.CompareAndSwap(false, true) {
-		idx.newBlockNotifier <- struct{}{}
+		idx.newBlockNotifier <- height
 	}
 }
 

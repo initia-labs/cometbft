@@ -60,5 +60,5 @@ func (idx *BlockerIndexer) IsMigrating() bool {
 	return false
 }
 
-func (idx *BlockerIndexer) NotifyNewBlock() {
+func (idx *BlockerIndexer) NotifyNewBlock(height int64) {
 }

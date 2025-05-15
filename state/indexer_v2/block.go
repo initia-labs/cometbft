@@ -44,5 +44,5 @@ type BlockIndexer interface {
 	IsMigrating() bool
 
 	// NotifyNewBlock notifies the indexer that a new block has been added.
-	NotifyNewBlock()
+	NotifyNewBlock(height int64)
 }

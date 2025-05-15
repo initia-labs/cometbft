@@ -72,7 +72,7 @@ type TxIndexerV2 interface {
 	SetMigrationHeight(height int64) error
 
 	// NotifyNewBlock notifies the indexer that a new block has been added.
-	NotifyNewBlock()
+	NotifyNewBlock(height int64)
 }
 
 // Batch groups together multiple Index operations to be performed at the same time.

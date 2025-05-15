@@ -80,7 +80,7 @@ type TxIndex struct {
 	// isMigrating is true if the indexer is migrating from the old indexer to the new one.
 	isMigrating bool
 
-	newBlockNotifier    chan struct{}
+	newBlockNotifier    chan int64
 	sectionBloomRunning atomic.Bool
 }
 
@@ -93,7 +93,7 @@ func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store,
 		stateStore:   stateStore,
 		retainHeight: retainHeight,
 
-		newBlockNotifier: make(chan struct{}),
+		newBlockNotifier: make(chan int64),
 	}
 	txi.sectionBloomRunning.Store(false)
 	go txi.startSectionBloomCreation()
@@ -201,10 +201,10 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 	return storeBatch.WriteSync()
 }
 
-func (txi *TxIndex) NotifyNewBlock() {
+func (txi *TxIndex) NotifyNewBlock(height int64) {
 	// if the section bloom is not running, start it and update the flag
 	if txi.sectionBloomRunning.CompareAndSwap(false, true) {
-		txi.newBlockNotifier <- struct{}{}
+		txi.newBlockNotifier <- height
 	}
 }
 
@@ -212,15 +212,9 @@ func (txi *TxIndex) NotifyNewBlock() {
 func (txi *TxIndex) startSectionBloomCreation() {
 	logger := txi.log.With("function", "SectionBloomCreation")
 
-	creationFn := func() {
+	creationFn := func(height int64) {
 		// reset the flag when the function is done
 		defer txi.sectionBloomRunning.Store(false)
-
-		height, err := txi.Height()
-		if err != nil {
-			logger.Error("failed to get height", "err", err)
-			return
-		}
 
 		dbSectionIndex, err := txi.SectionIndex()
 		if err != nil {
@@ -261,8 +255,8 @@ func (txi *TxIndex) startSectionBloomCreation() {
 		logger.Info("section bloom indexing finished", "height", height, "sectionIndex", sectionIndex)
 	}
 
-	for range txi.newBlockNotifier {
-		creationFn()
+	for height := range txi.newBlockNotifier {
+		creationFn(height)
 	}
 }
 

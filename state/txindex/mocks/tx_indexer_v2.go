@@ -132,9 +132,9 @@ func (_m *TxIndexerV2) MigrationHeight() (int64, error) {
 	return r0, r1
 }
 
-// NotifyNewBlock provides a mock function with no fields
-func (_m *TxIndexerV2) NotifyNewBlock() {
-	_m.Called()
+// NotifyNewBlock provides a mock function with given fields: height
+func (_m *TxIndexerV2) NotifyNewBlock(height int64) {
+	_m.Called(height)
 }
 
 // Prune provides a mock function with given fields: curHeight
