@@ -261,7 +261,7 @@ func (txi *TxIndex) startSectionBloomCreation() {
 		}
 
 		// log the completion
-		logger.Debug("section bloom indexing finished", "height", height)
+		logger.Info("section bloom indexing finished", "height", height, "sectionIndex", sectionIndex)
 	}
 
 	for range txi.newBlockNotifier {
@@ -301,16 +301,7 @@ func (txi *TxIndex) createSectionBloom(sectionIndex int64, batch dbm.Batch) erro
 		}
 	}
 
-	dbSectionIndex, err := txi.SectionIndex()
-	if err != nil {
-		return err
-	} else if dbSectionIndex < sectionIndex {
-		err = batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
 }
 
 // Search performs a search using the given query.

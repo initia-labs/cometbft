@@ -208,7 +208,7 @@ func (idx *BlockerIndexer) startSectionBloomCreation() {
 		}
 
 		// log the completion
-		logger.Debug("section bloom indexing finished", "height", height)
+		logger.Info("section bloom indexing finished", "height", height, "sectionIndex", sectionIndex)
 	}
 
 	for range idx.newBlockNotifier {
@@ -249,16 +249,7 @@ func (idx *BlockerIndexer) createSectionBloom(sectionIndex int64, batch dbm.Batc
 		}
 	}
 
-	dbSectionIndex, err := idx.SectionIndex()
-	if err != nil {
-		return err
-	} else if dbSectionIndex < sectionIndex {
-		err = batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
 }
 
 // Search performs a query for block heights that match a given FinalizeBlock
