@@ -145,8 +145,15 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 	if len(b.Ops) == 0 {
 		return nil
 	}
-
 	blockHeight := b.Ops[0].Height
+
+	// update block bloom
+	blockBloom := bloomForBlock(b.Ops)
+	err := storeBatch.Set(bloomKeyForBlock(blockHeight), blockBloom[:])
+	if err != nil {
+		return err
+	}
+
 	for _, result := range b.Ops {
 		hash := types.Tx(result.Tx).Hash()
 
@@ -168,13 +175,6 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 		if err != nil {
 			return err
 		}
-	}
-
-	// update block bloom
-	blockBloom := bloomForBlock(b.Ops)
-	err := storeBatch.Set(bloomKeyForBlock(blockHeight), blockBloom[:])
-	if err != nil {
-		return err
 	}
 
 	base, err := txi.Base()
