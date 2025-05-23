@@ -161,6 +161,14 @@ func (is *IndexerService) OnStart() error {
 					is.Logger.Debug("indexed transactions v2", "height", height, "num_txs", numTxs)
 				}
 
+				if !is.txIdxrV2.IsMigrating() {
+					is.txIdxrV2.NotifyNewBlock(height)
+				}
+
+				if !is.blockIdxrV2.IsMigrating() {
+					is.blockIdxrV2.NotifyNewBlock(height)
+				}
+
 				if running := blockIdxPruningRunning.Swap(true); !running {
 					go func() {
 						defer blockIdxPruningRunning.Store(false)
@@ -234,9 +242,6 @@ func ReindexEvents(
 	startHeight int64,
 	endHeight int64,
 ) (func(), error) {
-	blockIndexerV2.StartMigration()
-	txIndexerV2.StartMigration()
-
 	baseHeight := blockStore.Base()
 	storeHeight := blockStore.Height()
 	if startHeight == 0 {
@@ -275,6 +280,9 @@ func ReindexEvents(
 
 	logger.Info("start re-indexing events", "startHeight", startHeight, "endHeight", endHeight)
 	return func() {
+		blockIndexerV2.StartMigration()
+		txIndexerV2.StartMigration()
+
 		total := endHeight - startHeight + 1
 		printHeight := startHeight + total/100
 		for height := startHeight; height <= endHeight; height++ {
@@ -294,12 +302,12 @@ func ReindexEvents(
 		}
 
 		// update the last section bloom
-		err := blockIndexerV2.FinishMigration(endHeight)
+		err := blockIndexerV2.FinishMigration()
 		if err != nil {
 			logger.Error("failed to finalize block index re-index", "height", endHeight, "err", err)
 		}
 
-		err = txIndexerV2.FinishMigration(endHeight)
+		err = txIndexerV2.FinishMigration()
 		if err != nil {
 			logger.Error("failed to finalize tx index re-index", "height", endHeight, "err", err)
 		}
@@ -366,6 +374,9 @@ func reindexEvents(height int64, blockStore state.BlockStore, stateStore state.S
 	} else if err := blockIndexerV2.SetMigrationHeight(height); err != nil {
 		return fmt.Errorf("failed to set migration height: %w", err)
 	}
+
+	txIndexerV2.NotifyNewBlock(height)
+	blockIndexerV2.NotifyNewBlock(height)
 
 	return nil
 }

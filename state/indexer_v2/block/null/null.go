@@ -44,7 +44,7 @@ func (idx *BlockerIndexer) Prune(curHeight int64) error {
 func (idx *BlockerIndexer) StartMigration() {
 }
 
-func (idx *BlockerIndexer) FinishMigration(endHeight int64) error {
+func (idx *BlockerIndexer) FinishMigration() error {
 	return nil
 }
 
@@ -58,4 +58,7 @@ func (idx *BlockerIndexer) SetMigrationHeight(height int64) error {
 
 func (idx *BlockerIndexer) IsMigrating() bool {
 	return false
+}
+
+func (idx *BlockerIndexer) NotifyNewBlock(height int64) {
 }

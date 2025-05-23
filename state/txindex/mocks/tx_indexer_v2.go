@@ -38,17 +38,17 @@ func (_m *TxIndexerV2) AddBatch(b *txindex.Batch) error {
 	return r0
 }
 
-// FinishMigration provides a mock function with given fields: endHeight
-func (_m *TxIndexerV2) FinishMigration(endHeight int64) error {
-	ret := _m.Called(endHeight)
+// FinishMigration provides a mock function with no fields
+func (_m *TxIndexerV2) FinishMigration() error {
+	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for FinishMigration")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(int64) error); ok {
-		r0 = rf(endHeight)
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -130,6 +130,11 @@ func (_m *TxIndexerV2) MigrationHeight() (int64, error) {
 	}
 
 	return r0, r1
+}
+
+// NotifyNewBlock provides a mock function with given fields: height
+func (_m *TxIndexerV2) NotifyNewBlock(height int64) {
+	_m.Called(height)
 }
 
 // Prune provides a mock function with given fields: curHeight

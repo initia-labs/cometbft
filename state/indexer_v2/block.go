@@ -32,7 +32,7 @@ type BlockIndexer interface {
 	StartMigration()
 
 	// FinishMigration finalizes the migration process.
-	FinishMigration(endHeight int64) error
+	FinishMigration() error
 
 	// SetMigrationHeight sets the migration height to the given height.
 	SetMigrationHeight(height int64) error
@@ -42,4 +42,7 @@ type BlockIndexer interface {
 
 	// IsMigrating returns true if the migration is active.
 	IsMigrating() bool
+
+	// NotifyNewBlock notifies the indexer that a new block has been added.
+	NotifyNewBlock(height int64)
 }

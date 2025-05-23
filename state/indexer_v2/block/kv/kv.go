@@ -21,8 +21,7 @@ import (
 	"github.com/cometbft/cometbft/store"
 	"github.com/cometbft/cometbft/types"
 
-	"github.com/ethereum/go-ethereum/core/bloombits"
-	gethcoretypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/cometbft/cometbft/state/bloombits"
 
 	sm "github.com/cometbft/cometbft/state"
 )
@@ -78,7 +77,7 @@ type BlockerIndexer struct {
 	// isMigrating is true if the indexer is migrating from the old indexer to the new one.
 	isMigrating bool
 
-	newBlockNotifier    chan struct{}
+	newBlockNotifier    chan int64
 	sectionBloomRunning atomic.Bool
 }
 
@@ -90,7 +89,7 @@ func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retain
 		log:          log.NewNopLogger(),
 		retainHeight: retainHeight,
 
-		newBlockNotifier: make(chan struct{}),
+		newBlockNotifier: make(chan int64),
 	}
 	idx.sectionBloomRunning.Store(false)
 
@@ -146,31 +145,23 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 		}
 	}
 
-	err = batch.WriteSync()
-	if err != nil {
-		return err
-	}
+	return batch.WriteSync()
+}
 
+func (idx *BlockerIndexer) NotifyNewBlock(height int64) {
 	// if the section bloom is not running, start it and update the flag
 	if idx.sectionBloomRunning.CompareAndSwap(false, true) {
-		idx.newBlockNotifier <- struct{}{}
+		idx.newBlockNotifier <- height
 	}
-	return nil
 }
 
 // startSectionBloomCreation creates a section bloom for the given height in a separate goroutine.
 func (idx *BlockerIndexer) startSectionBloomCreation() {
 	logger := idx.log.With("function", "SectionBloomCreation")
 
-	creationFn := func() {
+	creationFn := func(height int64) {
 		// reset the flag when the function is done
 		defer idx.sectionBloomRunning.Store(false)
-
-		height, err := idx.Height()
-		if err != nil {
-			logger.Error("failed to get height", "err", err)
-			return
-		}
 
 		dbSectionIndex, err := idx.SectionIndex()
 		if err != nil {
@@ -189,7 +180,11 @@ func (idx *BlockerIndexer) startSectionBloomCreation() {
 
 		// create a new batch
 		batch := idx.store.NewBatch()
-		err = idx.createSectionBloom(dbSectionIndex+1, batch)
+		nextSectionIndex := dbSectionIndex + 1
+		if nextSectionIndex == 0 {
+			nextSectionIndex = sectionIndex
+		}
+		err = idx.createSectionBloom(nextSectionIndex, batch)
 		if err != nil {
 			logger.Error("failed to do bloom indexing", "err", err)
 			return
@@ -208,11 +203,11 @@ func (idx *BlockerIndexer) startSectionBloomCreation() {
 		}
 
 		// log the completion
-		logger.Debug("section bloom indexing finished", "height", height)
+		logger.Info("section bloom indexing finished", "height", height, "sectionIndex", sectionIndex)
 	}
 
-	for range idx.newBlockNotifier {
-		creationFn()
+	for height := range idx.newBlockNotifier {
+		creationFn(height)
 	}
 }
 
@@ -228,16 +223,16 @@ func (idx *BlockerIndexer) createSectionBloom(sectionIndex int64, batch dbm.Batc
 		if err != nil {
 			return err
 		} else if blockBloom == nil {
-			blockBloom = make([]byte, gethcoretypes.BloomBitLength/8)
+			blockBloom = make([]byte, bloombits.BloomBitLength/8)
 		}
 
-		if err := gen.AddBloom(uint(i), gethcoretypes.Bloom(blockBloom)); err != nil {
+		if err := gen.AddBloom(uint(i), bloombits.Bloom(blockBloom)); err != nil {
 			return err
 		}
 	}
 
 	// write the bloom bits to the store
-	for i := range gethcoretypes.BloomBitLength {
+	for i := range bloombits.BloomBitLength {
 		bits, err := gen.Bitset(uint(i))
 		if err != nil {
 			return err
@@ -249,16 +244,7 @@ func (idx *BlockerIndexer) createSectionBloom(sectionIndex int64, batch dbm.Batc
 		}
 	}
 
-	dbSectionIndex, err := idx.SectionIndex()
-	if err != nil {
-		return err
-	} else if dbSectionIndex < sectionIndex {
-		err = batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
 }
 
 // Search performs a query for block heights that match a given FinalizeBlock
@@ -644,8 +630,8 @@ func eventFilter(eventType string, attrKey string, attrValue string) []byte {
 	return fmt.Appendf(nil, "%s.%s=%s", eventType, attrKey, attrValue)
 }
 
-func bloomForBlock(events []abci.Event) gethcoretypes.Bloom {
-	var bin gethcoretypes.Bloom
+func bloomForBlock(events []abci.Event) bloombits.Bloom {
+	var bin bloombits.Bloom
 	for _, event := range events {
 		if len(event.Type) == 0 {
 			continue

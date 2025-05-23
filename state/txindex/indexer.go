@@ -60,7 +60,7 @@ type TxIndexerV2 interface {
 	StartMigration()
 
 	// FinishMigration finalizes the migration process.
-	FinishMigration(endHeight int64) error
+	FinishMigration() error
 
 	// MigrationHeight returns the height of the migration.
 	MigrationHeight() (int64, error)
@@ -70,6 +70,9 @@ type TxIndexerV2 interface {
 
 	// SetMigrationHeight sets the migration height to the given height.
 	SetMigrationHeight(height int64) error
+
+	// NotifyNewBlock notifies the indexer that a new block has been added.
+	NotifyNewBlock(height int64)
 }
 
 // Batch groups together multiple Index operations to be performed at the same time.

@@ -24,8 +24,7 @@ import (
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/types"
 
-	"github.com/ethereum/go-ethereum/core/bloombits"
-	gethcoretypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/cometbft/cometbft/state/bloombits"
 
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/store"
@@ -80,7 +79,7 @@ type TxIndex struct {
 	// isMigrating is true if the indexer is migrating from the old indexer to the new one.
 	isMigrating bool
 
-	newBlockNotifier    chan struct{}
+	newBlockNotifier    chan int64
 	sectionBloomRunning atomic.Bool
 }
 
@@ -93,7 +92,7 @@ func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store,
 		stateStore:   stateStore,
 		retainHeight: retainHeight,
 
-		newBlockNotifier: make(chan struct{}),
+		newBlockNotifier: make(chan int64),
 	}
 	txi.sectionBloomRunning.Store(false)
 	go txi.startSectionBloomCreation()
@@ -145,8 +144,15 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 	if len(b.Ops) == 0 {
 		return nil
 	}
-
 	blockHeight := b.Ops[0].Height
+
+	// update block bloom
+	blockBloom := bloomForBlock(b.Ops)
+	err := storeBatch.Set(bloomKeyForBlock(blockHeight), blockBloom[:])
+	if err != nil {
+		return err
+	}
+
 	for _, result := range b.Ops {
 		hash := types.Tx(result.Tx).Hash()
 
@@ -170,13 +176,6 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 		}
 	}
 
-	// update block bloom
-	blockBloom := bloomForBlock(b.Ops)
-	err := storeBatch.Set(bloomKeyForBlock(blockHeight), blockBloom[:])
-	if err != nil {
-		return err
-	}
-
 	base, err := txi.Base()
 	if err != nil {
 		return err
@@ -198,32 +197,23 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 		}
 	}
 
-	err = storeBatch.WriteSync()
-	if err != nil {
-		return err
-	}
+	return storeBatch.WriteSync()
+}
 
+func (txi *TxIndex) NotifyNewBlock(height int64) {
 	// if the section bloom is not running, start it and update the flag
 	if txi.sectionBloomRunning.CompareAndSwap(false, true) {
-		txi.newBlockNotifier <- struct{}{}
+		txi.newBlockNotifier <- height
 	}
-
-	return nil
 }
 
 // startSectionBloomCreation creates a section bloom for the given height in a separate goroutine.
 func (txi *TxIndex) startSectionBloomCreation() {
 	logger := txi.log.With("function", "SectionBloomCreation")
 
-	creationFn := func() {
+	creationFn := func(height int64) {
 		// reset the flag when the function is done
 		defer txi.sectionBloomRunning.Store(false)
-
-		height, err := txi.Height()
-		if err != nil {
-			logger.Error("failed to get height", "err", err)
-			return
-		}
 
 		dbSectionIndex, err := txi.SectionIndex()
 		if err != nil {
@@ -242,7 +232,11 @@ func (txi *TxIndex) startSectionBloomCreation() {
 
 		// create a new batch
 		batch := txi.store.NewBatch()
-		err = txi.createSectionBloom(dbSectionIndex+1, batch)
+		nextSectionIndex := dbSectionIndex + 1
+		if nextSectionIndex == 0 {
+			nextSectionIndex = sectionIndex
+		}
+		err = txi.createSectionBloom(nextSectionIndex, batch)
 		if err != nil {
 			logger.Error("failed to do bloom indexing", "err", err)
 			return
@@ -261,11 +255,11 @@ func (txi *TxIndex) startSectionBloomCreation() {
 		}
 
 		// log the completion
-		logger.Debug("section bloom indexing finished", "height", height)
+		logger.Info("section bloom indexing finished", "height", height, "sectionIndex", sectionIndex)
 	}
 
-	for range txi.newBlockNotifier {
-		creationFn()
+	for height := range txi.newBlockNotifier {
+		creationFn(height)
 	}
 }
 
@@ -280,16 +274,16 @@ func (txi *TxIndex) createSectionBloom(sectionIndex int64, batch dbm.Batch) erro
 		if err != nil {
 			return err
 		} else if blockBloom == nil {
-			blockBloom = make([]byte, gethcoretypes.BloomBitLength/8)
+			blockBloom = make([]byte, bloombits.BloomBitLength/8)
 		}
 
-		if err := gen.AddBloom(uint(i), gethcoretypes.Bloom(blockBloom)); err != nil {
+		if err := gen.AddBloom(uint(i), bloombits.Bloom(blockBloom)); err != nil {
 			return err
 		}
 	}
 
 	// write the bloom bits to the store
-	for i := range gethcoretypes.BloomBitLength {
+	for i := range bloombits.BloomBitLength {
 		bits, err := gen.Bitset(uint(i))
 		if err != nil {
 			return err
@@ -301,16 +295,7 @@ func (txi *TxIndex) createSectionBloom(sectionIndex int64, batch dbm.Batch) erro
 		}
 	}
 
-	dbSectionIndex, err := txi.SectionIndex()
-	if err != nil {
-		return err
-	} else if dbSectionIndex < sectionIndex {
-		err = batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
 }
 
 // Search performs a search using the given query.
@@ -754,8 +739,8 @@ func eventFilter(eventType string, attrKey string, attrValue string) []byte {
 	return fmt.Appendf(nil, "%s.%s=%s", eventType, attrKey, attrValue)
 }
 
-func bloomForBlock(results []*abci.TxResult) gethcoretypes.Bloom {
-	var bin gethcoretypes.Bloom
+func bloomForBlock(results []*abci.TxResult) bloombits.Bloom {
+	var bin bloombits.Bloom
 	for _, result := range results {
 		for _, event := range result.Result.Events {
 			if len(event.Type) == 0 {
