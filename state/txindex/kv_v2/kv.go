@@ -24,8 +24,7 @@ import (
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/types"
 
-	"github.com/ethereum/go-ethereum/core/bloombits"
-	gethcoretypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/cometbft/cometbft/state/txindex/kv_v2/bloombits"
 
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/store"
@@ -275,16 +274,16 @@ func (txi *TxIndex) createSectionBloom(sectionIndex int64, batch dbm.Batch) erro
 		if err != nil {
 			return err
 		} else if blockBloom == nil {
-			blockBloom = make([]byte, gethcoretypes.BloomBitLength/8)
+			blockBloom = make([]byte, bloombits.BloomBitLength/8)
 		}
 
-		if err := gen.AddBloom(uint(i), gethcoretypes.Bloom(blockBloom)); err != nil {
+		if err := gen.AddBloom(uint(i), bloombits.Bloom(blockBloom)); err != nil {
 			return err
 		}
 	}
 
 	// write the bloom bits to the store
-	for i := range gethcoretypes.BloomBitLength {
+	for i := range bloombits.BloomBitLength {
 		bits, err := gen.Bitset(uint(i))
 		if err != nil {
 			return err
@@ -740,8 +739,8 @@ func eventFilter(eventType string, attrKey string, attrValue string) []byte {
 	return fmt.Appendf(nil, "%s.%s=%s", eventType, attrKey, attrValue)
 }
 
-func bloomForBlock(results []*abci.TxResult) gethcoretypes.Bloom {
-	var bin gethcoretypes.Bloom
+func bloomForBlock(results []*abci.TxResult) bloombits.Bloom {
+	var bin bloombits.Bloom
 	for _, result := range results {
 		for _, event := range result.Result.Events {
 			if len(event.Type) == 0 {
