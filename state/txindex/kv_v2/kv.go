@@ -24,7 +24,7 @@ import (
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/types"
 
-	"github.com/cometbft/cometbft/state/txindex/kv_v2/bloombits"
+	"github.com/cometbft/cometbft/state/bloombits"
 
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/store"
