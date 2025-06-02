@@ -162,25 +162,8 @@ func (bcR *Reactor) OnStart() error {
 	return nil
 }
 
-// SwitchToBlockSync is called by the state sync reactor when switching to block sync.
-func (bcR *Reactor) SwitchToBlockSync(state sm.State) error {
-	bcR.blockSync = true
-	bcR.initialState = state
-
-	bcR.pool.height = state.LastBlockHeight + 1
-	err := bcR.pool.Start()
-	if err != nil {
-		return err
-	}
-	bcR.poolRoutineWg.Add(1)
-	go func() {
-		defer bcR.poolRoutineWg.Done()
-		bcR.poolRoutine(true)
-	}()
-	return nil
-}
-
-func (bcR *Reactor) SwitchToBlockSyncFromConsensus(state sm.State) error {
+// SwitchToBlockSync is called by the state sync or consensus reactor when switching to block sync.
+func (bcR *Reactor) SwitchToBlockSync(state sm.State, stateSynced bool) error {
 	bcR.blockSync = true
 	bcR.initialState = state
 
@@ -194,7 +177,7 @@ func (bcR *Reactor) SwitchToBlockSyncFromConsensus(state sm.State) error {
 	bcR.poolRoutineWg.Add(1)
 	go func() {
 		defer bcR.poolRoutineWg.Done()
-		bcR.poolRoutine(false)
+		bcR.poolRoutine(stateSynced)
 	}()
 	return nil
 }

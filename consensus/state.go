@@ -327,9 +327,12 @@ func (cs *State) LoadCommit(height int64) *types.Commit {
 // OnStart loads the latest state via the WAL, and starts the timeout and
 // receive routines.
 func (cs *State) OnStart() error {
-	cs.done = make(chan struct{})
-	if err := cs.loadWalFile(); err != nil {
-		return err
+	// We may set the WAL in testing before calling Start, so only OpenWAL if its
+	// still the nilWAL.
+	if _, ok := cs.wal.(nilWAL); ok {
+		if err := cs.loadWalFile(); err != nil {
+			return err
+		}
 	}
 
 	// we need the timeoutRoutine for replay so
@@ -457,6 +460,10 @@ func (cs *State) OnReset() error {
 	if err != nil {
 		cs.Logger.Error("failed trying to reset eventSwitch", "error", err)
 	}
+
+	cs.wal = nilWAL{}
+	cs.done = make(chan struct{})
+
 	return nil
 }
 

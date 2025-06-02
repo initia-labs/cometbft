@@ -127,13 +127,13 @@ func (pool *BlockPool) OnStart() error {
 func (pool *BlockPool) OnStop() {
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
-	for height, requester := range pool.requesters {
+	for _, requester := range pool.requesters {
 		err := requester.Stop()
 		if err != nil {
 			pool.Logger.Error("Error stopping requester", "err", err)
 		}
-		delete(pool.requesters, height)
 	}
+	pool.requesters = make(map[int64]*bpRequester)
 }
 
 func (pool *BlockPool) OnReset() error {

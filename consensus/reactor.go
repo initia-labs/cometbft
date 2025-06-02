@@ -36,7 +36,7 @@ const (
 )
 
 type blockSyncReactor interface {
-	SwitchToBlockSyncFromConsensus(sm.State) error
+	SwitchToBlockSync(sm.State, bool) error
 }
 
 //-----------------------------------------------------------------------------
@@ -54,6 +54,7 @@ type Reactor struct {
 
 	Metrics *Metrics
 
+	// newly added fields for switching to block sync
 	blockSyncReactor blockSyncReactor
 	trustedPeerIDs   []string
 }
@@ -62,14 +63,15 @@ type ReactorOption func(*Reactor)
 
 // NewReactor returns a new Reactor with the given
 // consensusState.
-func NewReactor(consensusState *State, waitSync bool, blockSyncReactor blockSyncReactor, trustedPeerIDs string, options ...ReactorOption) *Reactor {
+func NewReactor(consensusState *State, waitSync bool, options ...ReactorOption) *Reactor {
 	conR := &Reactor{
-		conS:             consensusState,
-		waitSync:         waitSync,
-		rs:               consensusState.GetRoundState(),
-		Metrics:          NopMetrics(),
-		blockSyncReactor: blockSyncReactor,
-		trustedPeerIDs:   strings.Split(trustedPeerIDs, ","),
+		conS:     consensusState,
+		waitSync: waitSync,
+		rs:       consensusState.GetRoundState(),
+		Metrics:  NopMetrics(),
+
+		blockSyncReactor: nil,
+		trustedPeerIDs:   nil,
 	}
 	conR.BaseReactor = *p2p.NewBaseReactor("Consensus", conR)
 
@@ -160,8 +162,12 @@ conR:
 	}
 }
 
-func (conR *Reactor) SwitchToBlockSync() error {
-	conR.Logger.Info("SwitchToBlockSync")
+func (conR *Reactor) switchToBlockSync() error {
+	if conR.blockSyncReactor == nil {
+		return fmt.Errorf("block sync reactor is not set")
+	}
+
+	conR.Logger.Info("switchToBlockSync")
 
 	err := conR.conS.Stop()
 	if err != nil {
@@ -181,7 +187,7 @@ func (conR *Reactor) SwitchToBlockSync() error {
 	conR.waitSync = true
 	conR.mtx.Unlock()
 
-	return conR.blockSyncReactor.SwitchToBlockSyncFromConsensus(conR.conS.state)
+	return conR.blockSyncReactor.SwitchToBlockSync(conR.conS.state, false)
 }
 
 // GetChannels implements Reactor
@@ -302,14 +308,18 @@ func (conR *Reactor) Receive(e p2p.Envelope) {
 	case StateChannel:
 		switch msg := msg.(type) {
 		case *NewRoundStepMessage:
-			if conR.conS.IsRunning() && conR.IsStale(msg.Height) && slices.Contains(conR.trustedPeerIDs, string(ps.peer.ID())) {
+			// if block sync reactor is set, we are stale and the peer is trusted, we switch to block sync
+			if conR.blockSyncReactor != nil && len(conR.trustedPeerIDs) > 0 &&
+				conR.conS.IsRunning() && conR.IsStale(msg.Height) &&
+				slices.Contains(conR.trustedPeerIDs, string(ps.peer.ID())) {
 				conR.Logger.Info("Switching to block sync, we are stale", "peerHeight", msg.Height, "ourHeight", conR.conS.state.LastBlockHeight)
 
 				// ignore current consensus state and switch to block sync
-				if err := conR.SwitchToBlockSync(); err == nil {
+				if err := conR.switchToBlockSync(); err == nil {
 					return
+				} else {
+					conR.Logger.Error("Error switching to block sync", "err", err)
 				}
-				conR.Logger.Error("Error switching to block sync", "err", err)
 			}
 			conR.conS.mtx.Lock()
 			initialHeight := conR.conS.state.InitialHeight
@@ -1067,6 +1077,16 @@ func (conR *Reactor) StringIndented(indent string) string {
 // ReactorMetrics sets the metrics
 func ReactorMetrics(metrics *Metrics) ReactorOption {
 	return func(conR *Reactor) { conR.Metrics = metrics }
+}
+
+// ReactorBlockSyncReactor sets the block sync reactor
+func ReactorBlockSyncReactor(blockSyncReactor blockSyncReactor) ReactorOption {
+	return func(conR *Reactor) { conR.blockSyncReactor = blockSyncReactor }
+}
+
+// ReactorTrustedPeerIDs sets the trusted peer IDs
+func ReactorTrustedPeerIDs(trustedPeerIDs string) ReactorOption {
+	return func(conR *Reactor) { conR.trustedPeerIDs = strings.Split(trustedPeerIDs, ",") }
 }
 
 //-----------------------------------------------------------------------------
