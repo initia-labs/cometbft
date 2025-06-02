@@ -136,6 +136,10 @@ func (pool *BlockPool) OnStop() {
 	}
 }
 
+func (pool *BlockPool) OnReset() error {
+	return nil
+}
+
 // spawns requesters as needed
 func (pool *BlockPool) makeRequestersRoutine() {
 	for {

@@ -185,6 +185,8 @@ func (bcR *Reactor) SwitchToBlockSyncFromConsensus(state sm.State) error {
 	bcR.initialState = state
 
 	bcR.pool.height = state.LastBlockHeight + 1
+
+	_ = bcR.pool.Reset()
 	err := bcR.pool.Start()
 	if err != nil {
 		return err

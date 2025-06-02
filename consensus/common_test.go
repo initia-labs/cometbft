@@ -942,6 +942,10 @@ func (m *mockTicker) Stop() error {
 	return nil
 }
 
+func (m *mockTicker) Reset() error {
+	return nil
+}
+
 func (m *mockTicker) ScheduleTimeout(ti timeoutInfo) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()

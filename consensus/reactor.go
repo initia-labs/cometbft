@@ -108,6 +108,10 @@ func (conR *Reactor) OnStop() {
 	}
 }
 
+func (conR *Reactor) OnReset() error {
+	return conR.conS.Reset()
+}
+
 // IsValidator returns true if the node is a validator based on the given state
 func (conR *Reactor) IsValidator(state sm.State) bool {
 	return conR.conS.IsValidator(state)
@@ -139,6 +143,7 @@ func (conR *Reactor) SwitchToConsensus(state sm.State, skipWAL bool) {
 	if skipWAL {
 		conR.conS.doWALCatchup = false
 	}
+
 	err := conR.conS.Start()
 	if err != nil {
 		panic(fmt.Sprintf(`Failed to start consensus state: %v
@@ -161,6 +166,10 @@ func (conR *Reactor) SwitchToBlockSync() error {
 
 	conR.conS.Wait()
 
+	err = conR.conS.Reset()
+	if err != nil {
+		return err
+	}
 	// reset commit round to -1 to ignore current consensus state
 	conR.conS.CommitRound = -1
 
