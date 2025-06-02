@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,19 +55,21 @@ type Reactor struct {
 	Metrics *Metrics
 
 	blockSyncReactor blockSyncReactor
+	trustedPeerIDs   []string
 }
 
 type ReactorOption func(*Reactor)
 
 // NewReactor returns a new Reactor with the given
 // consensusState.
-func NewReactor(consensusState *State, waitSync bool, blockSyncReactor blockSyncReactor, options ...ReactorOption) *Reactor {
+func NewReactor(consensusState *State, waitSync bool, blockSyncReactor blockSyncReactor, trustedPeerIDs string, options ...ReactorOption) *Reactor {
 	conR := &Reactor{
 		conS:             consensusState,
 		waitSync:         waitSync,
 		rs:               consensusState.GetRoundState(),
 		Metrics:          NopMetrics(),
 		blockSyncReactor: blockSyncReactor,
+		trustedPeerIDs:   strings.Split(trustedPeerIDs, ","),
 	}
 	conR.BaseReactor = *p2p.NewBaseReactor("Consensus", conR)
 
@@ -298,7 +302,7 @@ func (conR *Reactor) Receive(e p2p.Envelope) {
 	case StateChannel:
 		switch msg := msg.(type) {
 		case *NewRoundStepMessage:
-			if conR.conS.IsRunning() && conR.IsStale(msg.Height) {
+			if conR.conS.IsRunning() && conR.IsStale(msg.Height) && slices.Contains(conR.trustedPeerIDs, string(ps.peer.ID())) {
 				conR.Logger.Info("Switching to block sync, we are stale", "peerHeight", msg.Height, "ourHeight", conR.conS.state.LastBlockHeight)
 
 				// ignore current consensus state and switch to block sync

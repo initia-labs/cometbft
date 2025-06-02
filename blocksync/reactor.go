@@ -465,8 +465,8 @@ FOR_LOOP:
 				)
 				continue FOR_LOOP
 			}
-			if bcR.pool.IsCaughtUp() {
-				// if bcR.pool.IsCaughtUp() || bcR.localNodeBlocksTheChain(state) {
+
+			if (len(bcR.pool.trustedPeerIDs) != 0 && bcR.pool.IsCaughtUp()) || (len(bcR.pool.trustedPeerIDs) == 0 && bcR.localNodeBlocksTheChain(state)) {
 				conR, ok := bcR.Switch.Reactor("CONSENSUS").(consensusReactor)
 				if conR != nil && !conR.IsValidator(state) {
 					// if the node is not a validator, we don't need to switch to consensus
