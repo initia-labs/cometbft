@@ -1836,7 +1836,6 @@ func (cs *State) finalizeCommit(height int64) {
 
 	// NewHeightStep!
 	cs.updateToState(stateCopy)
-	time.Sleep(time.Second)
 
 	fail.Fail() // XXX
 

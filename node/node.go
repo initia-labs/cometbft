@@ -13,7 +13,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 
-	"github.com/cometbft/cometbft/blocksync"
 	bc "github.com/cometbft/cometbft/blocksync"
 	cfg "github.com/cometbft/cometbft/config"
 	cs "github.com/cometbft/cometbft/consensus"
@@ -429,7 +428,7 @@ func NewNodeWithContext(ctx context.Context,
 	consensusReactor, consensusState := createConsensusReactor(
 		config, state, blockExec, blockStore, mempool, evidencePool,
 		privValidator, csMetrics, stateSync || blockSync, eventBus, consensusLogger, offlineStateSyncHeight,
-		bcReactor.(*blocksync.Reactor),
+		bcReactor.(*bc.Reactor),
 	)
 
 	err = stateStore.SetOfflineStateSyncHeight(0)
