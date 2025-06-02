@@ -327,13 +327,14 @@ func (cs *State) LoadCommit(height int64) *types.Commit {
 // OnStart loads the latest state via the WAL, and starts the timeout and
 // receive routines.
 func (cs *State) OnStart() error {
+	cs.done = make(chan struct{})
 	// We may set the WAL in testing before calling Start, so only OpenWAL if its
 	// still the nilWAL.
-	if _, ok := cs.wal.(nilWAL); ok {
-		if err := cs.loadWalFile(); err != nil {
-			return err
-		}
+	// if _, ok := cs.wal.(nilWAL); ok {
+	if err := cs.loadWalFile(); err != nil {
+		return err
 	}
+	// }
 
 	// we need the timeoutRoutine for replay so
 	// we don't block on the tick chan.
@@ -1835,6 +1836,7 @@ func (cs *State) finalizeCommit(height int64) {
 
 	// NewHeightStep!
 	cs.updateToState(stateCopy)
+	time.Sleep(time.Second)
 
 	fail.Fail() // XXX
 

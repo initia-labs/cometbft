@@ -180,6 +180,23 @@ func (bcR *Reactor) SwitchToBlockSync(state sm.State) error {
 	return nil
 }
 
+func (bcR *Reactor) SwitchToBlockSyncFromConsensus(state sm.State) error {
+	bcR.blockSync = true
+	bcR.initialState = state
+
+	bcR.pool.height = state.LastBlockHeight + 1
+	err := bcR.pool.Start()
+	if err != nil {
+		return err
+	}
+	bcR.poolRoutineWg.Add(1)
+	go func() {
+		defer bcR.poolRoutineWg.Done()
+		bcR.poolRoutine(false)
+	}()
+	return nil
+}
+
 // IsCaughtUp returns true if this node is caught up, false - otherwise.
 func (bcR *Reactor) IsCaughtUp() bool {
 	return bcR.pool.IsCaughtUp()
@@ -306,7 +323,6 @@ func (bcR *Reactor) Receive(e p2p.Envelope) { //nolint: dupl // recreated in a t
 				return
 			}
 		}
-
 		if err := bcR.pool.AddBlock(e.Src.ID(), bi, extCommit, msg.Block.Size()); err != nil {
 			bcR.Logger.Error("failed to add block", "peer", e.Src, "err", err)
 		}
@@ -447,7 +463,8 @@ FOR_LOOP:
 				)
 				continue FOR_LOOP
 			}
-			if bcR.pool.IsCaughtUp() || bcR.localNodeBlocksTheChain(state) {
+			if bcR.pool.IsCaughtUp() {
+				// if bcR.pool.IsCaughtUp() || bcR.localNodeBlocksTheChain(state) {
 				conR, ok := bcR.Switch.Reactor("CONSENSUS").(consensusReactor)
 				if conR != nil && !conR.IsValidator(state) {
 					// if the node is not a validator, we don't need to switch to consensus

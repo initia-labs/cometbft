@@ -100,6 +100,7 @@ func DefaultMetricsProvider(config *cfg.InstrumentationConfig) MetricsProvider {
 
 type blockSyncReactor interface {
 	SwitchToBlockSync(sm.State) error
+	SwitchToBlockSyncFromConsensus(sm.State) error
 	IsCaughtUp() bool
 }
 
@@ -334,6 +335,7 @@ func createConsensusReactor(config *cfg.Config,
 	eventBus *types.EventBus,
 	consensusLogger log.Logger,
 	offlineStateSyncHeight int64,
+	bcReactor blockSyncReactor,
 ) (*cs.Reactor, *cs.State) {
 	consensusState := cs.NewState(
 		config.Consensus,
@@ -349,7 +351,7 @@ func createConsensusReactor(config *cfg.Config,
 	if privValidator != nil {
 		consensusState.SetPrivValidator(privValidator)
 	}
-	consensusReactor := cs.NewReactor(consensusState, waitSync, cs.ReactorMetrics(csMetrics))
+	consensusReactor := cs.NewReactor(consensusState, waitSync, bcReactor, cs.ReactorMetrics(csMetrics))
 	consensusReactor.SetLogger(consensusLogger)
 	// services which will be publishing and/or subscribing for messages (events)
 	// consensusReactor will set it on consensusState and blockExecutor

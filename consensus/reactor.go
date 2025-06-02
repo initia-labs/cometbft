@@ -33,6 +33,10 @@ const (
 	votesToContributeToBecomeGoodPeer  = 10000
 )
 
+type blockSyncReactor interface {
+	SwitchToBlockSyncFromConsensus(sm.State) error
+}
+
 //-----------------------------------------------------------------------------
 
 // Reactor defines a reactor for the consensus service.
@@ -47,18 +51,21 @@ type Reactor struct {
 	rs       *cstypes.RoundState
 
 	Metrics *Metrics
+
+	blockSyncReactor blockSyncReactor
 }
 
 type ReactorOption func(*Reactor)
 
 // NewReactor returns a new Reactor with the given
 // consensusState.
-func NewReactor(consensusState *State, waitSync bool, options ...ReactorOption) *Reactor {
+func NewReactor(consensusState *State, waitSync bool, blockSyncReactor blockSyncReactor, options ...ReactorOption) *Reactor {
 	conR := &Reactor{
-		conS:     consensusState,
-		waitSync: waitSync,
-		rs:       consensusState.GetRoundState(),
-		Metrics:  NopMetrics(),
+		conS:             consensusState,
+		waitSync:         waitSync,
+		rs:               consensusState.GetRoundState(),
+		Metrics:          NopMetrics(),
+		blockSyncReactor: blockSyncReactor,
 	}
 	conR.BaseReactor = *p2p.NewBaseReactor("Consensus", conR)
 
@@ -96,8 +103,7 @@ func (conR *Reactor) OnStop() {
 	conR.unsubscribeFromBroadcastEvents()
 	if err := conR.conS.Stop(); err != nil {
 		conR.Logger.Error("Error stopping consensus state", "err", err)
-	}
-	if !conR.WaitSync() {
+	} else if !conR.WaitSync() {
 		conR.conS.Wait()
 	}
 }
@@ -143,6 +149,26 @@ conS:
 conR:
 %+v`, err, conR.conS, conR))
 	}
+}
+
+func (conR *Reactor) SwitchToBlockSync() error {
+	conR.Logger.Info("SwitchToBlockSync")
+
+	err := conR.conS.Stop()
+	if err != nil {
+		return err
+	}
+
+	conR.conS.Wait()
+
+	// reset commit round to -1 to ignore current consensus state
+	conR.conS.CommitRound = -1
+
+	conR.mtx.Lock()
+	conR.waitSync = true
+	conR.mtx.Unlock()
+
+	return conR.blockSyncReactor.SwitchToBlockSyncFromConsensus(conR.conS.state)
 }
 
 // GetChannels implements Reactor
@@ -263,6 +289,15 @@ func (conR *Reactor) Receive(e p2p.Envelope) {
 	case StateChannel:
 		switch msg := msg.(type) {
 		case *NewRoundStepMessage:
+			if conR.conS.IsRunning() && conR.IsStale(msg.Height) {
+				conR.Logger.Info("Switching to block sync, we are stale", "peerHeight", msg.Height, "ourHeight", conR.conS.state.LastBlockHeight)
+
+				// ignore current consensus state and switch to block sync
+				if err := conR.SwitchToBlockSync(); err == nil {
+					return
+				}
+				conR.Logger.Error("Error switching to block sync", "err", err)
+			}
 			conR.conS.mtx.Lock()
 			initialHeight := conR.conS.state.InitialHeight
 			conR.conS.mtx.Unlock()
@@ -393,6 +428,11 @@ func (conR *Reactor) Receive(e p2p.Envelope) {
 	default:
 		conR.Logger.Error(fmt.Sprintf("Unknown chId %X", e.ChannelID))
 	}
+}
+
+// IsStale returns true if the peer's height is more than 20 blocks ahead of the local height.
+func (conR *Reactor) IsStale(peerHeight int64) bool {
+	return peerHeight > conR.conS.state.LastBlockHeight+20
 }
 
 // SetEventBus sets event bus.
