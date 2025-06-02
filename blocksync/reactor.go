@@ -337,7 +337,28 @@ func (bcR *Reactor) localNodeBlocksTheChain(state sm.State) bool {
 		return false
 	}
 	total := state.Validators.TotalVotingPower()
-	return val.VotingPower >= total/3
+
+	// if the node has less than 1/3 of the voting power, we don't block the chain
+	if val.VotingPower < total/3 {
+		return false
+	}
+
+	// no other peers to trust, so we block the chain
+	if len(bcR.pool.trustedPeerIDs) == 0 {
+		return true
+	}
+
+	// check if we are caught up with all trusted peers
+	for _, tid := range bcR.pool.trustedPeerIDs {
+		if peer, ok := bcR.pool.peers[tid]; ok {
+			if bcR.pool.height < peer.height-1 {
+				// if we are not caught up with a trusted peer, we don't block the chain
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // Handle messages from the poolReactor telling the reactor what to do.
@@ -449,7 +470,7 @@ FOR_LOOP:
 				continue FOR_LOOP
 			}
 
-			if (len(bcR.pool.trustedPeerIDs) != 0 && bcR.pool.IsCaughtUp()) || (len(bcR.pool.trustedPeerIDs) == 0 && bcR.localNodeBlocksTheChain(state)) {
+			if bcR.pool.IsCaughtUp() || bcR.localNodeBlocksTheChain(state) {
 				conR, ok := bcR.Switch.Reactor("CONSENSUS").(consensusReactor)
 				if conR != nil && !conR.IsValidator(state) {
 					// if the node is not a validator, we don't need to switch to consensus
