@@ -328,13 +328,9 @@ func (cs *State) LoadCommit(height int64) *types.Commit {
 // receive routines.
 func (cs *State) OnStart() error {
 	cs.done = make(chan struct{})
-	// We may set the WAL in testing before calling Start, so only OpenWAL if its
-	// still the nilWAL.
-	// if _, ok := cs.wal.(nilWAL); ok {
 	if err := cs.loadWalFile(); err != nil {
 		return err
 	}
-	// }
 
 	// we need the timeoutRoutine for replay so
 	// we don't block on the tick chan.
