@@ -162,12 +162,14 @@ func (bcR *Reactor) OnStart() error {
 	return nil
 }
 
-// SwitchToBlockSync is called by the state sync reactor when switching to block sync.
-func (bcR *Reactor) SwitchToBlockSync(state sm.State) error {
+// SwitchToBlockSync is called by the state sync or consensus reactor when switching to block sync.
+func (bcR *Reactor) SwitchToBlockSync(state sm.State, stateSynced bool) error {
 	bcR.blockSync = true
 	bcR.initialState = state
 
 	bcR.pool.height = state.LastBlockHeight + 1
+
+	_ = bcR.pool.Reset()
 	err := bcR.pool.Start()
 	if err != nil {
 		return err
@@ -175,7 +177,7 @@ func (bcR *Reactor) SwitchToBlockSync(state sm.State) error {
 	bcR.poolRoutineWg.Add(1)
 	go func() {
 		defer bcR.poolRoutineWg.Done()
-		bcR.poolRoutine(true)
+		bcR.poolRoutine(stateSynced)
 	}()
 	return nil
 }
@@ -306,7 +308,6 @@ func (bcR *Reactor) Receive(e p2p.Envelope) { //nolint: dupl // recreated in a t
 				return
 			}
 		}
-
 		if err := bcR.pool.AddBlock(e.Src.ID(), bi, extCommit, msg.Block.Size()); err != nil {
 			bcR.Logger.Error("failed to add block", "peer", e.Src, "err", err)
 		}
@@ -336,7 +337,28 @@ func (bcR *Reactor) localNodeBlocksTheChain(state sm.State) bool {
 		return false
 	}
 	total := state.Validators.TotalVotingPower()
-	return val.VotingPower >= total/3
+
+	// if the node has less than 1/3 of the voting power, we don't block the chain
+	if val.VotingPower < total/3 {
+		return false
+	}
+
+	// no other peers to trust, so we block the chain
+	if len(bcR.pool.trustedPeerIDs) == 0 {
+		return true
+	}
+
+	// check if we are caught up with all trusted peers
+	for _, tid := range bcR.pool.trustedPeerIDs {
+		if peer, ok := bcR.pool.peers[tid]; ok {
+			if bcR.pool.height < peer.height-1 {
+				// if we are not caught up with a trusted peer, we don't block the chain
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // Handle messages from the poolReactor telling the reactor what to do.
@@ -447,6 +469,7 @@ FOR_LOOP:
 				)
 				continue FOR_LOOP
 			}
+
 			if bcR.pool.IsCaughtUp() || bcR.localNodeBlocksTheChain(state) {
 				conR, ok := bcR.Switch.Reactor("CONSENSUS").(consensusReactor)
 				if conR != nil && !conR.IsValidator(state) {

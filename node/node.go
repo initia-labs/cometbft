@@ -428,6 +428,7 @@ func NewNodeWithContext(ctx context.Context,
 	consensusReactor, consensusState := createConsensusReactor(
 		config, state, blockExec, blockStore, mempool, evidencePool,
 		privValidator, csMetrics, stateSync || blockSync, eventBus, consensusLogger, offlineStateSyncHeight,
+		bcReactor.(*bc.Reactor),
 	)
 
 	err = stateStore.SetOfflineStateSyncHeight(0)

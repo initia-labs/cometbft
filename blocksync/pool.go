@@ -124,6 +124,22 @@ func (pool *BlockPool) OnStart() error {
 	return nil
 }
 
+func (pool *BlockPool) OnStop() {
+	pool.mtx.Lock()
+	defer pool.mtx.Unlock()
+	for _, requester := range pool.requesters {
+		err := requester.Stop()
+		if err != nil {
+			pool.Logger.Error("Error stopping requester", "err", err)
+		}
+	}
+	pool.requesters = make(map[int64]*bpRequester)
+}
+
+func (pool *BlockPool) OnReset() error {
+	return nil
+}
+
 // spawns requesters as needed
 func (pool *BlockPool) makeRequestersRoutine() {
 	for {
