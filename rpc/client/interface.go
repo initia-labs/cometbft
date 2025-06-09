@@ -83,9 +83,24 @@ type SignClient interface {
 		orderBy string,
 	) (*ctypes.ResultTxSearch, error)
 
+	TxSearchV2(
+		ctx context.Context,
+		query string,
+		prove bool,
+		page, perPage *int,
+		orderBy string,
+	) (*ctypes.ResultTxSearch, error)
+
 	// BlockSearch defines a method to search for a paginated set of blocks based
 	// from FinalizeBlock event search criteria.
 	BlockSearch(
+		ctx context.Context,
+		query string,
+		page, perPage *int,
+		orderBy string,
+	) (*ctypes.ResultBlockSearch, error)
+
+	BlockSearchV2(
 		ctx context.Context,
 		query string,
 		page, perPage *int,
