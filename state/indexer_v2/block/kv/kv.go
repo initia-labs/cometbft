@@ -72,7 +72,8 @@ type BlockerIndexer struct {
 	// If set to 0, the index will retain all tx index.
 	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
 	// except "tx.hash" and "tx.height" and "block.height" which are always retained.
-	retainHeight int64
+	retainHeight  int64
+	maxQueryRange int64
 
 	// isMigrating is true if the indexer is migrating from the old indexer to the new one.
 	isMigrating bool
@@ -81,13 +82,14 @@ type BlockerIndexer struct {
 	sectionBloomRunning atomic.Bool
 }
 
-func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *BlockerIndexer {
+func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64, maxQueryRange int64) *BlockerIndexer {
 	idx := &BlockerIndexer{
-		store:        store,
-		blockStore:   blockStore,
-		stateStore:   stateStore,
-		log:          log.NewNopLogger(),
-		retainHeight: retainHeight,
+		store:         store,
+		blockStore:    blockStore,
+		stateStore:    stateStore,
+		log:           log.NewNopLogger(),
+		retainHeight:  retainHeight,
+		maxQueryRange: maxQueryRange,
 
 		newBlockNotifier: make(chan int64),
 	}
@@ -351,6 +353,10 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, maxCount 
 			}
 			end = min(end, rangeEnd)
 		}
+	}
+
+	if idx.maxQueryRange > 0 && end-begin+1 > idx.maxQueryRange {
+		return fmt.Errorf("query range is too large, max query range is %d", idx.maxQueryRange)
 	}
 
 	// for indexed events

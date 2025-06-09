@@ -546,6 +546,12 @@ indexer = "{{ .TxIndex.Indexer }}"
 # This value should be set higher than the prune-related retain height specified in app.toml.
 retain-height = {{ .TxIndex.RetainHeight }}
 
+# Maximum height range allowed when querying transactions. If a query spans a larger height range,
+# it will be rejected to prevent expensive queries that scan too many blocks.
+#
+# If set to 0, no limit will be applied.
+max_query_range = {{ .TxIndex.MaxQueryRange }}
+
 #######################################################
 ###       Instrumentation Configuration Options     ###
 #######################################################

@@ -36,8 +36,8 @@ func IndexerFromConfigWithDisabledIndexers(cfg *config.Config, blockStore *store
 			return nil, nil, false, err
 		}
 
-		return kvv2.NewTxIndex(store, blockStore, stateStore, cfg.TxIndex.RetainHeight),
-			blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events")), blockStore, stateStore, cfg.TxIndex.RetainHeight),
+		return kvv2.NewTxIndex(store, blockStore, stateStore, cfg.TxIndex.RetainHeight, cfg.TxIndex.MaxQueryRange),
+			blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events")), blockStore, stateStore, cfg.TxIndex.RetainHeight, cfg.TxIndex.MaxQueryRange),
 			false,
 			nil
 

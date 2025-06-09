@@ -212,9 +212,6 @@ func (env *Environment) BlockSearch(
 	pagePtr, perPagePtr *int,
 	orderBy string,
 ) (*ctypes.ResultBlockSearch, error) {
-	if !env.BlockIndexerV2.IsMigrating() {
-		return env.blockSearchV2(ctx, query, pagePtr, perPagePtr, orderBy)
-	}
 	return env.blockSearch(ctx, query, pagePtr, perPagePtr, orderBy)
 }
 
@@ -278,6 +275,19 @@ func (env *Environment) blockSearch(
 	}
 
 	return &ctypes.ResultBlockSearch{Blocks: apiResults, TotalCount: totalCount}, nil
+}
+
+// BlockSearchV2 allows you to query for a paginated set of blocks matching
+// FinalizeBlock event search criteria.
+// This method uses a bloom filter to speed up queries in most cases.
+// More: https://docs.cometbft.com/v0.38.x/rpc/#/Info/block_search/v2
+func (env *Environment) BlockSearchV2(
+	ctx *rpctypes.Context,
+	query string,
+	pagePtr, perPagePtr *int,
+	orderBy string,
+) (*ctypes.ResultBlockSearch, error) {
+	return env.blockSearchV2(ctx, query, pagePtr, perPagePtr, orderBy)
 }
 
 func (env *Environment) blockSearchV2(

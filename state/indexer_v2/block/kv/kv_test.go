@@ -1,4 +1,4 @@
-package kv_test
+package kv
 
 import (
 	"context"
@@ -12,7 +12,6 @@ import (
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/libs/pubsub/query"
 	prototypes "github.com/cometbft/cometbft/proto/tendermint/types"
-	blockidxkv "github.com/cometbft/cometbft/state/indexer_v2/block/kv"
 	"github.com/cometbft/cometbft/types"
 
 	sm "github.com/cometbft/cometbft/state"
@@ -62,7 +61,7 @@ func TestBlockIndexer(t *testing.T) {
 		AppHash:               []byte("app_hash"),
 	})
 	require.NoError(t, err)
-	indexer := blockidxkv.New(store, blockStore, stateStore, 0)
+	indexer := New(store, blockStore, stateStore, 0, 0)
 
 	require.NoError(t, indexer.Index(types.EventDataNewBlockEvents{
 		Height: 1,
@@ -202,7 +201,7 @@ func TestBlockIndexerMulti(t *testing.T) {
 		Height: 2,
 	}, blockStoreDB)
 	blockStore := bstore.NewBlockStore(blockStoreDB)
-	indexer := blockidxkv.New(store, blockStore, stateStore, 0)
+	indexer := New(store, blockStore, stateStore, 0, 0)
 
 	events1 := []abci.Event{
 		{},
@@ -403,7 +402,7 @@ func TestBigInt(t *testing.T) {
 		Height: 1,
 	}, blockStoreDB)
 	blockStore := bstore.NewBlockStore(blockStoreDB)
-	indexer := blockidxkv.New(store, blockStore, stateStore, 0)
+	indexer := New(store, blockStore, stateStore, 0, 0)
 
 	events1 := []abci.Event{
 		{},
@@ -505,7 +504,7 @@ func TestBigInt(t *testing.T) {
 	}
 }
 
-func TestTxIndexPruning(t *testing.T) {
+func TestBlockIndexPruning(t *testing.T) {
 	store := db.NewPrefixDB(db.NewMemDB(), []byte("block_events"))
 	stateStore := sm.NewStore(db.NewPrefixDB(db.NewMemDB(), []byte("state_store")), sm.StoreOptions{})
 	blockStoreDB := db.NewPrefixDB(db.NewMemDB(), []byte("block_store"))
@@ -515,7 +514,7 @@ func TestTxIndexPruning(t *testing.T) {
 	}, blockStoreDB)
 	blockStore := bstore.NewBlockStore(blockStoreDB)
 
-	indexer := blockidxkv.New(store, blockStore, stateStore, 100)
+	indexer := New(store, blockStore, stateStore, 100, 0)
 
 	blockEvents := types.EventDataNewBlockEvents{
 		Height: 1,
@@ -659,6 +658,108 @@ func TestTxIndexPruning(t *testing.T) {
 				require.Len(t, results, 1)
 			} else {
 				require.Len(t, results, 0)
+			}
+		})
+	}
+}
+
+func TestBlockIndexMaxQueryRange(t *testing.T) {
+	store := db.NewPrefixDB(db.NewMemDB(), []byte("block_events"))
+	stateStore := sm.NewStore(db.NewPrefixDB(db.NewMemDB(), []byte("state_store")), sm.StoreOptions{})
+	blockStoreDB := db.NewPrefixDB(db.NewMemDB(), []byte("block_store"))
+	bstore.SaveBlockStoreState(&cmtstore.BlockStoreState{
+		Base:   1,
+		Height: 101,
+	}, blockStoreDB)
+	blockStore := bstore.NewBlockStore(blockStoreDB)
+
+	err := store.Set([]byte(heightKey), int64ToBytes(101))
+	require.NoError(t, err)
+
+	indexer := New(store, blockStore, stateStore, 100, 10)
+
+	blockEvents := types.EventDataNewBlockEvents{
+		Height: 1,
+		Events: []abci.Event{
+			{},
+			{
+				Type: "account",
+				Attributes: []abci.EventAttribute{
+					{
+						Key:   "number",
+						Value: "1",
+						Index: true,
+					},
+					{
+						Key:   "owner",
+						Value: "/Ivan/",
+						Index: true,
+					},
+				},
+			},
+			{
+				Type: "",
+				Attributes: []abci.EventAttribute{
+					{
+						Key:   "not_allowed",
+						Value: "Vlad",
+						Index: true,
+					},
+				},
+			},
+		},
+	}
+
+	err = stateStore.SaveFinalizeBlockResponse(1, &abci.ResponseFinalizeBlock{
+		Events:                blockEvents.Events,
+		TxResults:             []*abci.ExecTxResult{},
+		ValidatorUpdates:      []abci.ValidatorUpdate{},
+		ConsensusParamUpdates: &prototypes.ConsensusParams{},
+		AppHash:               []byte("app_hash"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, indexer.Index(blockEvents))
+
+	// before pruning
+	testCases := []struct {
+		q       string
+		success bool
+	}{
+		// search by exact match (one key)
+		{"account.number = 1", false},
+		{"account.number = 1 AND block.height = 1", true},
+		{"account.number = 1 AND block.height >= 1 AND block.height <= 10", true},
+		{"account.number = 1 AND block.height >= 1 AND block.height <= 11", false},
+		{"account.number = 1 AND block.height >= 1 AND block.height <= 100", false},
+	}
+
+	ctx := context.Background()
+	// after pruning
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.q, func(t *testing.T) {
+			resultChan, errChan := indexer.Search(ctx, query.MustCompile(tc.q), 1000)
+			results := make([]int64, 0)
+
+			var err error
+		RESULT_LOOP:
+			for {
+				select {
+				case result, ok := <-resultChan:
+					if !ok {
+						break RESULT_LOOP
+					}
+					results = append(results, result)
+				case err = <-errChan:
+					break RESULT_LOOP
+				}
+			}
+
+			if tc.success {
+				require.Len(t, results, 1)
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
 			}
 		})
 	}
