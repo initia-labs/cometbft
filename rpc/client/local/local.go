@@ -199,6 +199,17 @@ func (c *Local) TxSearch(
 	return c.env.TxSearch(c.ctx, query, prove, page, perPage, orderBy)
 }
 
+func (c *Local) TxSearchV2(
+	_ context.Context,
+	query string,
+	prove bool,
+	page,
+	perPage *int,
+	orderBy string,
+) (*ctypes.ResultTxSearch, error) {
+	return c.env.TxSearchV2(c.ctx, query, prove, page, perPage, orderBy)
+}
+
 func (c *Local) BlockSearch(
 	_ context.Context,
 	query string,
@@ -206,6 +217,15 @@ func (c *Local) BlockSearch(
 	orderBy string,
 ) (*ctypes.ResultBlockSearch, error) {
 	return c.env.BlockSearch(c.ctx, query, page, perPage, orderBy)
+}
+
+func (c *Local) BlockSearchV2(
+	_ context.Context,
+	query string,
+	page, perPage *int,
+	orderBy string,
+) (*ctypes.ResultBlockSearch, error) {
+	return c.env.BlockSearchV2(c.ctx, query, page, perPage, orderBy)
 }
 
 func (c *Local) BroadcastEvidence(_ context.Context, ev types.Evidence) (*ctypes.ResultBroadcastEvidence, error) {

@@ -65,9 +65,6 @@ func (env *Environment) TxSearch(
 	pagePtr, perPagePtr *int,
 	orderBy string,
 ) (*ctypes.ResultTxSearch, error) {
-	if !env.TxIndexerV2.IsMigrating() {
-		return env.txSearchV2(ctx, query, prove, pagePtr, perPagePtr, orderBy)
-	}
 	return env.txSearch(ctx, query, prove, pagePtr, perPagePtr, orderBy)
 }
 
@@ -150,6 +147,20 @@ func (env *Environment) txSearch(
 	}
 
 	return &ctypes.ResultTxSearch{Txs: apiResults, TotalCount: totalCount}, nil
+}
+
+// TxSearchV2 allows you to query for multiple transactions results with a bloom filter. It returns a
+// list of transactions (maximum ?per_page entries) and the total count.
+// This method uses a bloom filter to speed up queries in most cases.
+// More: https://docs.cometbft.com/v0.38.x/rpc/#/Info/tx_search/v2
+func (env *Environment) TxSearchV2(
+	ctx *rpctypes.Context,
+	query string,
+	prove bool,
+	pagePtr, perPagePtr *int,
+	orderBy string,
+) (*ctypes.ResultTxSearch, error) {
+	return env.txSearchV2(ctx, query, prove, pagePtr, perPagePtr, orderBy)
 }
 
 func (env *Environment) txSearchV2(

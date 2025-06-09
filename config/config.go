@@ -1193,12 +1193,19 @@ type TxIndexConfig struct {
 	//
 	// This value should be set higher than the prune-related retain height specified in app.toml.
 	RetainHeight int64 `mapstructure:"retain-height"`
+
+	// Maximum height range allowed when querying transactions. If a query spans a larger height range,
+	// it will be rejected to prevent expensive queries that scan too many blocks.
+	//
+	// If set to 0, no limit will be applied.
+	MaxQueryRange int64 `mapstructure:"max_query_range"`
 }
 
 // DefaultTxIndexConfig returns a default configuration for the transaction indexer.
 func DefaultTxIndexConfig() *TxIndexConfig {
 	return &TxIndexConfig{
-		Indexer: "kv",
+		Indexer:       "kv",
+		MaxQueryRange: 1_000_000, // 1M blocks
 	}
 }
 

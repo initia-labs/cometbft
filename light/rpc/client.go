@@ -502,6 +502,16 @@ func (c *Client) TxSearch(
 	return c.next.TxSearch(ctx, query, prove, page, perPage, orderBy)
 }
 
+func (c *Client) TxSearchV2(
+	ctx context.Context,
+	query string,
+	prove bool,
+	page, perPage *int,
+	orderBy string,
+) (*ctypes.ResultTxSearch, error) {
+	return c.next.TxSearchV2(ctx, query, prove, page, perPage, orderBy)
+}
+
 func (c *Client) BlockSearch(
 	ctx context.Context,
 	query string,
@@ -509,6 +519,15 @@ func (c *Client) BlockSearch(
 	orderBy string,
 ) (*ctypes.ResultBlockSearch, error) {
 	return c.next.BlockSearch(ctx, query, page, perPage, orderBy)
+}
+
+func (c *Client) BlockSearchV2(
+	ctx context.Context,
+	query string,
+	page, perPage *int,
+	orderBy string,
+) (*ctypes.ResultBlockSearch, error) {
+	return c.next.BlockSearchV2(ctx, query, page, perPage, orderBy)
 }
 
 // Validators fetches and verifies validators.

@@ -39,7 +39,7 @@ func BenchmarkTxSearch(b *testing.B) {
 	}, blockStoreDB)
 	blockStore := bstore.NewBlockStore(blockStoreDB)
 	stateStore := sm.NewStore(dbm.NewPrefixDB(db, []byte("state_store")), sm.StoreOptions{})
-	indexer := NewTxIndex(db, blockStore, stateStore, 0)
+	indexer := NewTxIndex(db, blockStore, stateStore, 0, 0)
 
 	for i := 0; i < 1000; i++ {
 		events := []abci.Event{

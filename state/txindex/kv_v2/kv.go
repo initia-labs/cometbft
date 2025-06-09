@@ -74,7 +74,8 @@ type TxIndex struct {
 	// If set to 0, the index will retain all tx index.
 	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
 	// except "tx.hash" and "tx.height" and "block.height" which are always retained.
-	retainHeight int64
+	retainHeight  int64
+	maxQueryRange int64
 
 	// isMigrating is true if the indexer is migrating from the old indexer to the new one.
 	isMigrating bool
@@ -84,13 +85,14 @@ type TxIndex struct {
 }
 
 // NewTxIndex creates new KV indexer.
-func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *TxIndex {
+func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64, maxQueryRange int64) *TxIndex {
 	txi := &TxIndex{
-		store:        store,
-		log:          log.NewNopLogger(),
-		blockStore:   blockStore,
-		stateStore:   stateStore,
-		retainHeight: retainHeight,
+		store:         store,
+		log:           log.NewNopLogger(),
+		blockStore:    blockStore,
+		stateStore:    stateStore,
+		retainHeight:  retainHeight,
+		maxQueryRange: maxQueryRange,
 
 		newBlockNotifier: make(chan int64),
 	}
@@ -410,6 +412,10 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 			}
 			end = min(end, rangeEnd)
 		}
+	}
+
+	if txi.maxQueryRange > 0 && end-begin+1 > txi.maxQueryRange {
+		return fmt.Errorf("query range is too large, max query range is %d", txi.maxQueryRange)
 	}
 
 	// for indexed events
