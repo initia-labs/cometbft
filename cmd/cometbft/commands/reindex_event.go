@@ -117,8 +117,8 @@ func loadEventSinks(cfg *cmtcfg.Config, chainID string, blockStore *store.BlockS
 			return nil, nil, err
 		}
 
-		txIndexer := kvv2.NewTxIndex(store, blockStore, stateStore, cfg.TxIndex.RetainHeight)
-		blockIndexer := blockidxkvv2.New(dbm.NewPrefixDB(store, []byte("block_events")), blockStore, stateStore, cfg.TxIndex.RetainHeight)
+		txIndexer := kvv2.NewTxIndex(store, blockStore, stateStore, cfg.TxIndex.RetainHeight, cfg.TxIndex.MaxQueryRange)
+		blockIndexer := blockidxkvv2.New(dbm.NewPrefixDB(store, []byte("block_events")), blockStore, stateStore, cfg.TxIndex.RetainHeight, cfg.TxIndex.MaxQueryRange)
 		return blockIndexer, txIndexer, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported event sink type: %s", cfg.TxIndex.Indexer)
