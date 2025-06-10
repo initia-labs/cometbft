@@ -1042,8 +1042,6 @@ func (conR *Reactor) peerStatsRoutine() {
 					conR.Switch.MarkPeerAsGood(peer)
 				}
 			}
-		case <-conR.conS.Quit():
-			return
 
 		case <-conR.Quit():
 			return
