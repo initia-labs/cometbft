@@ -170,6 +170,15 @@ func (env *Environment) txSearchV2(
 	pagePtr, perPagePtr *int,
 	orderBy string,
 ) (*ctypes.ResultTxSearch, error) {
+	// during migration, we return an error to indicate the service is temporarily unavailable
+	if env.TxIndexerV2.IsMigrating() {
+		migrationHeight, err := env.TxIndexerV2.MigrationHeight()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("TxSearchV2 is not ready yet, migration height: %d", migrationHeight)
+	}
+
 	// if index is disabled, return error
 	if _, ok := env.TxIndexerV2.(*null.TxIndexV2); ok {
 		return nil, errors.New("transaction indexing is disabled")

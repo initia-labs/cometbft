@@ -296,6 +296,15 @@ func (env *Environment) blockSearchV2(
 	pagePtr, perPagePtr *int,
 	orderBy string,
 ) (*ctypes.ResultBlockSearch, error) {
+	// during migration, we return an error to indicate the service is temporarily unavailable
+	if env.BlockIndexerV2.IsMigrating() {
+		migrationHeight, err := env.BlockIndexerV2.MigrationHeight()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("BlockSearchV2 is not ready yet, migration height: %d", migrationHeight)
+	}
+
 	// skip if block indexing is disabled
 	if _, ok := env.BlockIndexerV2.(*blockidxv2null.BlockerIndexer); ok {
 		return nil, errors.New("block indexing is disabled")
