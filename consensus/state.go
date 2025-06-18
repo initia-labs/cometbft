@@ -464,6 +464,9 @@ func (cs *State) OnReset() error {
 	cs.wal = nilWAL{}
 	cs.done = make(chan struct{})
 
+	// reset commit round to -1 to ignore current consensus state
+	cs.CommitRound = -1
+
 	return nil
 }
 
