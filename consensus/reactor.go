@@ -153,7 +153,7 @@ func (conR *Reactor) SwitchToConsensus(state sm.State, skipWAL bool) {
 	err := conR.conS.Start()
 	if err != nil {
 		panic(fmt.Sprintf(`Failed to start consensus state: %v
-
+ 
 conS:
 %+v
 
@@ -162,6 +162,7 @@ conR:
 	}
 }
 
+// switchToBlockSync switches to block sync mode
 func (conR *Reactor) switchToBlockSync() error {
 	if conR.blockSyncReactor == nil {
 		return fmt.Errorf("block sync reactor is not set")
@@ -169,19 +170,17 @@ func (conR *Reactor) switchToBlockSync() error {
 
 	conR.Logger.Info("switchToBlockSync")
 
+	// stop state and wait for it to stop
+	// reset state for later use
 	err := conR.conS.Stop()
 	if err != nil {
 		return err
 	}
-
 	conR.conS.Wait()
-
 	err = conR.conS.Reset()
 	if err != nil {
 		return err
 	}
-	// reset commit round to -1 to ignore current consensus state
-	conR.conS.CommitRound = -1
 
 	conR.mtx.Lock()
 	conR.waitSync = true
