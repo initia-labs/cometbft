@@ -673,6 +673,8 @@ func (cs *State) votesFromSeenCommit(state sm.State) (*types.VoteSet, error) {
 }
 
 func (cs *State) UpdateToStateFromBlockSync(state sm.State) {
+	cs.mtx.Lock()
+	defer cs.mtx.Unlock()
 	if state.LastBlockHeight > 0 {
 		cs.reconstructLastCommit(state)
 	}
