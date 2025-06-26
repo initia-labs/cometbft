@@ -38,6 +38,8 @@ type consensusReactor interface {
 	// the consensus machine
 	SwitchToConsensus(state sm.State, skipWAL bool)
 
+	UpdateToStateFromBlockSync(state sm.State)
+
 	// IsValidator returns true if the node is a validator
 	IsValidator(state sm.State) bool
 }
@@ -670,6 +672,10 @@ FOR_LOOP:
 				lastHundred = time.Now()
 			}
 
+			conR, ok := bcR.Switch.Reactor("CONSENSUS").(consensusReactor)
+			if conR != nil && ok {
+				conR.UpdateToStateFromBlockSync(state)
+			}
 			continue FOR_LOOP
 
 		case <-bcR.Quit():

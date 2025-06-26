@@ -672,6 +672,13 @@ func (cs *State) votesFromSeenCommit(state sm.State) (*types.VoteSet, error) {
 	return vs, nil
 }
 
+func (cs *State) UpdateToStateFromBlockSync(state sm.State) {
+	if state.LastBlockHeight > 0 {
+		cs.reconstructLastCommit(state)
+	}
+	cs.updateToState(state)
+}
+
 // Updates State and increments height to match that of state.
 // The round becomes 0 and cs.Step becomes cstypes.RoundStepNewHeight.
 func (cs *State) updateToState(state sm.State) {
