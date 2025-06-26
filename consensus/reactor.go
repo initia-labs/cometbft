@@ -604,9 +604,9 @@ func (conR *Reactor) getRoundState() *cstypes.RoundState {
 }
 
 func (conR *Reactor) UpdateToStateFromBlockSync(state sm.State) {
-	conR.mtx.Lock()
+	conR.conS.mtx.Lock()
 	conR.conS.UpdateToStateFromBlockSync(state)
-	conR.mtx.Unlock()
+	conR.conS.mtx.Unlock()
 }
 
 func (conR *Reactor) gossipDataRoutine(peer p2p.Peer, ps *PeerState) {
