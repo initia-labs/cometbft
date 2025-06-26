@@ -393,6 +393,10 @@ func (bcR *Reactor) poolRoutine(stateSynced bool) {
 
 	initialCommitHasExtensions := (bcR.initialState.LastBlockHeight > 0 && bcR.store.LoadBlockExtendedCommit(bcR.initialState.LastBlockHeight) != nil)
 
+	updateToStateTicker := time.NewTicker(5 * time.Second)
+	defer updateToStateTicker.Stop()
+	lastUpdateState := state
+
 	go func() {
 		for {
 			select {
@@ -671,12 +675,14 @@ FOR_LOOP:
 					"max_peer_height", bcR.pool.MaxPeerHeight(), "blocks/s", lastRate)
 				lastHundred = time.Now()
 			}
-
-			conR, ok := bcR.Switch.Reactor("CONSENSUS").(consensusReactor)
-			if conR != nil && ok {
-				conR.UpdateToStateFromBlockSync(state)
-			}
 			continue FOR_LOOP
+
+		case <-updateToStateTicker.C:
+			conR, ok := bcR.Switch.Reactor("CONSENSUS").(consensusReactor)
+			if conR != nil && ok && state.LastBlockHeight > lastUpdateState.LastBlockHeight {
+				conR.UpdateToStateFromBlockSync(state)
+				lastUpdateState = state
+			}
 
 		case <-bcR.Quit():
 			break FOR_LOOP
