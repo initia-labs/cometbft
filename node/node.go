@@ -62,29 +62,30 @@ type Node struct {
 	isListening bool
 
 	// services
-	eventBus          *types.EventBus // pub/sub for services
-	stateStore        sm.Store
-	blockStore        *store.BlockStore // store the blockchain to disk
-	bcReactor         p2p.Reactor       // for block-syncing
-	mempoolReactor    p2p.Reactor       // for gossipping transactions
-	mempool           mempl.Mempool
-	stateSync         bool                    // whether the node should state sync on startup
-	stateSyncReactor  *statesync.Reactor      // for hosting and restoring state sync snapshots
-	stateSyncProvider statesync.StateProvider // provides state data for bootstrapping a node
-	stateSyncGenesis  sm.State                // provides the genesis state for state sync
-	consensusState    *cs.State               // latest consensus state
-	consensusReactor  *cs.Reactor             // for participating in the consensus
-	pexReactor        *pex.Reactor            // for exchanging peer addresses
-	evidencePool      *evidence.Pool          // tracking evidence
-	proxyApp          proxy.AppConns          // connection to the application
-	rpcListeners      []net.Listener          // rpc servers
-	txIndexer         txindex.TxIndexer
-	txIndexerV2       txindex.TxIndexerV2
-	blockIndexer      indexer.BlockIndexer
-	blockIndexerV2    indexerv2.BlockIndexer
-	indexerService    *txindex.IndexerService
-	prometheusSrv     *http.Server
-	pprofSrv          *http.Server
+	eventBus           *types.EventBus // pub/sub for services
+	stateStore         sm.Store
+	blockStore         *store.BlockStore // store the blockchain to disk
+	bcReactor          p2p.Reactor       // for block-syncing
+	mempoolReactor     p2p.Reactor       // for gossipping transactions
+	mempool            mempl.Mempool
+	stateSync          bool                    // whether the node should state sync on startup
+	stateSyncReactor   *statesync.Reactor      // for hosting and restoring state sync snapshots
+	stateSyncProvider  statesync.StateProvider // provides state data for bootstrapping a node
+	stateSyncGenesis   sm.State                // provides the genesis state for state sync
+	consensusState     *cs.State               // latest consensus state
+	consensusReactor   *cs.Reactor             // for participating in the consensus
+	pexReactor         *pex.Reactor            // for exchanging peer addresses
+	evidencePool       *evidence.Pool          // tracking evidence
+	proxyApp           proxy.AppConns          // connection to the application
+	rpcListeners       []net.Listener          // rpc servers
+	txIndexer          txindex.TxIndexer
+	txIndexerV2        txindex.TxIndexerV2
+	filtermapTxIndexer txindex.FiltermapTxIndexer
+	blockIndexer       indexer.BlockIndexer
+	blockIndexerV2     indexerv2.BlockIndexer
+	indexerService     *txindex.IndexerService
+	prometheusSrv      *http.Server
+	pprofSrv           *http.Server
 }
 
 // Option sets a parameter for the node.
@@ -327,7 +328,7 @@ func NewNodeWithContext(ctx context.Context,
 		return nil, err
 	}
 
-	indexerService, txIndexer, txIndexerV2, blockIndexer, blockIndexerV2, err := createAndStartIndexerService(ctx, config, blockStore, stateStore,
+	indexerService, txIndexer, txIndexerV2, filtermapTxIndexer, blockIndexer, blockIndexerV2, err := createAndStartIndexerService(ctx, config, blockStore, stateStore,
 		genDoc.ChainID, dbProvider, eventBus, logger)
 	if err != nil {
 		return nil, err
@@ -490,25 +491,26 @@ func NewNodeWithContext(ctx context.Context,
 		nodeInfo:  nodeInfo,
 		nodeKey:   nodeKey,
 
-		stateStore:       stateStore,
-		blockStore:       blockStore,
-		bcReactor:        bcReactor,
-		mempoolReactor:   mempoolReactor,
-		mempool:          mempool,
-		consensusState:   consensusState,
-		consensusReactor: consensusReactor,
-		stateSyncReactor: stateSyncReactor,
-		stateSync:        stateSync,
-		stateSyncGenesis: state, // Shouldn't be necessary, but need a way to pass the genesis state
-		pexReactor:       pexReactor,
-		evidencePool:     evidencePool,
-		proxyApp:         proxyApp,
-		txIndexer:        txIndexer,
-		txIndexerV2:      txIndexerV2,
-		indexerService:   indexerService,
-		blockIndexer:     blockIndexer,
-		blockIndexerV2:   blockIndexerV2,
-		eventBus:         eventBus,
+		stateStore:         stateStore,
+		blockStore:         blockStore,
+		bcReactor:          bcReactor,
+		mempoolReactor:     mempoolReactor,
+		mempool:            mempool,
+		consensusState:     consensusState,
+		consensusReactor:   consensusReactor,
+		stateSyncReactor:   stateSyncReactor,
+		stateSync:          stateSync,
+		stateSyncGenesis:   state, // Shouldn't be necessary, but need a way to pass the genesis state
+		pexReactor:         pexReactor,
+		evidencePool:       evidencePool,
+		proxyApp:           proxyApp,
+		txIndexer:          txIndexer,
+		txIndexerV2:        txIndexerV2,
+		filtermapTxIndexer: filtermapTxIndexer,
+		indexerService:     indexerService,
+		blockIndexer:       blockIndexer,
+		blockIndexerV2:     blockIndexerV2,
+		eventBus:           eventBus,
 	}
 	node.BaseService = *service.NewBaseService(logger, "Node", node)
 
@@ -681,10 +683,11 @@ func (n *Node) ConfigureRPC() (*rpccore.Environment, error) {
 		EventBus:         n.eventBus,
 		Mempool:          n.mempool,
 
-		TxIndexer:      n.txIndexer,
-		TxIndexerV2:    n.txIndexerV2,
-		BlockIndexer:   n.blockIndexer,
-		BlockIndexerV2: n.blockIndexerV2,
+		TxIndexer:          n.txIndexer,
+		TxIndexerV2:        n.txIndexerV2,
+		FiltermapTxIndexer: n.filtermapTxIndexer,
+		BlockIndexer:       n.blockIndexer,
+		BlockIndexerV2:     n.blockIndexerV2,
 
 		Logger: n.Logger.With("module", "rpc"),
 

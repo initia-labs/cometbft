@@ -1,6 +1,8 @@
 module github.com/cometbft/cometbft
 
-go 1.22.11
+go 1.23.0
+
+toolchain go1.23.6
 
 require (
 	github.com/BurntSushi/toml v1.4.0
@@ -27,8 +29,8 @@ require (
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/crypto v0.32.0
-	golang.org/x/net v0.34.0
+	golang.org/x/crypto v0.36.0
+	golang.org/x/net v0.38.0
 	google.golang.org/grpc v1.70.0
 )
 
@@ -38,13 +40,13 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.1
 	github.com/cometbft/cometbft-db v0.14.1
 	github.com/cosmos/gogoproto v1.7.0
-	github.com/ethereum/go-ethereum v1.14.11
+	github.com/ethereum/go-ethereum v1.16.0
 	github.com/go-git/go-git/v5 v5.13.2
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/oasisprotocol/curve25519-voi v0.0.0-20220708102147-0a8a51822cae
-	golang.org/x/sync v0.10.0
+	golang.org/x/sync v0.12.0
 	gonum.org/v1/gonum v0.15.1
 	google.golang.org/protobuf v1.36.4
 )
@@ -55,28 +57,26 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bits-and-blooms/bitset v1.13.0 // indirect
-	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
+	github.com/bits-and-blooms/bitset v1.20.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/cockroachdb/errors v1.11.3 // indirect
 	github.com/cockroachdb/fifo v0.0.0-20240606204812-0bbfbd93a7ce // indirect
 	github.com/cockroachdb/logtags v0.0.0-20230118201751-21c54148d20b // indirect
-	github.com/cockroachdb/pebble v1.1.2 // indirect
+	github.com/cockroachdb/pebble v1.1.5 // indirect
 	github.com/cockroachdb/redact v1.1.5 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
-	github.com/consensys/bavard v0.1.13 // indirect
-	github.com/consensys/gnark-crypto v0.12.1 // indirect
-	github.com/crate-crypto/go-ipa v0.0.0-20240223125850-b1e8a79f509c // indirect
-	github.com/crate-crypto/go-kzg-4844 v1.0.0 // indirect
+	github.com/consensys/gnark-crypto v0.18.0 // indirect
+	github.com/crate-crypto/go-eth-kzg v1.3.0 // indirect
+	github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a // indirect
 	github.com/cyphar/filepath-securejoin v0.3.6 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dgraph-io/badger/v4 v4.2.0 // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
-	github.com/ethereum/c-kzg-4844 v1.0.0 // indirect
-	github.com/ethereum/go-verkle v0.1.1-0.20240829091221-dffa7562dbe9 // indirect
+	github.com/ethereum/c-kzg-4844/v2 v2.1.0 // indirect
+	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/getsentry/sentry-go v0.27.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
@@ -89,7 +89,7 @@ require (
 	github.com/google/flatbuffers v1.12.1 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
-	github.com/holiman/uint256 v1.3.1 // indirect
+	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/jmhodges/levigo v1.0.0 // indirect
@@ -100,7 +100,6 @@ require (
 	github.com/linxGnu/grocksdb v1.8.14 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
-	github.com/mmcloughlin/addchain v0.4.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/petermattis/goid v0.0.0-20240813172612-4fcff4a6cae7 // indirect
@@ -117,22 +116,21 @@ require (
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/spf13/cast v1.6.0 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
-	github.com/supranational/blst v0.3.13 // indirect
+	github.com/supranational/blst v0.3.14 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.etcd.io/bbolt v1.4.0-alpha.0.0.20240404170359-43604f3112c5 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
-	golang.org/x/sys v0.29.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241202173237-19429a94021a // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	rsc.io/tmplfunc v0.0.3 // indirect
 )
 
 retract (

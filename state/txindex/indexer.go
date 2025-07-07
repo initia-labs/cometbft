@@ -75,6 +75,27 @@ type TxIndexerV2 interface {
 	NotifyNewBlock(height int64)
 }
 
+//go:generate ../../scripts/mockery_generate.sh FiltermapTxIndexer
+
+// FiltermapTxIndexer interface defines methods to index and search transactions.
+type FiltermapTxIndexer interface {
+	// AddBatch analyzes, indexes and stores a batch of transactions.
+	NotifyNewBlock(height int64)
+
+	// Start starts the indexer.
+	Start()
+
+	// Get returns the transaction specified by hash or nil if the transaction is not indexed
+	// or stored.
+	Get(hash []byte) (*abci.TxResult, error)
+
+	// Search allows you to query for transactions.
+	Search(ctx context.Context, q *query.Query, maxCount int64) (chan abci.TxResult, chan error)
+
+	//Set Logger
+	SetLogger(l log.Logger)
+}
+
 // Batch groups together multiple Index operations to be performed at the same time.
 // NOTE: Batch is NOT thread-safe and must not be modified after starting its execution.
 type Batch struct {

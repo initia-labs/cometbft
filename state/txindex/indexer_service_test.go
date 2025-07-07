@@ -52,7 +52,7 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 	txIndexerV2 := kvv2.NewTxIndex(store, blockStore, stateStore, 0, 0)
 	blockIndexerV2 := blockidxkvv2.New(db.NewPrefixDB(store, []byte("block_events")), blockStore, nil, 0, 0)
 
-	service := txindex.NewIndexerService(txIndexer, txIndexerV2, blockIndexer, blockIndexerV2, eventBus, false)
+	service := txindex.NewIndexerService(txIndexer, txIndexerV2, nil, blockIndexer, blockIndexerV2, eventBus, false)
 	service.SetLogger(log.TestingLogger())
 	err = service.Start()
 	require.NoError(t, err)

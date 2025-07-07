@@ -80,14 +80,15 @@ type Environment struct {
 	P2PTransport     transport
 
 	// objects
-	PubKey         crypto.PubKey
-	GenDoc         *types.GenesisDoc // cache the genesis structure
-	TxIndexer      txindex.TxIndexer
-	TxIndexerV2    txindex.TxIndexerV2
-	BlockIndexer   indexer.BlockIndexer
-	BlockIndexerV2 indexerv2.BlockIndexer
-	EventBus       *types.EventBus // thread safe
-	Mempool        mempl.Mempool
+	PubKey             crypto.PubKey
+	GenDoc             *types.GenesisDoc // cache the genesis structure
+	TxIndexer          txindex.TxIndexer
+	TxIndexerV2        txindex.TxIndexerV2
+	FiltermapTxIndexer txindex.FiltermapTxIndexer
+	BlockIndexer       indexer.BlockIndexer
+	BlockIndexerV2     indexerv2.BlockIndexer
+	EventBus           *types.EventBus // thread safe
+	Mempool            mempl.Mempool
 
 	Logger log.Logger
 

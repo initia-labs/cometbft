@@ -33,6 +33,7 @@ func (env *Environment) GetRoutes() RoutesMap {
 		"tx":                   rpc.NewRPCFunc(env.Tx, "hash,prove", rpc.Cacheable()),
 		"tx_search":            rpc.NewRPCFunc(env.TxSearch, "query,prove,page,per_page,order_by"),
 		"tx_search/v2":         rpc.NewRPCFunc(env.TxSearchV2, "query,prove,page,per_page,order_by"),
+		"tx_search/v3":         rpc.NewRPCFunc(env.TxSearchV3, "query,prove,page,per_page,order_by"),
 		"block_search":         rpc.NewRPCFunc(env.BlockSearch, "query,page,per_page,order_by"),
 		"block_search/v2":      rpc.NewRPCFunc(env.BlockSearchV2, "query,page,per_page,order_by"),
 		"validators":           rpc.NewRPCFunc(env.Validators, "height,page,per_page", rpc.Cacheable("height")),

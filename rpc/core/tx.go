@@ -280,3 +280,108 @@ RESULT_LOOP:
 
 	return &ctypes.ResultTxSearch{Txs: results, TotalCount: totalCount}, nil
 }
+
+func (env *Environment) TxSearchV3(
+	ctx *rpctypes.Context,
+	query string,
+	prove bool,
+	pagePtr, perPagePtr *int,
+	orderBy string,
+) (*ctypes.ResultTxSearch, error) {
+
+	if len(query) > maxQueryLength {
+		return nil, errors.New("maximum query length exceeded")
+	}
+
+	if orderBy == "desc" {
+		return nil, errors.New("order_by is not supported")
+	}
+
+	q, err := cmtquery.New(query)
+	if err != nil {
+		return nil, err
+	}
+
+	resultChan, errChan := env.FiltermapTxIndexer.Search(ctx.Context(), q, maxTotalCount)
+
+	perPage := env.validatePerPage(perPagePtr)
+	page := 1
+	if pagePtr != nil {
+		page = *pagePtr
+	}
+	if page <= 0 {
+		return nil, fmt.Errorf("page should be greater than 0")
+	} else if page*perPage > maxTotalCount {
+		return nil, fmt.Errorf("page size is too large, max count is %d", maxTotalCount)
+	}
+
+	results := make([]*ctypes.ResultTx, 0, perPage)
+	totalCount := 0
+
+	// cache for block and response
+	type cache struct {
+		block    *types.Block
+		response *abci.ResponseFinalizeBlock
+	}
+
+	// use cache to avoid loading the same block and response multiple times
+	blockCache := make(map[int64]cache)
+RESULT_LOOP:
+	for {
+		select {
+		case result, ok := <-resultChan:
+			if !ok {
+				break RESULT_LOOP
+			}
+			totalCount++
+			if totalCount > maxTotalCount {
+				break RESULT_LOOP
+			} else if totalCount <= (page-1)*perPage || totalCount > page*perPage {
+				continue
+			}
+
+			var block *types.Block
+			var response *abci.ResponseFinalizeBlock
+			if c, ok := blockCache[result.Height]; ok {
+				block = c.block
+				response = c.response
+			} else {
+				block = env.BlockStore.LoadBlock(result.Height)
+				if block == nil {
+					totalCount--
+					continue
+				}
+				response, err = env.StateStore.LoadFinalizeBlockResponse(result.Height)
+				if err != nil || response == nil {
+					totalCount--
+					continue
+				}
+
+				blockCache[result.Height] = cache{
+					block:    block,
+					response: response,
+				}
+			}
+
+			var proof types.TxProof
+			if prove {
+				proof = block.Data.Txs.Proof(int(result.Index))
+			}
+
+			results = append(results, &ctypes.ResultTx{
+				Hash:     block.Data.Txs[result.Index].Hash(),
+				Height:   result.Height,
+				Index:    result.Index,
+				TxResult: *response.TxResults[result.Index],
+				Tx:       block.Data.Txs[result.Index],
+				Proof:    proof,
+			})
+		case err := <-errChan:
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return &ctypes.ResultTxSearch{Txs: results, TotalCount: totalCount}, nil
+}

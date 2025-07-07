@@ -30,6 +30,7 @@ type IndexerService struct {
 
 	txIdxr           TxIndexer
 	txIdxrV2         TxIndexerV2
+	filterMapTxIdxr  FiltermapTxIndexer
 	blockIdxr        indexer.BlockIndexer
 	blockIdxrV2      indexerv2.BlockIndexer
 	eventBus         *types.EventBus
@@ -40,12 +41,13 @@ type IndexerService struct {
 func NewIndexerService(
 	txIdxr TxIndexer,
 	txIdxrV2 TxIndexerV2,
+	filterMapTxIdxr FiltermapTxIndexer,
 	blockIdxr indexer.BlockIndexer,
 	blockIdxrV2 indexerv2.BlockIndexer,
 	eventBus *types.EventBus,
 	terminateOnError bool,
 ) *IndexerService {
-	is := &IndexerService{txIdxr: txIdxr, txIdxrV2: txIdxrV2, blockIdxr: blockIdxr, blockIdxrV2: blockIdxrV2, eventBus: eventBus, terminateOnError: terminateOnError}
+	is := &IndexerService{txIdxr: txIdxr, txIdxrV2: txIdxrV2, filterMapTxIdxr: filterMapTxIdxr, blockIdxr: blockIdxr, blockIdxrV2: blockIdxrV2, eventBus: eventBus, terminateOnError: terminateOnError}
 	is.BaseService = *service.NewBaseService(nil, "IndexerService", is)
 	return is
 }
@@ -81,6 +83,8 @@ func (is *IndexerService) OnStart() error {
 
 		txIdx2PruningRunning := atomic.Bool{}
 		txIdx2PruningRunning.Store(false)
+
+		is.filterMapTxIdxr.Start()
 
 		for {
 			select {
@@ -160,6 +164,9 @@ func (is *IndexerService) OnStart() error {
 				} else {
 					is.Logger.Debug("indexed transactions v2", "height", height, "num_txs", numTxs)
 				}
+
+				is.filterMapTxIdxr.NotifyNewBlock(height)
+				is.Logger.Debug("indexed filtermap transactions", "height", height, "num_txs", numTxs)
 
 				if !is.txIdxrV2.IsMigrating() {
 					is.txIdxrV2.NotifyNewBlock(height)
