@@ -36,7 +36,9 @@ func (f *FilterMaps) indexerLoop() {
 	defer f.logger.Info("Log indexer stopped")
 
 	if f.disabled {
-		f.reset()
+		if err := f.reset(); err != nil {
+			f.logger.Error("Failed to reset filtermaps", "error", err)
+		}
 		close(f.disabledCh)
 		return
 	}
@@ -241,7 +243,10 @@ func (f *FilterMaps) tryIndexHead() error {
 		f.processEvents()
 		return f.stop
 	}, func() {
-		f.tryUnindexTail()
+		_, err := f.tryUnindexTail()
+		if err != nil {
+			f.logger.Error("Failed to unindex tail", "error", err)
+		}
 		if f.indexedRange.hasIndexedBlocks() && f.indexedRange.blocks.AfterLast() >= f.ptrHeadIndex &&
 			((!f.loggedHeadIndex && time.Since(f.startedHeadIndexAt) > headLogDelay) ||
 				time.Since(f.lastLogHeadIndex) > logFrequency) {

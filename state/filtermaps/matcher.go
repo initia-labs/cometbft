@@ -66,10 +66,8 @@ type SyncRange struct {
 }
 
 // GetPotentialMatches returns a list of logs that are potential matches for the
-// given filter criteria. If parts of the log index in the searched range are
-// missing or changed during the search process then the resulting logs belonging
-// to that block range might be missing or incorrect.
-// Also note that the returned list may contain false positives.
+// given filter criteria. This finds logs that contain ALL of the specified events
+// by processing multiple singleMatchers in parallel and computing intersection at TxEvent level.
 func GetPotentialMatches(ctx context.Context, logger log.Logger, backend MatcherBackend, firstBlock, lastBlock uint64, events []string) ([]*TxEvent, error) {
 	params := backend.GetParams()
 	// find the log value index range to search
@@ -85,19 +83,17 @@ func GetPotentialMatches(ctx context.Context, logger log.Logger, backend Matcher
 		lastIndex--
 	}
 
-	// build matcher according to the given filter criteria
-	matchers := make([]matcher, len(events))
-
+	// create multiple singleMatcher instances
+	matchers := make([]*singleMatcher, len(events))
 	for i, event := range events {
-		// matchTopic signals a match when there is a match for any of the topics
-		// specified for the given position (topicList).
-		// If topicList is empty then it creates a "wild card" matcher that signals
-		// every index as a potential match.
-		matchers[i] = matchAny{&singleMatcher{backend: backend, value: eventValue(event)}}
+		matchers[i] = &singleMatcher{
+			backend: backend,
+			value:   eventValue(event),
+		}
 	}
-	// matcher is the final sequence matcher that signals a match when all underlying
-	// matchers signal a match for consecutive log value indices.
-	matcher := newMatchSequence(params, matchers)
+
+	// create multi-event matcher that processes all singleMatchers in parallel
+	matcher := newMultiEventMatcher(matchers)
 
 	m := &matcherEnv{
 		ctx:        ctx,
@@ -110,20 +106,7 @@ func GetPotentialMatches(ctx context.Context, logger log.Logger, backend Matcher
 		lastMap:    uint32(lastIndex >> params.logValuesPerMap),
 	}
 
-	start := time.Now()
 	res, err := m.process()
-
-	if doRuntimeStats {
-		logger.Info("Log search finished", "elapsed", time.Since(start))
-		for i, ma := range matchers {
-			for j, m := range ma.(matchAny) {
-				logger.Info("Single matcher stats", "matchSequence", i, "matchAny", j)
-				m.(*singleMatcher).stats.print(logger)
-			}
-		}
-		logger.Info("Get log stats")
-		m.getLogStats.print(logger)
-	}
 	return res, err
 }
 
@@ -221,7 +204,13 @@ func (m *matcherEnv) processEpoch(epochIndex uint32) ([]*TxEvent, error) {
 	for i := range mapIndices {
 		mapIndices[i] = fm + uint32(i)
 	}
-	// find potential matches
+
+	// Check if this is a multiEventMatcher
+	if multiMatcher, ok := m.matcher.(*multiEventMatcher); ok {
+		return m.processMultiEventEpoch(multiMatcher, mapIndices)
+	}
+
+	// find potential matches for regular matchers
 	matches, err := m.getAllMatches(mapIndices)
 	if err != nil {
 		return txEvents, err
@@ -242,6 +231,131 @@ func (m *matcherEnv) processEpoch(epochIndex uint32) ([]*TxEvent, error) {
 	}
 	m.getLogStats.addAmount(st, int64(len(txEvents)))
 	return txEvents, nil
+}
+
+// processMultiEventEpoch processes a multiEventMatcher by running each individual
+// matcher separately and computing intersection at TxEvent level based on
+// block number and tx index.
+func (m *matcherEnv) processMultiEventEpoch(multiMatcher *multiEventMatcher, mapIndices []uint32) ([]*TxEvent, error) {
+	var st int
+	m.getLogStats.setState(&st, stGetLog)
+	defer m.getLogStats.setState(&st, stNone)
+
+	// collect TxEvents from all individual matchers
+	allTxEvents := make([][]*TxEvent, len(multiMatcher.matchers))
+
+	for i, singleMatcher := range multiMatcher.matchers {
+		// create a temporary matcherEnv for this single matcher
+		tempEnv := &matcherEnv{
+			ctx:        m.ctx,
+			backend:    m.backend,
+			params:     m.params,
+			matcher:    singleMatcher,
+			firstIndex: m.firstIndex,
+			lastIndex:  m.lastIndex,
+			firstMap:   m.firstMap,
+			lastMap:    m.lastMap,
+		}
+
+		// get matches for this single matcher
+		matches, err := tempEnv.getAllMatches(mapIndices)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get matches for event %d: %v", i, err)
+		}
+
+		// convert potential matches to TxEvents and deduplicate by transaction
+		var txEvents []*TxEvent
+		seenTxs := make(map[txKey]bool)
+
+		for _, match := range matches {
+			if match == nil {
+				return nil, ErrMatchAll
+			}
+			mTxEvents, err := tempEnv.getLogsFromMatches(match)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get logs for event %d: %v", i, err)
+			}
+
+			// deduplicate by transaction (blockNumber, txIndex)
+			for _, txEvent := range mTxEvents {
+				key := txKey{
+					blockNumber: uint64(txEvent.BlockNumber),
+					txIndex:     uint32(txEvent.TxIndex),
+				}
+				if !seenTxs[key] {
+					txEvents = append(txEvents, txEvent)
+					seenTxs[key] = true
+				}
+			}
+		}
+
+		allTxEvents[i] = txEvents
+	}
+
+	// compute intersection at TxEvent level
+	intersectionTxEvents := m.computeTxEventIntersection(allTxEvents)
+
+	m.getLogStats.addAmount(st, int64(len(intersectionTxEvents)))
+	return intersectionTxEvents, nil
+}
+
+// txKey represents a unique transaction identifier
+type txKey struct {
+	blockNumber uint64
+	txIndex     uint32
+}
+
+// computeTxEventIntersection computes the intersection of multiple TxEvent slices
+// based on block number and tx index.
+func (m *matcherEnv) computeTxEventIntersection(allTxEvents [][]*TxEvent) []*TxEvent {
+	if len(allTxEvents) == 0 {
+		return []*TxEvent{}
+	}
+
+	if len(allTxEvents) == 1 {
+		return allTxEvents[0]
+	}
+
+	// create a map to track (blockNumber, txIndex) occurrences
+
+	// count occurrences of each (blockNumber, txIndex) across all matcher results
+	keyCount := make(map[txKey]int)
+	keyToTxEvent := make(map[txKey]*TxEvent)
+
+	for _, txEvents := range allTxEvents {
+		seenKeys := make(map[txKey]bool) // to avoid double counting within same matcher
+
+		for _, txEvent := range txEvents {
+			key := txKey{
+				blockNumber: uint64(txEvent.BlockNumber),
+				txIndex:     uint32(txEvent.TxIndex),
+			}
+
+			// Only count each (blockNumber, txIndex) combination once per matcher
+			// This handles the case where same transaction has multiple events of same type
+			if !seenKeys[key] {
+				keyCount[key]++
+				// Always store the first TxEvent we encounter for this key
+				// (we only care about the transaction, not the specific event within it)
+				if keyToTxEvent[key] == nil {
+					keyToTxEvent[key] = txEvent
+				}
+				seenKeys[key] = true
+			}
+		}
+	}
+
+	// collect TxEvents that appear in all matcher results
+	var result []*TxEvent
+	requiredCount := len(allTxEvents)
+
+	for key, count := range keyCount {
+		if count == requiredCount {
+			result = append(result, keyToTxEvent[key])
+		}
+	}
+
+	return result
 }
 
 // getLogsFromMatches returns the list of potentially matching logs located at
@@ -421,172 +535,6 @@ func (m *singleMatcherInstance) cleanMapIndices() {
 	m.mapIndices = m.mapIndices[:j]
 }
 
-// matchAny combinines a set of matchers and returns a match for every position
-// where any of the underlying matchers signaled a match. A zero-length matchAny
-// acts as a "wild card" that signals a potential match at every position.
-type matchAny []matcher
-
-// matchAnyInstance is an instance of matchAny.
-type matchAnyInstance struct {
-	matchAny
-	childInstances []matcherInstance
-	childResults   map[uint32]matchAnyResults
-}
-
-// matchAnyResults is used by matchAnyInstance to collect results from all
-// child matchers for a specific map index. Once all results has been received
-// a merged result is returned for the given map and this structure is discarded.
-type matchAnyResults struct {
-	matches  []potentialMatches
-	done     []bool
-	needMore int
-}
-
-// newInstance creates a new instance of matchAny.
-func (m matchAny) newInstance(mapIndices []uint32) matcherInstance {
-	if len(m) == 1 {
-		return m[0].newInstance(mapIndices)
-	}
-	childResults := make(map[uint32]matchAnyResults)
-	for _, idx := range mapIndices {
-		childResults[idx] = matchAnyResults{
-			matches:  make([]potentialMatches, len(m)),
-			done:     make([]bool, len(m)),
-			needMore: len(m),
-		}
-	}
-	childInstances := make([]matcherInstance, len(m))
-	for i, matcher := range m {
-		childInstances[i] = matcher.newInstance(mapIndices)
-	}
-	return &matchAnyInstance{
-		matchAny:       m,
-		childInstances: childInstances,
-		childResults:   childResults,
-	}
-}
-
-// getMatchesForLayer implements matcherInstance.
-func (m *matchAnyInstance) getMatchesForLayer(ctx context.Context, layerIndex uint32) (mergedResults []matcherResult, err error) {
-	if len(m.matchAny) == 0 {
-		// return "wild card" results (potentialMatches(nil) is interpreted as a
-		// potential match at every log value index of the map).
-		mergedResults = make([]matcherResult, len(m.childResults))
-		var i int
-		for mapIndex := range m.childResults {
-			mergedResults[i] = matcherResult{mapIndex: mapIndex, matches: nil}
-			i++
-		}
-		return mergedResults, nil
-	}
-	for i, childInstance := range m.childInstances {
-		results, err := childInstance.getMatchesForLayer(ctx, layerIndex)
-		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate child matcher on layer %d: %v", layerIndex, err)
-		}
-		for _, result := range results {
-			mr, ok := m.childResults[result.mapIndex]
-			if !ok || mr.done[i] {
-				continue
-			}
-			mr.done[i] = true
-			mr.matches[i] = result.matches
-			mr.needMore--
-			if mr.needMore == 0 || result.matches == nil {
-				mergedResults = append(mergedResults, matcherResult{
-					mapIndex: result.mapIndex,
-					matches:  mergeResults(mr.matches),
-				})
-				delete(m.childResults, result.mapIndex)
-			} else {
-				m.childResults[result.mapIndex] = mr
-			}
-		}
-	}
-	return mergedResults, nil
-}
-
-// dropIndices implements matcherInstance.
-func (m *matchAnyInstance) dropIndices(dropIndices []uint32) {
-	for _, childInstance := range m.childInstances {
-		childInstance.dropIndices(dropIndices)
-	}
-	for _, mapIndex := range dropIndices {
-		delete(m.childResults, mapIndex)
-	}
-}
-
-// mergeResults merges multiple lists of matches into a single one, preserving
-// ascending order and filtering out any duplicates.
-func mergeResults(results []potentialMatches) potentialMatches {
-	if len(results) == 0 {
-		return nil
-	}
-	var sumLen int
-	for _, res := range results {
-		if res == nil {
-			// nil is a wild card; all indices in map range are potential matches
-			return nil
-		}
-		sumLen += len(res)
-	}
-	merged := make(potentialMatches, 0, sumLen)
-	for {
-		best := -1
-		for i, res := range results {
-			if len(res) == 0 {
-				continue
-			}
-			if best < 0 || res[0] < results[best][0] {
-				best = i
-			}
-		}
-		if best < 0 {
-			return merged
-		}
-		if len(merged) == 0 || results[best][0] > merged[len(merged)-1] {
-			merged = append(merged, results[best][0])
-		}
-		results[best] = results[best][1:]
-	}
-}
-
-// matchSequence combines two matchers, a "base" and a "next" matcher with a
-// positive integer offset so that the resulting matcher signals a match at log
-// value index X when the base matcher returns a match at X and the next matcher
-// gives a match at X+offset. Note that matchSequence can be used recursively to
-// detect any log value sequence.
-type matchSequence struct {
-	params               *Params
-	base, next           matcher
-	offset               uint64
-	statsLock            sync.Mutex
-	baseStats, nextStats matchOrderStats
-}
-
-// newInstance creates a new instance of matchSequence.
-func (m *matchSequence) newInstance(mapIndices []uint32) matcherInstance {
-	// determine set of indices to request from next matcher
-	needMatched := make(map[uint32]struct{})
-	baseRequested := make(map[uint32]struct{})
-	nextRequested := make(map[uint32]struct{})
-	for _, mapIndex := range mapIndices {
-		needMatched[mapIndex] = struct{}{}
-		baseRequested[mapIndex] = struct{}{}
-		nextRequested[mapIndex] = struct{}{}
-	}
-	return &matchSequenceInstance{
-		matchSequence: m,
-		baseInstance:  m.base.newInstance(mapIndices),
-		nextInstance:  m.next.newInstance(mapIndices),
-		needMatched:   needMatched,
-		baseRequested: baseRequested,
-		nextRequested: nextRequested,
-		baseResults:   make(map[uint32]potentialMatches),
-		nextResults:   make(map[uint32]potentialMatches),
-	}
-}
-
 // matchOrderStats collects statistics about the evaluating cost and the
 // occurrence of empty result sets from both base and next child matchers.
 // This allows the optimization of the evaluation order by evaluating the
@@ -620,199 +568,6 @@ func (ms *matchOrderStats) mergeStats(add matchOrderStats) {
 	ms.totalCount += add.totalCount
 	ms.nonEmptyCount += add.nonEmptyCount
 	ms.totalCost += add.totalCost
-}
-
-// baseFirst returns true if the base child matcher should be evaluated first.
-func (m *matchSequence) baseFirst() bool {
-	m.statsLock.Lock()
-	bf := float64(m.baseStats.totalCost)*float64(m.nextStats.totalCount)+
-		float64(m.baseStats.nonEmptyCount)*float64(m.nextStats.totalCost) <
-		float64(m.baseStats.totalCost)*float64(m.nextStats.nonEmptyCount)+
-			float64(m.nextStats.totalCost)*float64(m.baseStats.totalCount)
-	m.statsLock.Unlock()
-	return bf
-}
-
-// mergeBaseStats merges a set of matchOrderStats into the base matcher stats.
-func (m *matchSequence) mergeBaseStats(stats matchOrderStats) {
-	m.statsLock.Lock()
-	m.baseStats.mergeStats(stats)
-	m.statsLock.Unlock()
-}
-
-// mergeNextStats merges a set of matchOrderStats into the next matcher stats.
-func (m *matchSequence) mergeNextStats(stats matchOrderStats) {
-	m.statsLock.Lock()
-	m.nextStats.mergeStats(stats)
-	m.statsLock.Unlock()
-}
-
-// newMatchSequence creates a recursive sequence matcher from a list of underlying
-// matchers. The resulting matcher signals a match at log value index X when each
-// underlying matcher matchers[i] returns a match at X+i.
-func newMatchSequence(params *Params, matchers []matcher) matcher {
-	if len(matchers) == 0 {
-		panic("zero length sequence matchers are not allowed")
-	}
-	if len(matchers) == 1 {
-		return matchers[0]
-	}
-	return &matchSequence{
-		params: params,
-		base:   newMatchSequence(params, matchers[:len(matchers)-1]),
-		next:   matchers[len(matchers)-1],
-		offset: uint64(len(matchers) - 1),
-	}
-}
-
-// matchSequenceInstance is an instance of matchSequence.
-type matchSequenceInstance struct {
-	*matchSequence
-	baseInstance, nextInstance                matcherInstance
-	baseRequested, nextRequested, needMatched map[uint32]struct{}
-	baseResults, nextResults                  map[uint32]potentialMatches
-}
-
-// getMatchesForLayer implements matcherInstance.
-func (m *matchSequenceInstance) getMatchesForLayer(ctx context.Context, layerIndex uint32) (matchedResults []matcherResult, err error) {
-	// decide whether to evaluate base or next matcher first
-	baseFirst := m.baseFirst()
-	if baseFirst {
-		if err := m.evalBase(ctx, layerIndex); err != nil {
-			return nil, err
-		}
-	}
-	if err := m.evalNext(ctx, layerIndex); err != nil {
-		return nil, err
-	}
-	if !baseFirst {
-		if err := m.evalBase(ctx, layerIndex); err != nil {
-			return nil, err
-		}
-	}
-	// evaluate and return matched results where possible
-	for mapIndex := range m.needMatched {
-		if _, ok := m.baseRequested[mapIndex]; ok {
-			continue
-		}
-		if _, ok := m.nextRequested[mapIndex]; ok {
-			continue
-		}
-		matchedResults = append(matchedResults, matcherResult{
-			mapIndex: mapIndex,
-			matches:  m.params.matchResults(mapIndex, m.offset, m.baseResults[mapIndex], m.nextResults[mapIndex]),
-		})
-		delete(m.needMatched, mapIndex)
-	}
-	return matchedResults, nil
-}
-
-// dropIndices implements matcherInstance.
-func (m *matchSequenceInstance) dropIndices(dropIndices []uint32) {
-	for _, mapIndex := range dropIndices {
-		delete(m.needMatched, mapIndex)
-	}
-	var dropBase, dropNext []uint32
-	for _, mapIndex := range dropIndices {
-		if m.dropBase(mapIndex) {
-			dropBase = append(dropBase, mapIndex)
-		}
-	}
-	m.baseInstance.dropIndices(dropBase)
-	for _, mapIndex := range dropIndices {
-		if m.dropNext(mapIndex) {
-			dropNext = append(dropNext, mapIndex)
-		}
-	}
-	m.nextInstance.dropIndices(dropNext)
-}
-
-// evalBase evaluates the base child matcher and drops map indices from the
-// next matcher if possible.
-func (m *matchSequenceInstance) evalBase(ctx context.Context, layerIndex uint32) error {
-	results, err := m.baseInstance.getMatchesForLayer(ctx, layerIndex)
-	if err != nil {
-		return fmt.Errorf("failed to evaluate base matcher on layer %d: %v", layerIndex, err)
-	}
-	var (
-		dropIndices []uint32
-		stats       matchOrderStats
-	)
-	for _, r := range results {
-		m.baseResults[r.mapIndex] = r.matches
-		delete(m.baseRequested, r.mapIndex)
-		stats.add(r.matches != nil && len(r.matches) == 0, layerIndex)
-	}
-	m.mergeBaseStats(stats)
-	for _, r := range results {
-		if m.dropNext(r.mapIndex) {
-			dropIndices = append(dropIndices, r.mapIndex)
-		}
-	}
-	if len(dropIndices) > 0 {
-		m.nextInstance.dropIndices(dropIndices)
-	}
-	return nil
-}
-
-// evalNext evaluates the next child matcher and drops map indices from the
-// base matcher if possible.
-func (m *matchSequenceInstance) evalNext(ctx context.Context, layerIndex uint32) error {
-	results, err := m.nextInstance.getMatchesForLayer(ctx, layerIndex)
-	if err != nil {
-		return fmt.Errorf("failed to evaluate next matcher on layer %d: %v", layerIndex, err)
-	}
-	var (
-		dropIndices []uint32
-		stats       matchOrderStats
-	)
-	for _, r := range results {
-		m.nextResults[r.mapIndex] = r.matches
-		delete(m.nextRequested, r.mapIndex)
-		stats.add(r.matches != nil && len(r.matches) == 0, layerIndex)
-	}
-	m.mergeNextStats(stats)
-	for _, r := range results {
-		if m.dropBase(r.mapIndex) {
-			dropIndices = append(dropIndices, r.mapIndex)
-		}
-	}
-	if len(dropIndices) > 0 {
-		m.baseInstance.dropIndices(dropIndices)
-	}
-	return nil
-}
-
-// dropBase checks whether the given map index can be dropped from the base
-// matcher based on the known results from the next matcher and removes it
-// from the internal requested set and returns true if possible.
-func (m *matchSequenceInstance) dropBase(mapIndex uint32) bool {
-	if _, ok := m.baseRequested[mapIndex]; !ok {
-		return false
-	}
-	if _, ok := m.needMatched[mapIndex]; ok {
-		if next := m.nextResults[mapIndex]; next == nil || len(next) > 0 {
-			return false
-		}
-	}
-	delete(m.baseRequested, mapIndex)
-	return true
-}
-
-// dropNext checks whether the given map index can be dropped from the next
-// matcher based on the known results from the base matcher and removes it
-// from the internal requested set and returns true if possible.
-func (m *matchSequenceInstance) dropNext(mapIndex uint32) bool {
-	if _, ok := m.nextRequested[mapIndex]; !ok {
-		return false
-	}
-	if _, ok := m.needMatched[mapIndex]; ok {
-		if base := m.baseResults[mapIndex]; base == nil || len(base) > 0 {
-			return false
-		}
-	}
-	delete(m.nextRequested, mapIndex)
-	return true
 }
 
 // matchResults returns a list of sequence matches for the given mapIndex and
@@ -898,4 +653,65 @@ func (ts *runtimeStats) print(logger log.Logger) {
 	for i := 1; i < stCount; i++ {
 		logger.Info("Matcher stats", "name", stNames[i], "dt", time.Duration(ts.dt[i]), "count", ts.cnt[i], "amount", ts.amount[i])
 	}
+}
+
+// multiEventMatcher processes multiple singleMatcher instances and
+// computes intersection at TxEvent level based on block number and tx index.
+type multiEventMatcher struct {
+	matchers []*singleMatcher
+}
+
+// newMultiEventMatcher creates a new multiEventMatcher from multiple singleMatcher instances.
+func newMultiEventMatcher(matchers []*singleMatcher) matcher {
+	return &multiEventMatcher{
+		matchers: matchers,
+	}
+}
+
+// newInstance creates a new instance of multiEventMatcher.
+func (m *multiEventMatcher) newInstance(mapIndices []uint32) matcherInstance {
+	if len(m.matchers) == 0 {
+		panic("multiEventMatcher cannot have zero matchers")
+	}
+
+	// For multiple matchers, we need special handling
+	// Return a special instance that will be handled differently in processEpoch
+	return &multiEventMatcherInstance{
+		multiEventMatcher: m,
+		mapIndices:        append([]uint32(nil), mapIndices...),
+	}
+}
+
+// multiEventMatcherInstance is an instance of multiEventMatcher.
+type multiEventMatcherInstance struct {
+	*multiEventMatcher
+	mapIndices []uint32
+}
+
+// getMatchesForLayer implements matcherInstance.
+// This is a placeholder - the actual processing happens in processEpoch.
+func (m *multiEventMatcherInstance) getMatchesForLayer(ctx context.Context, layerIndex uint32) ([]matcherResult, error) {
+	// This should not be called for multi-event matching
+	// The actual logic is in processEpoch
+	return nil, fmt.Errorf("multiEventMatcherInstance.getMatchesForLayer should not be called")
+}
+
+// dropIndices implements matcherInstance.
+func (m *multiEventMatcherInstance) dropIndices(dropIndices []uint32) {
+	if len(dropIndices) == 0 {
+		return
+	}
+
+	keep := m.mapIndices[:0]
+	dropSet := make(map[uint32]struct{}, len(dropIndices))
+	for _, idx := range dropIndices {
+		dropSet[idx] = struct{}{}
+	}
+
+	for _, idx := range m.mapIndices {
+		if _, shouldDrop := dropSet[idx]; !shouldDrop {
+			keep = append(keep, idx)
+		}
+	}
+	m.mapIndices = keep
 }

@@ -57,7 +57,7 @@ func (fm *FilterMapsMatcherBackend) GetParams() *Params {
 }
 
 // Close removes the matcher from the set of active matchers and ensures that
-// any SyncLogIndex calls are cancelled.
+// any SyncLogIndex calls are canceled.
 // Close implements MatcherBackend.
 func (fm *FilterMapsMatcherBackend) Close() {
 	fm.f.matchersLock.Lock()
@@ -117,7 +117,7 @@ func (fm *FilterMapsMatcherBackend) GetLogByLvIndex(ctx context.Context, lvIndex
 	return fm.f.getLogByLvIndex(lvIndex)
 }
 
-// synced signals to the matcher that has triggered a synchronisation that it
+// synced signals to the matcher that has triggered a synchronization that it
 // has been finished and the log index is consistent with the chain head passed
 // as a parameter.
 //
@@ -147,7 +147,7 @@ func (fm *FilterMapsMatcherBackend) synced() {
 
 // SyncLogIndex ensures that the log index is consistent with the current state
 // of the chain and is synced up to the current head. It blocks until this state
-// is achieved or the context is cancelled.
+// is achieved or the context is canceled.
 // If successful, it returns a SyncRange that contains the latest chain head,
 // the indexed range that is currently consistent with the chain and the valid
 // range that has not been changed and has been consistent with all states of the

@@ -209,7 +209,7 @@ type Config struct {
 }
 
 // NewFilterMaps creates a new FilterMaps and starts the indexer.
-func NewFilterMaps(db dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, initHeight uint64, historyCutoff uint64, params Params, config Config) *FilterMaps {
+func NewFilterMaps(db dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, historyCutoff uint64, params Params, config Config) *FilterMaps {
 	rs, initialized, err := ReadFilterMapsRange(db)
 	if err != nil || (initialized && rs.Version != databaseVersion) {
 		rs, initialized = FilterMapsRange{}, false
@@ -230,8 +230,8 @@ func NewFilterMaps(db dbm.DB, blockStore *store.BlockStore, stateStore sm.Store,
 		disabledCh:        make(chan struct{}),
 		exportFileName:    config.ExportFileName,
 		Params:            params,
-		targetHeight:      initHeight,
-		indexedHeight:     initHeight,
+		targetHeight:      rs.BlocksAfterLast,
+		indexedHeight:     rs.BlocksAfterLast,
 		indexedRange: filterMapsRange{
 			initialized:      initialized,
 			headIndexed:      rs.HeadIndexed,

@@ -32,14 +32,14 @@ import (
 )
 
 const (
-	maxMapsPerBatch   = 1     // maximum number of maps rendered in memory
-	valuesPerCallback = 1     // log values processed per event process callback
+	maxMapsPerBatch   = 32    // maximum number of maps rendered in memory
+	valuesPerCallback = 1024  // log values processed per event process callback
 	cachedRowMappings = 10000 // log value to row mappings cached during rendering
 
 	// Number of rows written to db in a single batch.
 	// The map renderer splits up writes like this to ensure that regular
 	// block processing latency is not affected by large batch writes.
-	rowsPerBatch = 1
+	rowsPerBatch = 1024
 )
 
 var (
@@ -305,10 +305,8 @@ func (r *mapRenderer) run(stopCb func() bool, writeCb func()) (bool, error) {
 // renderCurrentMap renders a single map.
 func (r *mapRenderer) renderCurrentMap(stopCb func() bool) (bool, error) {
 	var (
-		totalTime                           time.Duration
 		logValuesProcessed, blocksProcessed int64
 	)
-	start := time.Now()
 	r.iterator.updateChainHeight(r.f.targetHeight)
 	var waitCnt int
 
@@ -322,11 +320,9 @@ func (r *mapRenderer) renderCurrentMap(stopCb func() bool) (bool, error) {
 	for r.iterator.lvIndex < uint64(r.currentMap.mapIndex+1)<<r.f.logValuesPerMap && !r.iterator.finished {
 		waitCnt++
 		if waitCnt >= valuesPerCallback {
-			totalTime += time.Since(start)
 			if stopCb() {
 				return false, nil
 			}
-			start = time.Now()
 			r.iterator.updateChainHeight(r.f.targetHeight)
 			waitCnt = 0
 		}
@@ -365,7 +361,6 @@ func (r *mapRenderer) renderCurrentMap(stopCb func() bool) (bool, error) {
 		r.currentMap.finished = true
 		r.currentMap.headDelimiter = r.iterator.lvIndex
 	}
-	totalTime += time.Since(start)
 	return true, nil
 }
 
@@ -478,21 +473,29 @@ func (r *mapRenderer) writeFinishedMaps(pauseCb func() bool) error {
 		if blockNumber != renderedMap.firstBlock() {
 			return fmt.Errorf("non-continuous block numbers in rendered map %d (next expected: %d  first rendered: %d)", mapIndex, blockNumber, renderedMap.firstBlock())
 		}
-		r.f.storeLastBlockOfMap(batch, mapIndex, renderedMap.lastBlock)
+		if err := r.f.storeLastBlockOfMap(batch, mapIndex, renderedMap.lastBlock); err != nil {
+			return fmt.Errorf("failed to store last block of map %d: %v", mapIndex, err)
+		}
 		checkWriteCnt()
 		for _, lvPtr := range renderedMap.blockLvPtrs {
-			r.f.storeBlockLvPointer(batch, blockNumber, lvPtr)
+			if err := r.f.storeBlockLvPointer(batch, blockNumber, lvPtr); err != nil {
+				return fmt.Errorf("failed to store block lv pointer %d: %v", lvPtr, err)
+			}
 			checkWriteCnt()
 			blockNumber++
 		}
 	}
 	if newRange.maps.AfterLast() == r.finished.AfterLast() { // head updated; remove future entries
 		for mapIndex := r.finished.AfterLast(); mapIndex < oldRange.maps.AfterLast(); mapIndex++ {
-			r.f.deleteLastBlockOfMap(batch, mapIndex)
+			if err := r.f.deleteLastBlockOfMap(batch, mapIndex); err != nil {
+				return fmt.Errorf("failed to delete last block of map %d: %v", mapIndex, err)
+			}
 			checkWriteCnt()
 		}
 		for ; blockNumber < oldRange.blocks.AfterLast(); blockNumber++ {
-			r.f.deleteBlockLvPointer(batch, blockNumber)
+			if err := r.f.deleteBlockLvPointer(batch, blockNumber); err != nil {
+				return fmt.Errorf("failed to delete block lv pointer %d: %v", blockNumber, err)
+			}
 			checkWriteCnt()
 		}
 	}
