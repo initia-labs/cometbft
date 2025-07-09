@@ -287,10 +287,25 @@ func (f *FilterMaps) Stop() {
 // init initializes an empty log index according to the current targetView.
 func (f *FilterMaps) init() error {
 	batch := f.db.NewBatch()
+
+	// Get the starting block number
+	startBlock := uint64(f.blockStore.Base() - 1)
+
 	fmr := filterMapsRange{
 		initialized: true,
-		blocks:      common.NewRange(uint64(f.blockStore.Base()-1), uint64(0)),
+		blocks:      common.NewRange(startBlock, uint64(0)),
 	}
+
+	// For statesync or chains that don't start from block 0,
+	// initialize the starting block's log value pointer to 0
+	if startBlock > 0 {
+		err := f.storeBlockLvPointer(batch, startBlock, 0)
+		if err != nil {
+			return fmt.Errorf("failed to store initial block lv pointer: %v", err)
+		}
+		f.logger.Info("Initialized FilterMaps for mid-chain start", "startBlock", startBlock)
+	}
+
 	err := f.setRange(batch, f.targetHeight, fmr, false)
 	if err != nil {
 		return err
