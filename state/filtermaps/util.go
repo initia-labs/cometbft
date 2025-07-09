@@ -9,10 +9,9 @@ import (
 type TxEvent struct {
 	BlockNumber int64
 	TxIndex     int
-	EventIndex  int
-	Event       abci.Event
+	Event       []abci.Event
 }
 
-func eventString(eventType string, eventAttribute abci.EventAttribute) string {
+func EventString(eventType string, eventAttribute abci.EventAttribute) string {
 	return fmt.Sprintf("%s.%s=%s", eventType, eventAttribute.Key, eventAttribute.Value)
 }

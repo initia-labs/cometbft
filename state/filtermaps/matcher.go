@@ -20,7 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -65,19 +65,21 @@ type SyncRange struct {
 	IndexedBlocks common.Range[uint64]
 }
 
-// GetPotentialMatches returns a list of logs that are potential matches for the
+// GetPotentialMatches streams logs that are potential matches for the
 // given filter criteria. This finds logs that contain ALL of the specified events
 // by processing multiple singleMatchers in parallel and computing intersection at TxEvent level.
-func GetPotentialMatches(ctx context.Context, logger log.Logger, backend MatcherBackend, firstBlock, lastBlock uint64, events []string) ([]*TxEvent, error) {
+// Results are sent to the provided channel one by one. The function returns when
+// context is cancelled or all results are processed.
+func GetPotentialMatches(ctx context.Context, logger log.Logger, backend MatcherBackend, firstBlock, lastBlock uint64, events []string, resultCh chan<- *TxEvent) error {
 	params := backend.GetParams()
 	// find the log value index range to search
 	firstIndex, err := backend.GetBlockLvPointer(ctx, firstBlock)
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve log value pointer for first block %d: %v", firstBlock, err)
+		return fmt.Errorf("failed to retrieve log value pointer for first block %d: %v", firstBlock, err)
 	}
 	lastIndex, err := backend.GetBlockLvPointer(ctx, lastBlock+1)
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve log value pointer after last block %d: %v", lastBlock, err)
+		return fmt.Errorf("failed to retrieve log value pointer after last block %d: %v", lastBlock, err)
 	}
 	if lastIndex > 0 {
 		lastIndex--
@@ -104,10 +106,146 @@ func GetPotentialMatches(ctx context.Context, logger log.Logger, backend Matcher
 		lastIndex:  lastIndex,
 		firstMap:   uint32(firstIndex >> params.logValuesPerMap),
 		lastMap:    uint32(lastIndex >> params.logValuesPerMap),
+		resultCh:   resultCh,
 	}
 
-	res, err := m.process()
-	return res, err
+	return m.processStreaming()
+}
+
+// processStreaming processes the matcher and streams results to the result channel
+// Processes epochs sequentially to guarantee ordering by (blockNumber, txIndex)
+func (m *matcherEnv) processStreaming() error {
+	firstEpoch, lastEpoch := m.firstMap>>m.params.logMapsPerEpoch, m.lastMap>>m.params.logMapsPerEpoch
+
+	// Process epochs sequentially to maintain order
+	for epochIndex := firstEpoch; epochIndex <= lastEpoch; epochIndex++ {
+		if err := m.processEpochStreaming(epochIndex); err != nil {
+			if err == ErrMatchAll {
+				return err
+			}
+			return fmt.Errorf("failed to process log index epoch %d: %v", epochIndex, err)
+		}
+	}
+
+	return nil
+}
+
+// processEpochStreaming processes one epoch and streams results to the result channel
+func (m *matcherEnv) processEpochStreaming(epochIndex uint32) error {
+	// create a list of map indices to process
+	fm, lm := epochIndex<<m.params.logMapsPerEpoch, (epochIndex+1)<<m.params.logMapsPerEpoch-1
+	if fm < m.firstMap {
+		fm = m.firstMap
+	}
+	if lm > m.lastMap {
+		lm = m.lastMap
+	}
+
+	mapIndices := make([]uint32, lm+1-fm)
+	for i := range mapIndices {
+		mapIndices[i] = fm + uint32(i)
+	}
+
+	// Check if this is a multiEventMatcher
+	if multiMatcher, ok := m.matcher.(*multiEventMatcher); ok {
+		return m.processMultiEventEpochDirectStreaming(multiMatcher, mapIndices)
+	}
+
+	// find potential matches for regular matchers
+	matches, err := m.getAllMatches(mapIndices)
+	if err != nil {
+		return err
+	}
+
+	// get the actual logs located at the matching log value indices
+	var st int
+	m.getLogStats.setState(&st, stGetLog)
+	defer m.getLogStats.setState(&st, stNone)
+
+	for _, match := range matches {
+		if match == nil {
+			return ErrMatchAll
+		}
+		if err := m.streamLogsFromMatches(match); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// processMultiEventEpochDirectStreaming processes a multiEventMatcher and streams results
+// directly to the result channel without collecting all results first
+func (m *matcherEnv) processMultiEventEpochDirectStreaming(multiMatcher *multiEventMatcher, mapIndices []uint32) error {
+	numMatchers := len(multiMatcher.matchers)
+	// if numMatchers == 1 {
+	// 	// single matcher optimization
+	// 	return m.processSingleMatcherEpochStreaming(multiMatcher.matchers[0], mapIndices)
+	// }
+
+	// create channels for each matcher
+	channels := make([]<-chan streamingTxEventResult, numMatchers)
+
+	// start each matcher in a separate goroutine
+	for i, singleMatcher := range multiMatcher.matchers {
+		ch := make(chan streamingTxEventResult, 100) // buffered for performance
+		channels[i] = ch
+
+		go m.runStreamingMatcher(singleMatcher, mapIndices, ch)
+	}
+
+	// perform streaming intersection and send results directly to result channel
+	return m.streamingIntersectTxEventsDirectly(channels)
+}
+
+// processSingleMatcherEpochStreaming handles the single matcher case efficiently
+func (m *matcherEnv) processSingleMatcherEpochStreaming(singleMatcher *singleMatcher, mapIndices []uint32) error {
+	tempEnv := &matcherEnv{
+		ctx:        m.ctx,
+		backend:    m.backend,
+		params:     m.params,
+		matcher:    singleMatcher,
+		firstIndex: m.firstIndex,
+		lastIndex:  m.lastIndex,
+		firstMap:   m.firstMap,
+		lastMap:    m.lastMap,
+	}
+
+	matches, err := tempEnv.getAllMatches(mapIndices)
+	if err != nil {
+		return err
+	}
+
+	seenTxs := make(map[txKey]bool)
+
+	for _, match := range matches {
+		if match == nil {
+			return ErrMatchAll
+		}
+
+		mTxEvents, err := tempEnv.getLogsFromMatches(match)
+		if err != nil {
+			return err
+		}
+
+		for _, txEvent := range mTxEvents {
+			key := txKey{
+				blockNumber: uint64(txEvent.BlockNumber),
+				txIndex:     uint32(txEvent.TxIndex),
+			}
+
+			if !seenTxs[key] {
+				select {
+				case m.resultCh <- txEvent:
+					seenTxs[key] = true
+				case <-m.ctx.Done():
+					return m.ctx.Err()
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 type matcherEnv struct {
@@ -118,185 +256,220 @@ type matcherEnv struct {
 	matcher               matcher
 	firstIndex, lastIndex uint64
 	firstMap, lastMap     uint32
+	resultCh              chan<- *TxEvent
 }
 
-func (m *matcherEnv) process() ([]*TxEvent, error) {
-	type task struct {
-		epochIndex uint32
-		txEvents   []*TxEvent
-		err        error
-		done       chan struct{}
-	}
-
-	taskCh := make(chan *task)
-	var wg sync.WaitGroup
-	defer func() {
-		close(taskCh)
-		wg.Wait()
-	}()
-
-	worker := func() {
-		for task := range taskCh {
-			if task == nil {
-				break
-			}
-			task.txEvents, task.err = m.processEpoch(task.epochIndex)
-			close(task.done)
-		}
-		wg.Done()
-	}
-
-	for range 4 {
-		wg.Add(1)
-		go worker()
-	}
-
-	firstEpoch, lastEpoch := m.firstMap>>m.params.logMapsPerEpoch, m.lastMap>>m.params.logMapsPerEpoch
-	var txEvents []*TxEvent
-	// startEpoch is the next task to send whenever a worker can accept it.
-	// waitEpoch is the next task we are waiting for to finish in order to append
-	// results in the correct order.
-	startEpoch, waitEpoch := firstEpoch, firstEpoch
-	tasks := make(map[uint32]*task)
-	tasks[startEpoch] = &task{epochIndex: startEpoch, done: make(chan struct{})}
-	for waitEpoch <= lastEpoch {
-		select {
-		case taskCh <- tasks[startEpoch]:
-			startEpoch++
-			if startEpoch <= lastEpoch {
-				if tasks[startEpoch] == nil {
-					tasks[startEpoch] = &task{epochIndex: startEpoch, done: make(chan struct{})}
-				}
-			}
-		case <-tasks[waitEpoch].done:
-			txEvents = append(txEvents, tasks[waitEpoch].txEvents...)
-			if err := tasks[waitEpoch].err; err != nil {
-				if err == ErrMatchAll {
-					return txEvents, err
-				}
-				return txEvents, fmt.Errorf("failed to process log index epoch %d: %v", waitEpoch, err)
-			}
-			delete(tasks, waitEpoch)
-			waitEpoch++
-			if waitEpoch <= lastEpoch {
-				if tasks[waitEpoch] == nil {
-					tasks[waitEpoch] = &task{epochIndex: waitEpoch, done: make(chan struct{})}
-				}
-			}
-		}
-	}
-	return txEvents, nil
+// streamingTxEventResult represents a streaming result from a matcher
+type streamingTxEventResult struct {
+	txEvent *TxEvent
+	err     error
+	done    bool // indicates end of stream
 }
 
-// processEpoch returns the potentially matching logs from the given epoch.
-func (m *matcherEnv) processEpoch(epochIndex uint32) ([]*TxEvent, error) {
-	var txEvents []*TxEvent
-	// create a list of map indices to process
-	fm, lm := epochIndex<<m.params.logMapsPerEpoch, (epochIndex+1)<<m.params.logMapsPerEpoch-1
-	if fm < m.firstMap {
-		fm = m.firstMap
-	}
-	if lm > m.lastMap {
-		lm = m.lastMap
-	}
-	//
-	mapIndices := make([]uint32, lm+1-fm)
-	for i := range mapIndices {
-		mapIndices[i] = fm + uint32(i)
+// runStreamingMatcher runs a single matcher and streams results to a channel
+func (m *matcherEnv) runStreamingMatcher(singleMatcher *singleMatcher, mapIndices []uint32, ch chan<- streamingTxEventResult) {
+	defer close(ch)
+
+	// create temporary matcherEnv for this single matcher
+	tempEnv := &matcherEnv{
+		ctx:        m.ctx,
+		backend:    m.backend,
+		params:     m.params,
+		matcher:    singleMatcher,
+		firstIndex: m.firstIndex,
+		lastIndex:  m.lastIndex,
+		firstMap:   m.firstMap,
+		lastMap:    m.lastMap,
 	}
 
-	// Check if this is a multiEventMatcher
-	if multiMatcher, ok := m.matcher.(*multiEventMatcher); ok {
-		return m.processMultiEventEpoch(multiMatcher, mapIndices)
-	}
-
-	// find potential matches for regular matchers
-	matches, err := m.getAllMatches(mapIndices)
+	// get matches for this single matcher
+	matches, err := tempEnv.getAllMatches(mapIndices)
 	if err != nil {
-		return txEvents, err
+		ch <- streamingTxEventResult{err: err}
+		return
 	}
-	// get the actual logs located at the matching log value indices
-	var st int
-	m.getLogStats.setState(&st, stGetLog)
-	defer m.getLogStats.setState(&st, stNone)
+
+	// collect and sort TxEvents before streaming
+	var allTxEvents []*TxEvent
+	seenTxs := make(map[txKey]bool)
+
 	for _, match := range matches {
 		if match == nil {
-			return nil, ErrMatchAll
+			ch <- streamingTxEventResult{err: ErrMatchAll}
+			return
 		}
-		mTxEvents, err := m.getLogsFromMatches(match)
+
+		mTxEvents, err := tempEnv.getLogsFromMatches(match)
 		if err != nil {
-			return txEvents, err
+			ch <- streamingTxEventResult{err: err}
+			return
 		}
-		txEvents = append(txEvents, mTxEvents...)
+
+		// collect unique transactions
+		for _, txEvent := range mTxEvents {
+			key := txKey{
+				blockNumber: uint64(txEvent.BlockNumber),
+				txIndex:     uint32(txEvent.TxIndex),
+			}
+
+			if !seenTxs[key] {
+				allTxEvents = append(allTxEvents, txEvent)
+				seenTxs[key] = true
+			}
+		}
 	}
-	m.getLogStats.addAmount(st, int64(len(txEvents)))
-	return txEvents, nil
+
+	// sort TxEvents by block number and tx index
+	sort.Slice(allTxEvents, func(i, j int) bool {
+		if allTxEvents[i].BlockNumber != allTxEvents[j].BlockNumber {
+			return allTxEvents[i].BlockNumber < allTxEvents[j].BlockNumber
+		}
+		return allTxEvents[i].TxIndex < allTxEvents[j].TxIndex
+	})
+
+	// stream sorted TxEvents
+	for _, txEvent := range allTxEvents {
+		ch <- streamingTxEventResult{txEvent: txEvent}
+	}
+
+	// signal end of stream
+	ch <- streamingTxEventResult{done: true}
 }
 
-// processMultiEventEpoch processes a multiEventMatcher by running each individual
-// matcher separately and computing intersection at TxEvent level based on
-// block number and tx index.
-func (m *matcherEnv) processMultiEventEpoch(multiMatcher *multiEventMatcher, mapIndices []uint32) ([]*TxEvent, error) {
-	var st int
-	m.getLogStats.setState(&st, stGetLog)
-	defer m.getLogStats.setState(&st, stNone)
-
-	// collect TxEvents from all individual matchers
-	allTxEvents := make([][]*TxEvent, len(multiMatcher.matchers))
-
-	for i, singleMatcher := range multiMatcher.matchers {
-		// create a temporary matcherEnv for this single matcher
-		tempEnv := &matcherEnv{
-			ctx:        m.ctx,
-			backend:    m.backend,
-			params:     m.params,
-			matcher:    singleMatcher,
-			firstIndex: m.firstIndex,
-			lastIndex:  m.lastIndex,
-			firstMap:   m.firstMap,
-			lastMap:    m.lastMap,
-		}
-
-		// get matches for this single matcher
-		matches, err := tempEnv.getAllMatches(mapIndices)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get matches for event %d: %v", i, err)
-		}
-
-		// convert potential matches to TxEvents and deduplicate by transaction
-		var txEvents []*TxEvent
-		seenTxs := make(map[txKey]bool)
-
-		for _, match := range matches {
-			if match == nil {
-				return nil, ErrMatchAll
-			}
-			mTxEvents, err := tempEnv.getLogsFromMatches(match)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get logs for event %d: %v", i, err)
-			}
-
-			// deduplicate by transaction (blockNumber, txIndex)
-			for _, txEvent := range mTxEvents {
-				key := txKey{
-					blockNumber: uint64(txEvent.BlockNumber),
-					txIndex:     uint32(txEvent.TxIndex),
-				}
-				if !seenTxs[key] {
-					txEvents = append(txEvents, txEvent)
-					seenTxs[key] = true
-				}
-			}
-		}
-
-		allTxEvents[i] = txEvents
+// streamingIntersectTxEventsDirectly performs N-way streaming intersection and sends results directly to result channel
+func (m *matcherEnv) streamingIntersectTxEventsDirectly(channels []<-chan streamingTxEventResult) error {
+	numChannels := len(channels)
+	if numChannels == 0 {
+		return nil
 	}
 
-	// compute intersection at TxEvent level
-	intersectionTxEvents := m.computeTxEventIntersection(allTxEvents)
+	// current head of each stream
+	heads := make([]*TxEvent, numChannels)
+	done := make([]bool, numChannels)
+	errored := false
 
-	m.getLogStats.addAmount(st, int64(len(intersectionTxEvents)))
-	return intersectionTxEvents, nil
+	// initialize heads by reading first item from each channel
+	for i := 0; i < numChannels; i++ {
+		if err := m.readNextFromChannel(channels[i], &heads[i], &done[i], &errored); err != nil {
+			return err
+		}
+		if errored {
+			return fmt.Errorf("error in matcher %d", i)
+		}
+	}
+
+	for {
+		// check if context is canceled
+		select {
+		case <-m.ctx.Done():
+			return m.ctx.Err()
+		default:
+		}
+
+		// check if any stream is done
+		anyDone := false
+		for i := 0; i < numChannels; i++ {
+			if done[i] {
+				anyDone = true
+				break
+			}
+		}
+		if anyDone {
+			break // intersection is complete
+		}
+
+		// find minimum and maximum transaction keys
+		minKey := txKey{blockNumber: uint64(heads[0].BlockNumber), txIndex: uint32(heads[0].TxIndex)}
+		maxKey := minKey
+
+		for i := 1; i < numChannels; i++ {
+			key := txKey{blockNumber: uint64(heads[i].BlockNumber), txIndex: uint32(heads[i].TxIndex)}
+			if compareTxKeys(key, minKey) < 0 {
+				minKey = key
+			}
+			if compareTxKeys(key, maxKey) > 0 {
+				maxKey = key
+			}
+		}
+
+		// if all heads have the same key, we found an intersection
+		if compareTxKeys(minKey, maxKey) == 0 {
+			// send result directly to channel
+			select {
+			case <-m.ctx.Done():
+				return m.ctx.Err()
+			// case m.resultCh <- combineResults(heads):
+			case m.resultCh <- heads[0]:
+				// sent successfully
+			}
+
+			// advance all streams
+			for i := 0; i < numChannels; i++ {
+				if err := m.readNextFromChannel(channels[i], &heads[i], &done[i], &errored); err != nil {
+					return err
+				}
+				if errored {
+					return fmt.Errorf("error in matcher %d", i)
+				}
+			}
+		} else {
+			// advance streams that have the minimum key
+			for i := 0; i < numChannels; i++ {
+				key := txKey{blockNumber: uint64(heads[i].BlockNumber), txIndex: uint32(heads[i].TxIndex)}
+				if compareTxKeys(key, minKey) == 0 {
+					if err := m.readNextFromChannel(channels[i], &heads[i], &done[i], &errored); err != nil {
+						return err
+					}
+					if errored {
+						return fmt.Errorf("error in matcher %d", i)
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// readNextFromChannel reads the next TxEvent from a channel
+func (m *matcherEnv) readNextFromChannel(ch <-chan streamingTxEventResult, head **TxEvent, done *bool, errored *bool) error {
+	select {
+	case result, ok := <-ch:
+		if !ok {
+			*done = true
+			return nil
+		}
+		if result.err != nil {
+			*errored = true
+			return result.err
+		}
+		if result.done {
+			*done = true
+			return nil
+		}
+		*head = result.txEvent
+		return nil
+	case <-m.ctx.Done():
+		return m.ctx.Err()
+	}
+}
+
+// compareTxKeys compares two transaction keys for sorting
+// returns -1 if a < b, 0 if a == b, 1 if a > b
+func compareTxKeys(a, b txKey) int {
+	if a.blockNumber < b.blockNumber {
+		return -1
+	}
+	if a.blockNumber > b.blockNumber {
+		return 1
+	}
+	if a.txIndex < b.txIndex {
+		return -1
+	}
+	if a.txIndex > b.txIndex {
+		return 1
+	}
+	return 0
 }
 
 // txKey represents a unique transaction identifier
@@ -305,62 +478,34 @@ type txKey struct {
 	txIndex     uint32
 }
 
-// computeTxEventIntersection computes the intersection of multiple TxEvent slices
-// based on block number and tx index.
-func (m *matcherEnv) computeTxEventIntersection(allTxEvents [][]*TxEvent) []*TxEvent {
-	if len(allTxEvents) == 0 {
-		return []*TxEvent{}
-	}
-
-	if len(allTxEvents) == 1 {
-		return allTxEvents[0]
-	}
-
-	// create a map to track (blockNumber, txIndex) occurrences
-
-	// count occurrences of each (blockNumber, txIndex) across all matcher results
-	keyCount := make(map[txKey]int)
-	keyToTxEvent := make(map[txKey]*TxEvent)
-
-	for _, txEvents := range allTxEvents {
-		seenKeys := make(map[txKey]bool) // to avoid double counting within same matcher
-
-		for _, txEvent := range txEvents {
-			key := txKey{
-				blockNumber: uint64(txEvent.BlockNumber),
-				txIndex:     uint32(txEvent.TxIndex),
-			}
-
-			// Only count each (blockNumber, txIndex) combination once per matcher
-			// This handles the case where same transaction has multiple events of same type
-			if !seenKeys[key] {
-				keyCount[key]++
-				// Always store the first TxEvent we encounter for this key
-				// (we only care about the transaction, not the specific event within it)
-				if keyToTxEvent[key] == nil {
-					keyToTxEvent[key] = txEvent
-				}
-				seenKeys[key] = true
+// streamLogsFromMatches streams potentially matching logs located at
+// the given list of matching log indices to the result channel.
+// Matches outside the firstIndex to lastIndex range are not sent.
+func (m *matcherEnv) streamLogsFromMatches(matches potentialMatches) error {
+	for _, match := range matches {
+		if match < m.firstIndex || match > m.lastIndex {
+			continue
+		}
+		txEvent, err := m.backend.GetLogByLvIndex(m.ctx, match)
+		if err != nil {
+			return fmt.Errorf("failed to retrieve log at index %d: %v", match, err)
+		}
+		if txEvent != nil {
+			select {
+			case m.resultCh <- txEvent:
+				// sent successfully
+			case <-m.ctx.Done():
+				return m.ctx.Err()
 			}
 		}
 	}
-
-	// collect TxEvents that appear in all matcher results
-	var result []*TxEvent
-	requiredCount := len(allTxEvents)
-
-	for key, count := range keyCount {
-		if count == requiredCount {
-			result = append(result, keyToTxEvent[key])
-		}
-	}
-
-	return result
+	return nil
 }
 
 // getLogsFromMatches returns the list of potentially matching logs located at
 // the given list of matching log indices. Matches outside the firstIndex to
-// lastIndex range are not returned.
+// lastIndex range are not returned. This is used for intermediate processing
+// where results need to be collected before streaming.
 func (m *matcherEnv) getLogsFromMatches(matches potentialMatches) ([]*TxEvent, error) {
 	var txEvents []*TxEvent
 	for _, match := range matches {

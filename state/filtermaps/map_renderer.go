@@ -745,7 +745,7 @@ func (l *logIterator) getValueHash() common.Hash {
 		return common.Hash{}
 	}
 	event := l.txResults[l.txIndex].Events[l.eventIndex]
-	filter := eventString(event.Type, event.Attributes[l.attrIndex])
+	filter := EventString(event.Type, event.Attributes[l.attrIndex])
 	return eventValue(filter)
 }
 

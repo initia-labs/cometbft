@@ -150,7 +150,7 @@ func (is *IndexerService) OnStart() error {
 						return
 					}
 				} else {
-					is.Logger.Debug("indexed transactions", "height", height, "num_txs", numTxs)
+					is.Logger.Info("indexed transactions", "height", height, "num_txs", numTxs)
 				}
 
 				if err = is.txIdxrV2.AddBatch(batch); err != nil {
@@ -162,11 +162,20 @@ func (is *IndexerService) OnStart() error {
 						return
 					}
 				} else {
-					is.Logger.Debug("indexed transactions v2", "height", height, "num_txs", numTxs)
+					is.Logger.Info("indexed transactions v2", "height", height, "num_txs", numTxs)
 				}
 
-				is.filterMapTxIdxr.NotifyNewBlock(height)
-				is.Logger.Debug("indexed filtermap transactions", "height", height, "num_txs", numTxs)
+				if err = is.filterMapTxIdxr.AddBatch(batch, height); err != nil {
+					is.Logger.Error("failed to index filtermap txs", "height", height, "err", err)
+					if is.terminateOnError {
+						if err := is.Stop(); err != nil {
+							is.Logger.Error("failed to stop", "err", err)
+						}
+						return
+					}
+				} else {
+					is.Logger.Info("indexed filtermap indexer", "height", height, "num_txs", numTxs)
+				}
 
 				if !is.txIdxrV2.IsMigrating() {
 					is.txIdxrV2.NotifyNewBlock(height)

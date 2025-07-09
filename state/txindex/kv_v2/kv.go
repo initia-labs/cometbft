@@ -156,6 +156,7 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 	}
 
 	for _, result := range b.Ops {
+		tmpResult := *result
 		hash := types.Tx(result.Tx).Hash()
 
 		// index by height (always)
@@ -164,10 +165,10 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 			return err
 		}
 
-		result.Result = abci.ExecTxResult{}
-		result.Tx = nil
+		tmpResult.Result = abci.ExecTxResult{}
+		tmpResult.Tx = nil
 
-		rawBytes, err := proto.Marshal(result)
+		rawBytes, err := proto.Marshal(&tmpResult)
 		if err != nil {
 			return err
 		}

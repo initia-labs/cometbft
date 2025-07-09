@@ -80,7 +80,7 @@ type TxIndexerV2 interface {
 // FiltermapTxIndexer interface defines methods to index and search transactions.
 type FiltermapTxIndexer interface {
 	// AddBatch analyzes, indexes and stores a batch of transactions.
-	NotifyNewBlock(height int64)
+	AddBatch(b *Batch, height int64) error
 
 	// Start starts the indexer.
 	Start()
@@ -90,7 +90,7 @@ type FiltermapTxIndexer interface {
 	Get(hash []byte) (*abci.TxResult, error)
 
 	// Search allows you to query for transactions.
-	Search(ctx context.Context, q *query.Query, maxCount int64) (chan abci.TxResult, chan error)
+	Search(ctx context.Context, q *query.Query) (chan abci.TxResult, chan error)
 
 	//Set Logger
 	SetLogger(l log.Logger)

@@ -302,7 +302,7 @@ func (env *Environment) TxSearchV3(
 		return nil, err
 	}
 
-	resultChan, errChan := env.FiltermapTxIndexer.Search(ctx.Context(), q, maxTotalCount)
+	resultChan, errChan := env.FiltermapTxIndexer.Search(ctx.Context(), q)
 
 	perPage := env.validatePerPage(perPagePtr)
 	page := 1

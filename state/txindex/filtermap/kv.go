@@ -1,12 +1,13 @@
 package kv
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 
 	"github.com/cometbft/cometbft/libs/log"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/cosmos/gogoproto/proto"
 
@@ -15,7 +16,6 @@ import (
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/libs/pubsub/query"
 	"github.com/cometbft/cometbft/libs/pubsub/query/syntax"
-	"github.com/cometbft/cometbft/state/bloombits"
 	indexerv2 "github.com/cometbft/cometbft/state/indexer_v2"
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/types"
@@ -53,7 +53,7 @@ type TxIndex struct {
 
 // NewTxIndex creates new KV indexer.
 func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *TxIndex {
-	fm := filtermaps.NewFilterMaps(store, blockStore, stateStore, 0, filtermaps.DefaultParams, filtermaps.Config{
+	fm := filtermaps.NewFilterMaps(dbm.NewPrefixDB(store, []byte("filtermap")), blockStore, stateStore, 0, filtermaps.DefaultParams, filtermaps.Config{
 		History:        10000,
 		Disabled:       false,
 		ExportFileName: "",
@@ -77,7 +77,7 @@ func (txi *TxIndex) Start() {
 
 func (txi *TxIndex) SetLogger(l log.Logger) {
 	txi.log = l
-	txi.filtermap.SetLogger(l)
+	txi.filtermap.SetLogger(l.With("module", "filtermap"))
 }
 
 // Get gets transaction from the TxIndex storage and returns it or nil if the
@@ -104,9 +104,47 @@ func (txi *TxIndex) Get(hash []byte) (*abci.TxResult, error) {
 	return txResult, nil
 }
 
-func (txi *TxIndex) NotifyNewBlock(height int64) {
+func (txi *TxIndex) AddBatch(b *txindex.Batch, height int64) error {
+	storeBatch := txi.store.NewBatch()
+	defer storeBatch.Close()
+
+	for _, result := range b.Ops {
+		tmpResult := *result
+		hash := types.Tx(result.Tx).Hash()
+
+		// index by height (always)
+		err := storeBatch.Set(keyForHeight(result), hash)
+		if err != nil {
+			return err
+		}
+
+		tmpResult.Result = abci.ExecTxResult{}
+		tmpResult.Tx = nil
+
+		rawBytes, err := proto.Marshal(&tmpResult)
+		if err != nil {
+			return err
+		}
+		// index by hash (always)
+		err = storeBatch.Set(hash, rawBytes)
+		if err != nil {
+			return err
+		}
+	}
+
+	err := storeBatch.WriteSync()
+	if err != nil {
+		return err
+	}
+
 	txi.filtermap.SetBlockProcessing(false)
-	txi.filtermap.SetTarget(uint64(height-1), 0)
+
+	historyCutoff := uint64(0)
+	if txi.retainHeight > 0 && height-txi.retainHeight > 0 {
+		historyCutoff = uint64(height - txi.retainHeight)
+	}
+	txi.filtermap.SetTarget(uint64(height-1), historyCutoff)
+	return nil
 }
 
 // Search performs a search using the given query.
@@ -120,22 +158,22 @@ func (txi *TxIndex) NotifyNewBlock(height int64) {
 //
 // Search will exit early and return any result fetched so far,
 // when a message is received on the context chan.
-func (txi *TxIndex) Search(ctx context.Context, q *query.Query, maxCount int64) (chan abci.TxResult, chan error) {
-	resultChan := make(chan abci.TxResult)
-	errChan := make(chan error)
+func (txi *TxIndex) Search(ctx context.Context, q *query.Query) (chan abci.TxResult, chan error) {
+	resultCh := make(chan abci.TxResult)
+	errCh := make(chan error)
 
 	go func() {
 		defer func() {
-			close(resultChan)
-			close(errChan)
+			close(resultCh)
+			close(errCh)
 		}()
 
-		errChan <- txi.search(ctx, q, maxCount, resultChan)
+		errCh <- txi.search(ctx, q, resultCh)
 	}()
-	return resultChan, errChan
+	return resultCh, errCh
 }
 
-func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, resultChan chan abci.TxResult) error {
+func (txi *TxIndex) search(ctx context.Context, q *query.Query, resultCh chan abci.TxResult) error {
 	select {
 	case <-ctx.Done():
 		return nil
@@ -145,7 +183,6 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 
 	// get a list of conditions (like "tx.height > 5")
 	conditions := q.Syntax()
-
 	// if there is a hash condition, return the result immediately
 	hash, ok, err := lookForHash(conditions)
 	if err != nil {
@@ -158,7 +195,7 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 		case res == nil:
 			return nil
 		default:
-			resultChan <- *res
+			resultCh <- *res
 			return nil
 		}
 	} else if txi.isMigrating {
@@ -188,64 +225,91 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 	}
 
 	begin := int64(1)
-	height := txi.blockStore.Height()
+	end := txi.blockStore.Height()
+
+	if heightInfo.height != 0 {
+		begin = heightInfo.height
+		end = heightInfo.height
+	} else if heightInfo.heightRange.Key != "" {
+		if heightInfo.heightRange.LowerBound != nil {
+			bigBegin, ok := heightInfo.heightRange.LowerBound.(*big.Float)
+			if !ok {
+				return fmt.Errorf("invalid height range lower bound: %v", heightInfo.heightRange.LowerBound)
+			}
+			begin, _ = bigBegin.Int64()
+			if !heightInfo.heightRange.IncludeLowerBound {
+				begin++
+			}
+		}
+		if heightInfo.heightRange.UpperBound != nil {
+			bigEnd, ok := heightInfo.heightRange.UpperBound.(*big.Float)
+			if !ok {
+				return fmt.Errorf("invalid height range upper bound: %v", heightInfo.heightRange.UpperBound)
+			}
+			rangeEnd, _ := bigEnd.Int64()
+			if !heightInfo.heightRange.IncludeUpperBound {
+				rangeEnd--
+			}
+			end = min(end, rangeEnd)
+		}
+	}
+
+	// if the begin is greater than the end, return nil
+	if begin > end {
+		return nil
+	}
 
 	backend := txi.filtermap.NewMatcherBackend()
 
-	txEvents, err := filtermaps.GetPotentialMatches(ctx, txi.log, backend, uint64(begin), uint64(height), filters)
-	if err != nil {
-		return err
-	}
+	filtermapResultCh := make(chan *filtermaps.TxEvent)
+	g, innerCtx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		defer close(filtermapResultCh)
+		return filtermaps.GetPotentialMatches(innerCtx, txi.log, backend, uint64(begin-1), uint64(end-1), filters, filtermapResultCh)
+	})
 
-	for _, txEvent := range txEvents {
-		resultChan <- abci.TxResult{
-			Height: txEvent.BlockNumber,
-			Index:  uint32(txEvent.TxIndex),
+	g.Go(func() error {
+		lastEvent := &filtermaps.TxEvent{}
+		for result := range filtermapResultCh {
+			if result == nil || (result.BlockNumber == lastEvent.BlockNumber && result.TxIndex == lastEvent.TxIndex) {
+				continue
+			}
+
+			txResult, err := txi.checkMatch(result, filters)
+			if err != nil {
+				return err
+			}
+			lastEvent = result
+			if txResult != nil {
+				resultCh <- *txResult
+			}
 		}
-	}
-	return nil
+		return nil
+	})
+	return g.Wait()
 }
 
-func (txi *TxIndex) checkMatch(number int64, filters [][]byte) ([]abci.TxResult, error) {
-	results := make([]abci.TxResult, 0)
-
-	res, err := txi.stateStore.LoadFinalizeBlockResponse(number)
-	if err != nil {
-		return nil, nil
-	}
-
-	for txIndex, txResult := range res.TxResults {
-		matchCount := 0
-	TXCHECK_LOOP:
-		for _, conditionFilter := range filters {
-			for _, event := range txResult.Events {
-				if len(event.Type) == 0 {
-					continue
-				}
-				for _, attr := range event.Attributes {
-					if len(attr.Key) == 0 {
-						continue
-					} else if attr.Index {
-						filter := eventFilter(event.Type, attr.Key, attr.Value)
-						if bytes.Equal(conditionFilter, filter) {
-							matchCount++
-							continue TXCHECK_LOOP
-						}
-					}
+func (txi *TxIndex) checkMatch(txEvent *filtermaps.TxEvent, filters []string) (*abci.TxResult, error) {
+	matchCount := 0
+FILTERLOOP:
+	for _, filter := range filters {
+		for _, event := range txEvent.Event {
+			for _, attr := range event.Attributes {
+				eventString := filtermaps.EventString(event.Type, attr)
+				if eventString == filter {
+					matchCount++
+					continue FILTERLOOP
 				}
 			}
-			// no match found
-			break
-		}
-
-		if matchCount == len(filters) {
-			results = append(results, abci.TxResult{
-				Height: number,
-				Index:  uint32(txIndex),
-			})
 		}
 	}
-	return results, nil
+	if matchCount == len(filters) {
+		return &abci.TxResult{
+			Height: txEvent.BlockNumber,
+			Index:  uint32(txEvent.TxIndex),
+		}, nil
+	}
+	return nil, nil
 }
 
 func lookForHash(conditions []syntax.Condition) (hash []byte, ok bool, err error) {
@@ -264,29 +328,6 @@ func keyForHeight(result *abci.TxResult) []byte {
 		result.Height,
 		result.Index,
 	))
-}
-
-func eventFilter(eventType string, attrKey string, attrValue string) []byte {
-	return fmt.Appendf(nil, "%s.%s=%s", eventType, attrKey, attrValue)
-}
-
-func bloomForBlock(results []*abci.TxResult) bloombits.Bloom {
-	var bin bloombits.Bloom
-	for _, result := range results {
-		for _, event := range result.Result.Events {
-			if len(event.Type) == 0 {
-				continue
-			}
-			for _, attr := range event.Attributes {
-				if len(attr.Key) == 0 {
-					continue
-				} else if attr.Index {
-					bin.Add(eventFilter(event.Type, attr.Key, attr.Value))
-				}
-			}
-		}
-	}
-	return bin
 }
 
 func filtersFromConditions(conditions []syntax.Condition) ([]string, error) {

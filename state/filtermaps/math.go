@@ -54,27 +54,6 @@ var DefaultParams = Params{
 	logLayerDiff:       4,
 }
 
-var TestParams = Params{
-	logMapHeight:       16,
-	logMapWidth:        24,
-	logMapsPerEpoch:    2,
-	logValuesPerMap:    2, // 2^2 = 4 values per map (더 작게)
-	baseRowGroupLength: 32,
-	baseRowLengthRatio: 32768, // 비율을 크게 늘려서 baseRowLength > 0 보장
-	logLayerDiff:       4,
-}
-
-// RangeTestParams puts one log value per epoch, ensuring block exact tail unindexing for testing
-var RangeTestParams = Params{
-	logMapHeight:       4,
-	logMapWidth:        24,
-	logMapsPerEpoch:    0,
-	logValuesPerMap:    0,
-	baseRowGroupLength: 32,
-	baseRowLengthRatio: 16, // baseRowLength >= 1
-	logLayerDiff:       4,
-}
-
 // deriveFields calculates the derived fields of the parameter set.
 func (p *Params) deriveFields() {
 	p.mapHeight = uint32(1) << p.logMapHeight
