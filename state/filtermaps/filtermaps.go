@@ -289,6 +289,7 @@ func (f *FilterMaps) init() error {
 	batch := f.db.NewBatch()
 	fmr := filterMapsRange{
 		initialized: true,
+		blocks:      common.NewRange(uint64(f.blockStore.Base()-1), uint64(0)),
 	}
 	err := f.setRange(batch, f.targetHeight, fmr, false)
 	if err != nil {
