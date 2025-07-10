@@ -267,7 +267,7 @@ func (f *FilterMaps) SetLogger(l log.Logger) {
 }
 
 func (f *FilterMaps) GetLastIndexedBlock() uint64 {
-	return f.indexedHeight
+	return f.indexedRange.blocks.Last()
 }
 
 // Start starts the indexer.
