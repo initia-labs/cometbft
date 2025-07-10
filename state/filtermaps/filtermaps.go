@@ -299,11 +299,12 @@ func (f *FilterMaps) init() error {
 	// For statesync or chains that don't start from block 0,
 	// initialize the starting block's log value pointer to 0
 	if startBlock > 0 {
-		err := f.storeBlockLvPointer(batch, startBlock, 0)
+		err := f.storeBlockLvPointer(batch, startBlock-1, 0)
 		if err != nil {
 			return fmt.Errorf("failed to store initial block lv pointer: %v", err)
 		}
 		f.logger.Info("Initialized FilterMaps for mid-chain start", "startBlock", startBlock)
+		f.targetHeight = startBlock
 	}
 
 	err := f.setRange(batch, f.targetHeight, fmr, false)

@@ -161,12 +161,19 @@ func (f *FilterMaps) lastCanonicalSnapshotOfMap(mapIndex uint32) *renderedMap {
 // and starting log value pointer of the last block is also returned.
 func (f *FilterMaps) lastCanonicalMapBoundaryBefore(renderBefore uint32) (nextMap uint32, startBlock, startLvPtr uint64, err error) {
 	if !f.indexedRange.initialized {
-		return 0, 0, 0, nil
+		// For statesync scenarios, use the actual first available block
+		firstAvailableBlock := uint64(f.blockStore.Base() - 1)
+		return 0, firstAvailableBlock, 0, nil
 	}
 	mapIndex := renderBefore
 	for {
 		var ok bool
 		if mapIndex, ok = f.lastMapBoundaryBefore(mapIndex); !ok {
+			// For statesync scenarios, if no map boundary is found, use the first available block
+			if uint64(f.blockStore.Base()) > 1 {
+				firstAvailableBlock := uint64(f.blockStore.Base() - 1)
+				return 0, firstAvailableBlock, 0, nil
+			}
 			return 0, 0, 0, nil
 		}
 		lastBlock, err := f.getLastBlockOfMap(mapIndex)
@@ -466,6 +473,14 @@ func (r *mapRenderer) writeFinishedMaps(pauseCb func() bool) error {
 			return fmt.Errorf("failed to get last block of previous map %d: %v", r.finished.First()-1, err)
 		}
 		blockNumber = lastBlock + 1
+	} else {
+		// For the first map (map 0), initialize blockNumber to the first block
+		// of the first rendered map. This is necessary for statesync scenarios
+		// where the chain doesn't start from block 0.
+		if len(r.finishedMaps) > 0 {
+			firstRenderedMap := r.finishedMaps[r.finished.First()]
+			blockNumber = firstRenderedMap.firstBlock()
+		}
 	}
 	// add or update block pointers
 	for mapIndex := range r.finished.Iter() {
