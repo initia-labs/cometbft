@@ -282,54 +282,70 @@ func (m *matcherEnv) runStreamingMatcher(singleMatcher *singleMatcher, mapIndice
 		lastMap:    m.lastMap,
 	}
 
-	// get matches for this single matcher
-	matches, err := tempEnv.getAllMatches(mapIndices)
-	if err != nil {
-		ch <- streamingTxEventResult{err: err}
-		return
-	}
-
-	// collect and sort TxEvents before streaming
-	var allTxEvents []*TxEvent
+	// Process mapIndices in small batches for true streaming
+	const batchSize = 16 // Process 16 maps at a time
 	seenTxs := make(map[txKey]bool)
 
-	for _, match := range matches {
-		if match == nil {
-			ch <- streamingTxEventResult{err: ErrMatchAll}
-			return
+	for i := 0; i < len(mapIndices); i += batchSize {
+		end := i + batchSize
+		if end > len(mapIndices) {
+			end = len(mapIndices)
 		}
 
-		mTxEvents, err := tempEnv.getLogsFromMatches(match)
+		batch := mapIndices[i:end]
+
+		// get matches for this batch
+		matches, err := tempEnv.getAllMatches(batch)
 		if err != nil {
 			ch <- streamingTxEventResult{err: err}
 			return
 		}
 
-		// collect unique transactions
-		for _, txEvent := range mTxEvents {
-			key := txKey{
-				blockNumber: uint64(txEvent.BlockNumber),
-				txIndex:     uint32(txEvent.TxIndex),
+		// collect TxEvents from this batch
+		var batchTxEvents []*TxEvent
+
+		for _, match := range matches {
+			if match == nil {
+				ch <- streamingTxEventResult{err: ErrMatchAll}
+				return
 			}
 
-			if !seenTxs[key] {
-				allTxEvents = append(allTxEvents, txEvent)
-				seenTxs[key] = true
+			mTxEvents, err := tempEnv.getLogsFromMatches(match)
+			if err != nil {
+				ch <- streamingTxEventResult{err: err}
+				return
+			}
+
+			// collect unique transactions from this batch
+			for _, txEvent := range mTxEvents {
+				key := txKey{
+					blockNumber: uint64(txEvent.BlockNumber),
+					txIndex:     uint32(txEvent.TxIndex),
+				}
+
+				if !seenTxs[key] {
+					batchTxEvents = append(batchTxEvents, txEvent)
+					seenTxs[key] = true
+				}
 			}
 		}
-	}
 
-	// sort TxEvents by block number and tx index
-	sort.Slice(allTxEvents, func(i, j int) bool {
-		if allTxEvents[i].BlockNumber != allTxEvents[j].BlockNumber {
-			return allTxEvents[i].BlockNumber < allTxEvents[j].BlockNumber
+		// sort batch results
+		sort.Slice(batchTxEvents, func(i, j int) bool {
+			if batchTxEvents[i].BlockNumber != batchTxEvents[j].BlockNumber {
+				return batchTxEvents[i].BlockNumber < batchTxEvents[j].BlockNumber
+			}
+			return batchTxEvents[i].TxIndex < batchTxEvents[j].TxIndex
+		})
+
+		// stream batch results immediately
+		for _, txEvent := range batchTxEvents {
+			select {
+			case ch <- streamingTxEventResult{txEvent: txEvent}:
+			case <-m.ctx.Done():
+				return
+			}
 		}
-		return allTxEvents[i].TxIndex < allTxEvents[j].TxIndex
-	})
-
-	// stream sorted TxEvents
-	for _, txEvent := range allTxEvents {
-		ch <- streamingTxEventResult{txEvent: txEvent}
 	}
 
 	// signal end of stream

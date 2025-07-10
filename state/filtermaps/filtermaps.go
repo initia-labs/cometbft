@@ -266,6 +266,10 @@ func (f *FilterMaps) SetLogger(l log.Logger) {
 	}
 }
 
+func (f *FilterMaps) GetLastIndexedBlock() uint64 {
+	return f.indexedHeight
+}
+
 // Start starts the indexer.
 func (f *FilterMaps) Start() {
 	if !f.testDisableSnapshots && f.indexedRange.hasIndexedBlocks() && f.indexedRange.headIndexed {

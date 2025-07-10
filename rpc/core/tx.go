@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	maxTotalCount = 1000
+	maxTotalCount = 150
 )
 
 // Tx allows you to query the transaction results. `nil` could mean the

@@ -251,6 +251,7 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, resultCh chan ab
 	}
 
 	begin = max(begin, txi.blockStore.Base())
+	end = min(end, int64(txi.filtermap.GetLastIndexedBlock()))
 
 	// if the begin is greater than the end, return nil
 	if begin > end {
