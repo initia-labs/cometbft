@@ -323,14 +323,21 @@ func (f *FilterMaps) checkRevertRange() {
 	lastMap := f.indexedRange.maps.Last()
 	lastBlockNumber, err := f.getLastBlockOfMap(lastMap)
 	if err != nil {
-		f.logger.Error("Error initializing log index database; resetting log index", "error", err)
-		f.reset()
+		f.logger.Error("Error initializing log index database; last block not found; resetting log index", "error", err)
+		err = f.reset()
+		if err != nil {
+			f.logger.Error("Error resetting log index database", "error", err)
+		}
 		return
 	}
 	for lastBlockNumber > f.indexedHeight {
 		// revert last map
 		if f.indexedRange.maps.Count() == 1 {
-			f.reset() // reset database if no rendered maps remained
+			f.logger.Error("Error initializing log index database; revert last map failed; resetting log index", "error", err)
+			err = f.reset()
+			if err != nil {
+				f.logger.Error("Error resetting log index database", "error", err)
+			}
 			return
 		}
 		lastMap--
@@ -338,8 +345,11 @@ func (f *FilterMaps) checkRevertRange() {
 		newRange.maps.SetLast(lastMap)
 		lastBlockNumber, err = f.getLastBlockOfMap(lastMap)
 		if err != nil {
-			f.logger.Error("Error initializing log index database; resetting log index", "error", err)
-			f.reset()
+			f.logger.Error("Error initializing log index database; last block not found; resetting log index", "error", err)
+			err = f.reset()
+			if err != nil {
+				f.logger.Error("Error resetting log index database", "error", err)
+			}
 			return
 		}
 		newRange.blocks.SetAfterLast(lastBlockNumber) // lastBlockNumber is probably partially indexed
