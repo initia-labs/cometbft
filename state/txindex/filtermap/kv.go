@@ -54,7 +54,7 @@ type TxIndex struct {
 // NewTxIndex creates new KV indexer.
 func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *TxIndex {
 	fm := filtermaps.NewFilterMaps(dbm.NewPrefixDB(store, []byte("filtermap")), blockStore, stateStore, 0, filtermaps.DefaultParams, filtermaps.Config{
-		History:        10000,
+		History:        uint64(retainHeight),
 		Disabled:       false,
 		ExportFileName: "",
 		HashScheme:     false,
@@ -139,11 +139,7 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch, height int64) error {
 
 	txi.filtermap.SetBlockProcessing(false)
 
-	historyCutoff := uint64(0)
-	if txi.retainHeight > 0 && height-txi.retainHeight > 0 {
-		historyCutoff = uint64(height - txi.retainHeight)
-	}
-	txi.filtermap.SetTarget(uint64(height-1), historyCutoff)
+	txi.filtermap.SetTarget(uint64(height-1), 0)
 	return nil
 }
 
