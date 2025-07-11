@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/cometbft/cometbft/libs/log"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/cometbft/cometbft/libs/log"
 
 	"github.com/cosmos/gogoproto/proto"
 

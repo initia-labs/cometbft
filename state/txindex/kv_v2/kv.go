@@ -10,8 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cometbft/cometbft/libs/log"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/cometbft/cometbft/libs/log"
 
 	"github.com/cosmos/gogoproto/proto"
 

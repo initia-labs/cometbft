@@ -4,10 +4,11 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/google/orderedcode"
+
 	cmtsyntax "github.com/cometbft/cometbft/libs/pubsub/query/syntax"
 	indexerv2 "github.com/cometbft/cometbft/state/indexer_v2"
 	"github.com/cometbft/cometbft/types"
-	"github.com/google/orderedcode"
 )
 
 type HeightInfo struct {

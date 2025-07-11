@@ -177,10 +177,6 @@ func (m *matcherEnv) processEpochStreaming(epochIndex uint32) error {
 // directly to the result channel without collecting all results first
 func (m *matcherEnv) processMultiEventEpochDirectStreaming(multiMatcher *multiEventMatcher, mapIndices []uint32) error {
 	numMatchers := len(multiMatcher.matchers)
-	// if numMatchers == 1 {
-	// 	// single matcher optimization
-	// 	return m.processSingleMatcherEpochStreaming(multiMatcher.matchers[0], mapIndices)
-	// }
 
 	// create channels for each matcher
 	channels := make([]<-chan streamingTxEventResult, numMatchers)
@@ -337,14 +333,12 @@ func (m *matcherEnv) streamingIntersectTxEventsDirectly(channels []<-chan stream
 	}
 
 	for {
-		// check if context is canceled
 		select {
 		case <-m.ctx.Done():
 			return m.ctx.Err()
 		default:
 		}
 
-		// check if any stream is done
 		anyDone := false
 		for i := 0; i < numChannels; i++ {
 			if done[i] {
@@ -353,7 +347,7 @@ func (m *matcherEnv) streamingIntersectTxEventsDirectly(channels []<-chan stream
 			}
 		}
 		if anyDone {
-			break // intersection is complete
+			break
 		}
 
 		// find minimum and maximum transaction keys
@@ -372,16 +366,12 @@ func (m *matcherEnv) streamingIntersectTxEventsDirectly(channels []<-chan stream
 
 		// if all heads have the same key, we found an intersection
 		if compareTxKeys(minKey, maxKey) == 0 {
-			// send result directly to channel
 			select {
 			case <-m.ctx.Done():
 				return m.ctx.Err()
-			// case m.resultCh <- combineResults(heads):
 			case m.resultCh <- heads[0]:
-				// sent successfully
 			}
 
-			// advance all streams
 			for i := 0; i < numChannels; i++ {
 				if err := m.readNextFromChannel(channels[i], &heads[i], &done[i], &errored); err != nil {
 					return err
@@ -471,7 +461,6 @@ func (m *matcherEnv) streamLogsFromMatches(matches potentialMatches) error {
 		if txEvent != nil {
 			select {
 			case m.resultCh <- txEvent:
-				// sent successfully
 			case <-m.ctx.Done():
 				return m.ctx.Err()
 			}

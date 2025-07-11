@@ -5,9 +5,10 @@ import (
 	"encoding/binary"
 	"errors"
 
-	dbm "github.com/cometbft/cometbft-db"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rlp"
+
+	dbm "github.com/cometbft/cometbft-db"
 )
 
 var (
