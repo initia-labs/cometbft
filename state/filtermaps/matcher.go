@@ -68,7 +68,7 @@ type SyncRange struct {
 // given filter criteria. This finds logs that contain ALL of the specified events
 // by processing multiple singleMatchers in parallel and computing intersection at TxEvent level.
 // Results are sent to the provided channel one by one. The function returns when
-// context is cancelled or all results are processed.
+// context is canceled or all results are processed.
 func GetPotentialMatches(ctx context.Context, logger log.Logger, backend MatcherBackend, firstBlock, lastBlock uint64, events []string, resultCh chan<- *TxEvent) error {
 	params := backend.GetParams()
 	// find the log value index range to search
@@ -195,56 +195,6 @@ func (m *matcherEnv) processMultiEventEpochDirectStreaming(multiMatcher *multiEv
 
 	// perform streaming intersection and send results directly to result channel
 	return m.streamingIntersectTxEventsDirectly(channels)
-}
-
-// processSingleMatcherEpochStreaming handles the single matcher case efficiently
-func (m *matcherEnv) processSingleMatcherEpochStreaming(singleMatcher *singleMatcher, mapIndices []uint32) error {
-	tempEnv := &matcherEnv{
-		ctx:        m.ctx,
-		backend:    m.backend,
-		params:     m.params,
-		matcher:    singleMatcher,
-		firstIndex: m.firstIndex,
-		lastIndex:  m.lastIndex,
-		firstMap:   m.firstMap,
-		lastMap:    m.lastMap,
-	}
-
-	matches, err := tempEnv.getAllMatches(mapIndices)
-	if err != nil {
-		return err
-	}
-
-	seenTxs := make(map[txKey]bool)
-
-	for _, match := range matches {
-		if match == nil {
-			return ErrMatchAll
-		}
-
-		mTxEvents, err := tempEnv.getLogsFromMatches(match)
-		if err != nil {
-			return err
-		}
-
-		for _, txEvent := range mTxEvents {
-			key := txKey{
-				blockNumber: uint64(txEvent.BlockNumber),
-				txIndex:     uint32(txEvent.TxIndex),
-			}
-
-			if !seenTxs[key] {
-				select {
-				case m.resultCh <- txEvent:
-					seenTxs[key] = true
-				case <-m.ctx.Done():
-					return m.ctx.Err()
-				}
-			}
-		}
-	}
-
-	return nil
 }
 
 type matcherEnv struct {
@@ -760,84 +710,6 @@ func (m *singleMatcherInstance) cleanMapIndices() {
 		}
 	}
 	m.mapIndices = m.mapIndices[:j]
-}
-
-// matchOrderStats collects statistics about the evaluating cost and the
-// occurrence of empty result sets from both base and next child matchers.
-// This allows the optimization of the evaluation order by evaluating the
-// child first that is cheaper and/or gives empty results more often and not
-// evaluating the other child in most cases.
-// Note that matchOrderStats is specific to matchSequence and the results are
-// carried over to future instances as the results are mostly useful when
-// evaluating layer zero of each instance. For this reason it should be used
-// in a thread safe way as is may be accessed from multiple worker goroutines.
-type matchOrderStats struct {
-	totalCount, nonEmptyCount, totalCost uint64
-}
-
-// add collects statistics after a child has been evaluated for a certain layer.
-func (ms *matchOrderStats) add(empty bool, layerIndex uint32) {
-	if empty && layerIndex != 0 {
-		// matchers may be evaluated for higher layers after all results have
-		// been returned. Also, empty results are not relevant when previous
-		// layers yielded matches already, so these cases can be ignored.
-		return
-	}
-	ms.totalCount++
-	if !empty {
-		ms.nonEmptyCount++
-	}
-	ms.totalCost += uint64(layerIndex + 1)
-}
-
-// mergeStats merges two sets of matchOrderStats.
-func (ms *matchOrderStats) mergeStats(add matchOrderStats) {
-	ms.totalCount += add.totalCount
-	ms.nonEmptyCount += add.nonEmptyCount
-	ms.totalCost += add.totalCost
-}
-
-// matchResults returns a list of sequence matches for the given mapIndex and
-// offset based on the base matcher's results at mapIndex and the next matcher's
-// results at mapIndex and mapIndex+1. Note that acquiring nextNextRes may be
-// skipped and it can be substituted with an empty list if baseRes has no potential
-// matches that could be sequence matched with anything that could be in nextNextRes.
-func (params *Params) matchResults(mapIndex uint32, offset uint64, baseRes, nextRes potentialMatches) potentialMatches {
-	if nextRes == nil || (baseRes != nil && len(baseRes) == 0) {
-		// if nextRes is a wild card or baseRes is empty then the sequence matcher
-		// result equals baseRes.
-		return baseRes
-	}
-	if baseRes == nil || len(nextRes) == 0 {
-		// if baseRes is a wild card or nextRes is empty then the sequence matcher
-		// result is the items of nextRes with a negative offset applied.
-		result := make(potentialMatches, 0, len(nextRes))
-		min := (uint64(mapIndex) << params.logValuesPerMap) + offset
-		for _, v := range nextRes {
-			if v >= min {
-				result = append(result, v-offset)
-			}
-		}
-		return result
-	}
-	// iterate through baseRes and nextRes in parallel and collect matching results.
-	maxLen := len(baseRes)
-	if l := len(nextRes); l < maxLen {
-		maxLen = l
-	}
-	matchedRes := make(potentialMatches, 0, maxLen)
-	for len(nextRes) > 0 && len(baseRes) > 0 {
-		if nextRes[0] > baseRes[0]+offset {
-			baseRes = baseRes[1:]
-		} else if nextRes[0] < baseRes[0]+offset {
-			nextRes = nextRes[1:]
-		} else {
-			matchedRes = append(matchedRes, baseRes[0])
-			baseRes = baseRes[1:]
-			nextRes = nextRes[1:]
-		}
-	}
-	return matchedRes
 }
 
 // runtimeStats collects processing time statistics while searching in the log

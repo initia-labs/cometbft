@@ -106,8 +106,6 @@ type FilterMaps struct {
 	targetHeight        uint64
 	matcherSyncRequests []*FilterMapsMatcherBackend
 	historyCutoff       uint64
-	lastFinal           uint64
-	lastFinalEpoch      uint32
 	stop                bool
 	targetCh            chan targetUpdate
 	blockProcessingCh   chan bool
@@ -185,13 +183,6 @@ type filterMapsRange struct {
 // hasIndexedBlocks returns true if the range has at least one fully indexed block.
 func (fmr *filterMapsRange) hasIndexedBlocks() bool {
 	return fmr.initialized && !fmr.blocks.IsEmpty() && !fmr.maps.IsEmpty()
-}
-
-// lastBlockOfMap is used for caching the (number, id) pairs belonging to the
-// last block of each map.
-type lastBlockOfMap struct {
-	number uint64
-	id     common.Hash
 }
 
 // Config contains the configuration options for NewFilterMaps.
