@@ -267,6 +267,9 @@ func (f *FilterMaps) SetLogger(l log.Logger) {
 }
 
 func (f *FilterMaps) GetLastIndexedBlock() uint64 {
+	if !f.indexedRange.hasIndexedBlocks() {
+		return 0
+	}
 	return f.indexedRange.blocks.Last()
 }
 
