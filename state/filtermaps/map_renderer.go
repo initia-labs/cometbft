@@ -756,7 +756,7 @@ func (l *logIterator) updateChainHeight(targetHeight uint64) {
 
 // getValueHash returns the log value hash at the current position.
 func (l *logIterator) getValueHash() common.Hash {
-	if l.delimiter || l.finished || l.skipToBoundary {
+	if l.delimiter || l.finished || l.skipToBoundary || !l.txResults[l.txIndex].Events[l.eventIndex].Attributes[l.attrIndex].Index {
 		return common.Hash{}
 	}
 	event := l.txResults[l.txIndex].Events[l.eventIndex]

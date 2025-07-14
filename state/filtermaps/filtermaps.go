@@ -517,7 +517,12 @@ func (f *FilterMaps) getLogByLvIndex(lvIndex uint64) (*TxEvent, error) {
 	// iterate through receipts to find the exact log starting at lvIndex
 	for txIndex, txResult := range blockResponse.TxResults {
 		for _, event := range txResult.Events {
-			l := uint64(len(event.Attributes))
+			l := uint64(0)
+			for _, attribute := range event.Attributes {
+				if attribute.Index {
+					l++
+				}
+			}
 			r := f.valuesPerMap - lvPointer%f.valuesPerMap
 			if l > r {
 				lvPointer += r // skip to map boundary
