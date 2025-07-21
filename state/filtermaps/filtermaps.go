@@ -58,7 +58,6 @@ type FilterMaps struct {
 	closeCh        chan struct{}
 	closeWg        sync.WaitGroup
 	history        uint64
-	hashScheme     bool // use hashdb-safe delete range method
 	exportFileName string
 	Params
 
@@ -105,7 +104,6 @@ type FilterMaps struct {
 
 	targetHeight        uint64
 	matcherSyncRequests []*FilterMapsMatcherBackend
-	historyCutoff       uint64
 	stop                bool
 	targetCh            chan targetUpdate
 	blockProcessingCh   chan bool
@@ -193,14 +191,10 @@ type Config struct {
 	// This option enables the checkpoint JSON file generator.
 	// If set, the given file will be updated with checkpoint information.
 	ExportFileName string
-
-	// expect trie nodes of hash based state scheme in the filtermaps key range;
-	// use safe iterator based implementation of DeleteRange that skips them
-	HashScheme bool
 }
 
 // NewFilterMaps creates a new FilterMaps and starts the indexer.
-func NewFilterMaps(db dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, historyCutoff uint64, params Params, config Config) *FilterMaps {
+func NewFilterMaps(db dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, params Params, config Config) *FilterMaps {
 	rs, initialized, err := ReadFilterMapsRange(db)
 	if err != nil || (initialized && rs.Version != databaseVersion) {
 		rs, initialized = FilterMapsRange{}, false
@@ -217,7 +211,6 @@ func NewFilterMaps(db dbm.DB, blockStore *store.BlockStore, stateStore sm.Store,
 		blockProcessingCh: make(chan bool, 1),
 		history:           config.History,
 		disabled:          config.Disabled,
-		hashScheme:        config.HashScheme,
 		disabledCh:        make(chan struct{}),
 		exportFileName:    config.ExportFileName,
 		Params:            params,
@@ -234,7 +227,6 @@ func NewFilterMaps(db dbm.DB, blockStore *store.BlockStore, stateStore sm.Store,
 		// deleting last unindexed epoch might have been interrupted by shutdown
 		cleanedEpochsBefore: max(rs.MapsFirst>>params.logMapsPerEpoch, 1) - 1,
 
-		historyCutoff:   historyCutoff,
 		matcherSyncCh:   make(chan *FilterMapsMatcherBackend),
 		matchers:        make(map[*FilterMapsMatcherBackend]struct{}),
 		filterMapCache:  lru.NewCache[uint32, filterMap](cachedFilterMaps),
@@ -395,7 +387,7 @@ func (f *FilterMaps) reset() error {
 	if err != nil {
 		return err
 	}
-	return f.safeDeleteWithLogs(DeleteFilterMapsDb, "Resetting log index database", f.isShuttingDown)
+	return f.safeDeleteWithLogs(DeleteFilterMapsDB, "Resetting log index database", f.isShuttingDown)
 }
 
 // isShuttingDown returns true if FilterMaps is shutting down.
@@ -411,13 +403,13 @@ func (f *FilterMaps) isShuttingDown() bool {
 // safeDeleteWithLogs is a wrapper for a function that performs a safe range
 // delete operation using rawdb.SafeDeleteRange. It emits log messages if the
 // process takes long enough to call the stop callback.
-func (f *FilterMaps) safeDeleteWithLogs(deleteFn func(db dbm.DB, hashScheme bool, stopCb func(bool) bool) error, action string, stopCb func() bool) error {
+func (f *FilterMaps) safeDeleteWithLogs(deleteFn func(db dbm.DB, stopCb func(bool) bool) error, action string, stopCb func() bool) error {
 	var (
 		start          = time.Now()
 		logPrinted     bool
 		lastLogPrinted = start
 	)
-	switch err := deleteFn(f.db, f.hashScheme, func(deleted bool) bool {
+	switch err := deleteFn(f.db, func(deleted bool) bool {
 		if deleted && !logPrinted || time.Since(lastLogPrinted) > time.Second*10 {
 			f.logger.Info(action+" in progress...", "elapsed", common.PrettyDuration(time.Since(start)))
 			logPrinted, lastLogPrinted = true, time.Now()
@@ -788,24 +780,24 @@ func (f *FilterMaps) deleteTailEpoch(epoch uint32) (bool, error) {
 		return false, errors.New("invalid tail epoch number")
 	}
 	// remove index data
-	deleteFn := func(db dbm.DB, hashScheme bool, stopCb func(bool) bool) error {
+	deleteFn := func(db dbm.DB, stopCb func(bool) bool) error {
 		first := f.mapRowIndex(firstMap, 0)
 		count := f.mapRowIndex(firstMap+f.mapsPerEpoch, 0) - first
-		if err := DeleteFilterMapRows(f.db, common.NewRange(first, count), hashScheme, stopCb); err != nil {
+		if err := DeleteFilterMapRows(f.db, common.NewRange(first, count), stopCb); err != nil {
 			return err
 		}
 		for mapIndex := firstMap; mapIndex < firstMap+f.mapsPerEpoch; mapIndex++ {
 			f.filterMapCache.Remove(mapIndex)
 		}
 		delMapRange := common.NewRange(firstMap, f.mapsPerEpoch-1) // keep last entry
-		if err := DeleteFilterMapLastBlocks(f.db, delMapRange, hashScheme, stopCb); err != nil {
+		if err := DeleteFilterMapLastBlocks(f.db, delMapRange, stopCb); err != nil {
 			return err
 		}
 		for mapIndex := firstMap; mapIndex < firstMap+f.mapsPerEpoch-1; mapIndex++ {
 			f.lastBlockCache.Remove(mapIndex)
 		}
 		delBlockRange := common.NewRange(firstBlock, lastBlock-firstBlock) // keep last entry
-		if err := DeleteBlockLvPointers(f.db, delBlockRange, hashScheme, stopCb); err != nil {
+		if err := DeleteBlockLvPointers(f.db, delBlockRange, stopCb); err != nil {
 			return err
 		}
 		for blockNumber := firstBlock; blockNumber < lastBlock; blockNumber++ {

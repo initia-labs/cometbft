@@ -219,7 +219,6 @@ func (f *FilterMaps) processSingleEvent(blocking bool) bool {
 // setTargetView updates the target chain view of the iterator.
 func (f *FilterMaps) setTarget(target targetUpdate) {
 	f.targetHeight = target.targetHeight
-	f.historyCutoff = target.historyCutoff
 }
 
 // tryIndexHead tries to render head maps according to the current targetView.
@@ -397,18 +396,6 @@ func (f *FilterMaps) needTailEpoch(epoch uint32) bool {
 		return true
 	}
 	if epoch+1 < firstEpoch {
-		return false
-	}
-	var lastBlockOfPrevEpoch uint64
-	if epoch > 0 {
-		var err error
-		lastBlockOfPrevEpoch, err = f.getLastBlockOfMap(epoch<<f.logMapsPerEpoch - 1)
-		if err != nil {
-			f.logger.Error("Could not get last block of previous epoch", "epoch", epoch-1, "error", err)
-			return epoch >= firstEpoch
-		}
-	}
-	if f.historyCutoff > lastBlockOfPrevEpoch {
 		return false
 	}
 	lastBlockOfEpoch, err := f.getLastBlockOfMap((epoch+1)<<f.logMapsPerEpoch - 1)

@@ -54,11 +54,10 @@ type TxIndex struct {
 
 // NewTxIndex creates new KV indexer.
 func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *TxIndex {
-	fm := filtermaps.NewFilterMaps(dbm.NewPrefixDB(store, []byte("filtermap")), blockStore, stateStore, 0, filtermaps.DefaultParams, filtermaps.Config{
+	fm := filtermaps.NewFilterMaps(dbm.NewPrefixDB(store, []byte("filtermap")), blockStore, stateStore, filtermaps.DefaultParams, filtermaps.Config{
 		History:        uint64(retainHeight),
 		Disabled:       false,
 		ExportFileName: "",
-		HashScheme:     false,
 	})
 
 	return &TxIndex{

@@ -64,10 +64,10 @@ func DeleteFilterMapsRange(db dbm.Batch) error {
 }
 
 // deletePrefixRange deletes everything with the given prefix from the database.
-func deletePrefixRange(db dbm.DB, prefix []byte, hashScheme bool, stopCallback func(bool) bool) error {
+func deletePrefixRange(db dbm.DB, prefix []byte, stopCallback func(bool) bool) error {
 	end := bytes.Clone(prefix)
 	end[len(end)-1]++
-	return SafeDeleteRange(db, prefix, end, hashScheme, stopCallback)
+	return SafeDeleteRange(db, prefix, end, stopCallback)
 }
 
 // ReadFilterMapLastBlock retrieves the number of the block that generated the
@@ -97,8 +97,8 @@ func DeleteFilterMapLastBlock(db dbm.Batch, mapIndex uint32) error {
 	return db.Delete(filterMapLastBlockKey(mapIndex))
 }
 
-func DeleteFilterMapLastBlocks(db dbm.DB, maps common.Range[uint32], hashScheme bool, stopCallback func(bool) bool) error {
-	return SafeDeleteRange(db, filterMapLastBlockKey(maps.First()), filterMapLastBlockKey(maps.AfterLast()), hashScheme, stopCallback)
+func DeleteFilterMapLastBlocks(db dbm.DB, maps common.Range[uint32], stopCallback func(bool) bool) error {
+	return SafeDeleteRange(db, filterMapLastBlockKey(maps.First()), filterMapLastBlockKey(maps.AfterLast()), stopCallback)
 }
 
 // filterMapBlockLVKey = filterMapBlockLVPrefix + num (uint64 big endian)
@@ -137,8 +137,8 @@ func DeleteBlockLvPointer(db dbm.Batch, blockNumber uint64) error {
 	return db.Delete(filterMapBlockLVKey(blockNumber))
 }
 
-func DeleteBlockLvPointers(db dbm.DB, blocks common.Range[uint64], hashScheme bool, stopCallback func(bool) bool) error {
-	return SafeDeleteRange(db, filterMapBlockLVKey(blocks.First()), filterMapBlockLVKey(blocks.AfterLast()), hashScheme, stopCallback)
+func DeleteBlockLvPointers(db dbm.DB, blocks common.Range[uint64], stopCallback func(bool) bool) error {
+	return SafeDeleteRange(db, filterMapBlockLVKey(blocks.First()), filterMapBlockLVKey(blocks.AfterLast()), stopCallback)
 }
 
 // filterMapLastBlockKey = filterMapLastBlockPrefix + mapIndex (uint32 big endian)
@@ -190,7 +190,7 @@ func ReadFilterMapExtRow(db dbm.DB, mapRowIndex uint64, bitLength uint) ([]uint3
 		return nil, err
 	}
 	if len(encRow)%byteLength != 0 {
-		return nil, errors.New("Invalid encoded extended filter row length")
+		return nil, errors.New("invalid encoded extended filter row length")
 	}
 	row := make([]uint32, len(encRow)/byteLength)
 	var b [4]byte
@@ -244,7 +244,7 @@ func ReadFilterMapBaseRows(db dbm.DB, mapRowIndex uint64, rowCount uint32, bitLe
 		headerBits--
 	}
 	if headerLen+byteLength*entryCount > encLen {
-		return nil, errors.New("Invalid encoded base filter rows length")
+		return nil, errors.New("invalid encoded base filter rows length")
 	}
 	if entriesInRow > 0 {
 		rows[rowIndex] = make([]uint32, entriesInRow)
@@ -333,8 +333,8 @@ func WriteFilterMapBaseRows(db dbm.Batch, mapRowIndex uint64, rows [][]uint32, b
 	return err
 }
 
-func DeleteFilterMapRows(db dbm.DB, mapRows common.Range[uint64], hashScheme bool, stopCallback func(bool) bool) error {
-	return SafeDeleteRange(db, filterMapRowKey(mapRows.First(), false), filterMapRowKey(mapRows.AfterLast(), false), hashScheme, stopCallback)
+func DeleteFilterMapRows(db dbm.DB, mapRows common.Range[uint64], stopCallback func(bool) bool) error {
+	return SafeDeleteRange(db, filterMapRowKey(mapRows.First(), false), filterMapRowKey(mapRows.AfterLast(), false), stopCallback)
 }
 
 // SafeDeleteRange deletes all of the keys (and values) in the range
@@ -349,24 +349,39 @@ func DeleteFilterMapRows(db dbm.DB, mapRows common.Range[uint64], hashScheme boo
 // range delete is used or there are a small number of keys only. The bool
 // argument passed to the callback is true if enrties have actually been
 // deleted already.
-func SafeDeleteRange(db dbm.DB, start, end []byte, hashScheme bool, stopCallback func(bool) bool) error {
-	if hashScheme {
-		return errors.New("hash scheme not supported")
-	}
+func SafeDeleteRange(db dbm.DB, start, end []byte, stopCallback func(bool) bool) error {
 	iter, err := db.Iterator(start, end)
 	if err != nil {
 		return err
 	}
 
+	batch := db.NewBatch()
+	count := 0
+
 	for ; iter.Valid(); iter.Next() {
-		err = db.Delete(iter.Key())
+		err = batch.Delete(iter.Key())
 		if err != nil {
 			return err
 		}
+		count++
+
+		if count > 10000 {
+			if err := batch.Write(); err != nil {
+				return err
+			}
+			if err := batch.Close(); err != nil {
+				return err
+			}
+			batch = db.NewBatch()
+			count = 0
+		}
 	}
-	return iter.Error()
+	if err := iter.Error(); err != nil {
+		return err
+	}
+	return batch.Write()
 }
 
-func DeleteFilterMapsDb(db dbm.DB, hashScheme bool, stopCallback func(bool) bool) error {
-	return deletePrefixRange(db, []byte(filterMapsPrefix), hashScheme, stopCallback)
+func DeleteFilterMapsDB(db dbm.DB, stopCallback func(bool) bool) error {
+	return deletePrefixRange(db, []byte(filterMapsPrefix), stopCallback)
 }
