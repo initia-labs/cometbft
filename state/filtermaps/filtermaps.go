@@ -187,10 +187,6 @@ func (fmr *filterMapsRange) hasIndexedBlocks() bool {
 type Config struct {
 	History  uint64 // number of historical blocks to index
 	Disabled bool   // disables indexing completely
-
-	// This option enables the checkpoint JSON file generator.
-	// If set, the given file will be updated with checkpoint information.
-	ExportFileName string
 }
 
 // NewFilterMaps creates a new FilterMaps and starts the indexer.
@@ -212,7 +208,6 @@ func NewFilterMaps(db dbm.DB, blockStore *store.BlockStore, stateStore sm.Store,
 		history:           config.History,
 		disabled:          config.Disabled,
 		disabledCh:        make(chan struct{}),
-		exportFileName:    config.ExportFileName,
 		Params:            params,
 		targetHeight:      rs.BlocksAfterLast,
 		indexedHeight:     rs.BlocksAfterLast,
