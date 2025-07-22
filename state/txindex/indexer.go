@@ -94,6 +94,9 @@ type FiltermapTxIndexer interface {
 
 	//Set Logger
 	SetLogger(l log.Logger)
+
+	// Prune removes all tx indexes below a certain height.
+	Prune(curHeight int64) error
 }
 
 // Batch groups together multiple Index operations to be performed at the same time.

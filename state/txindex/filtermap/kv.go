@@ -345,3 +345,33 @@ func filtersFromConditions(conditions []syntax.Condition) ([]string, error) {
 	}
 	return filters, nil
 }
+
+func (txi *TxIndex) Prune(curHeight int64) error {
+	minHeight := curHeight - txi.retainHeight
+	if minHeight <= 0 || minHeight >= curHeight {
+		return nil
+	}
+
+	pruneBatch := txi.store.NewBatch()
+	defer pruneBatch.Close()
+
+	base := txi.blockStore.Base()
+
+	iter, err := txi.store.Iterator(keyForHeight(&abci.TxResult{Height: base}), keyForHeight(&abci.TxResult{Height: minHeight + 1}))
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+
+	for ; iter.Valid(); iter.Next() {
+		if err := pruneBatch.Delete(iter.Key()); err != nil {
+			return err
+		}
+
+		// tx hash
+		if err := pruneBatch.Delete(iter.Value()); err != nil {
+			return err
+		}
+	}
+	return pruneBatch.WriteSync()
+}

@@ -84,6 +84,9 @@ func (is *IndexerService) OnStart() error {
 		txIdx2PruningRunning := atomic.Bool{}
 		txIdx2PruningRunning.Store(false)
 
+		filterMapTxIdxPruningRunning := atomic.Bool{}
+		filterMapTxIdxPruningRunning.Store(false)
+
 		is.filterMapTxIdxr.Start()
 
 		for {
@@ -226,6 +229,15 @@ func (is *IndexerService) OnStart() error {
 						}
 
 						is.Logger.Debug("pruned tx_index v2", "height", height)
+					}()
+				}
+
+				if running := filterMapTxIdxPruningRunning.Swap(true); !running {
+					go func() {
+						defer filterMapTxIdxPruningRunning.Store(false)
+						if err := is.filterMapTxIdxr.Prune(height); err != nil {
+							is.Logger.Error("failed to prune filtermap tx index", "height", height, "err", err)
+						}
 					}()
 				}
 			}
