@@ -246,7 +246,7 @@ func (m *matcherEnv) processBatch(tempEnv *matcherEnv, batch []uint32, lastSeenT
 					txIndex:     uint32(txEvent.TxIndex),
 				}
 
-				if lastSeenTx == nil || compareTxKeys(key, *lastSeenTx) == 0 {
+				if lastSeenTx == nil || compareTxKeys(key, *lastSeenTx) > 0 {
 					lastSeenTx = &key
 					select {
 					case ch <- streamingTxEventResult{txEvent: txEvent}:
