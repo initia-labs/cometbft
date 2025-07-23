@@ -527,6 +527,33 @@ func (pool *BlockPool) pickIncrAvailablePeer(height int64, excludePeerID p2p.ID)
 	return nil
 }
 
+func (pool *BlockPool) pickTrustedPeer(height int64, excludePeerID p2p.ID) *bpPeer {
+	pool.mtx.Lock()
+	defer pool.mtx.Unlock()
+
+	for _, trustedPeerID := range pool.trustedPeerIDs {
+		if trustedPeerID == excludePeerID {
+			continue
+		}
+
+		trustedPeer := pool.peers[trustedPeerID]
+		if trustedPeer == nil {
+			continue
+		}
+
+		if trustedPeer.numPending >= maxPendingRequestsPerPeer {
+			continue
+		}
+		if height < trustedPeer.base || height > trustedPeer.height {
+			continue
+		}
+		trustedPeer.incrPending()
+		return trustedPeer
+	}
+
+	return nil
+}
+
 // Sort peers by curRate, highest first.
 //
 // CONTRACT: pool.mtx must be locked.
@@ -715,7 +742,9 @@ func (bpr *bpRequester) setBlock(block *types.Block, extCommit *types.ExtendedCo
 		bpr.mtx.Unlock()
 		return false
 	}
-	if bpr.block != nil {
+	// If we already have a block and it's trusted, we don't need to update it
+	// also if the new block is not trusted, we don't need to update it again
+	if bpr.block != nil && (bpr.block.Trusted || !block.Trusted) {
 		bpr.mtx.Unlock()
 		return true // getting a block from both peers is not an error
 	}
@@ -842,16 +871,23 @@ func (bpr *bpRequester) pickSecondPeerAndSendRequest() (picked bool) {
 	peerID := bpr.peerID
 	bpr.mtx.Unlock()
 
-	secondPeer := bpr.pool.pickIncrAvailablePeer(bpr.height, peerID)
-	if secondPeer != nil {
+	requester := func(peer *bpPeer) {
 		bpr.mtx.Lock()
-		bpr.secondPeerID = secondPeer.id
+		bpr.secondPeerID = peer.id
 		bpr.mtx.Unlock()
 
-		bpr.pool.sendRequest(bpr.height, secondPeer.id)
+		bpr.pool.sendRequest(bpr.height, peer.id)
+	}
+
+	if secondPeer := bpr.pool.pickTrustedPeer(bpr.height, peerID); secondPeer != nil {
+		requester(secondPeer)
 		return true
 	}
 
+	if secondPeer := bpr.pool.pickIncrAvailablePeer(bpr.height, peerID); secondPeer != nil {
+		requester(secondPeer)
+		return true
+	}
 	return false
 }
 

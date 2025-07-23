@@ -50,7 +50,7 @@ type Block struct {
 	LastCommit   *Commit      `json:"last_commit"`
 
 	// Trusted is true if the block is provided by a trusted peer
-	Trusted bool
+	Trusted bool `json:"-"`
 }
 
 // ValidateBasic performs basic validation that doesn't involve state data.
