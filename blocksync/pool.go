@@ -361,9 +361,7 @@ func (pool *BlockPool) AddBlock(peerID p2p.ID, block *types.Block, extCommit *ty
 			pool.sendError(err, peerID)
 			return err
 		}
-	}
-
-	if !requester.setBlock(block, extCommit, peerID) {
+	} else if !requester.setBlock(block, extCommit, peerID) {
 		err := fmt.Errorf("requested block #%d from %v, not %s", block.Height, requester.requestedFrom(), peerID)
 		pool.sendError(err, peerID)
 		return err
