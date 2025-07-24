@@ -603,6 +603,10 @@ func (conR *Reactor) getRoundState() *cstypes.RoundState {
 	return conR.rs
 }
 
+func (conR *Reactor) UpdateToStateFromBlockSync(state sm.State) {
+	conR.conS.UpdateToStateFromBlockSync(state)
+}
+
 func (conR *Reactor) gossipDataRoutine(peer p2p.Peer, ps *PeerState) {
 	logger := conR.Logger.With("peer", peer)
 
