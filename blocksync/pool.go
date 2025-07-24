@@ -361,18 +361,19 @@ func (pool *BlockPool) AddBlock(peerID p2p.ID, block *types.Block, extCommit *ty
 			pool.sendError(err, peerID)
 			return err
 		}
-	} else if !requester.setBlock(block, extCommit, peerID) {
-		err := fmt.Errorf("requested block #%d from %v, not %s", block.Height, requester.requestedFrom(), peerID)
-		pool.sendError(err, peerID)
-		return err
+	} else {
+		if !requester.setBlock(block, extCommit, peerID) {
+			err := fmt.Errorf("requested block #%d from %v, not %s", block.Height, requester.requestedFrom(), peerID)
+			pool.sendError(err, peerID)
+			return err
+		}
+		atomic.AddInt32(&pool.numPending, -1)
 	}
 
-	atomic.AddInt32(&pool.numPending, -1)
 	peer := pool.peers[peerID]
 	if peer != nil {
 		peer.decrPending(blockSize)
 	}
-
 	return nil
 }
 
