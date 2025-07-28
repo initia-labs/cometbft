@@ -146,6 +146,12 @@ type State struct {
 
 	// offline state sync height indicating to which height the node synced offline
 	offlineStateSyncHeight int64
+
+	// isApplyingBlock indicates whether the consensus state is currently applying a block.
+	// This flag prevents double entering finalizeCommit when receiving +2/3 precommit votes
+	// in VoteMessage handling. BlockPartMessage has its own prevention by tracking already
+	// received block parts to avoid duplicate processing.
+	isApplyingBlock bool
 }
 
 // StateOption sets an optional parameter on the State.
@@ -1841,6 +1847,11 @@ func (cs *State) finalizeCommit(height int64) {
 	// Create a copy of the state for staging and an event cache for txs.
 	stateCopy := cs.state.Copy()
 
+	// Unlock the state mutex before applying the block to prevent long mutex hold times.
+	// The isApplyingBlock flag helps track when we're in this critical section.
+	cs.isApplyingBlock = true
+	cs.mtx.Unlock()
+
 	// Execute and commit the block, update and save the state, and update the mempool.
 	// We use apply verified block here because we have verified the block in this function already.
 	// NOTE The block.AppHash won't reflect these txs until the next block.
@@ -1857,6 +1868,10 @@ func (cs *State) finalizeCommit(height int64) {
 	}
 
 	fail.Fail() // XXX
+
+	// Lock the state mutex after applying the block to ensure thread safety.
+	cs.mtx.Lock()
+	cs.isApplyingBlock = false
 
 	// must be called before we update state
 	cs.recordMetrics(height, block)
@@ -2400,6 +2415,10 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 		}
 
 	case cmtproto.PrecommitType:
+		if cs.isApplyingBlock {
+			return added, err
+		}
+
 		precommits := cs.Votes.Precommits(vote.Round)
 		cs.Logger.Debug("added vote to precommit",
 			"height", vote.Height,

@@ -126,6 +126,9 @@ func (memR *Reactor) AddPeer(peer p2p.Peer) {
 			defer memR.mempool.metrics.ActiveOutboundConnections.Add(-1)
 			memR.broadcastTxRoutine(peer)
 		}()
+
+		// start a routine to check transactions from the peer
+		go memR.checkTxRoutine(peer)
 	}
 }
 
@@ -146,27 +149,9 @@ func (memR *Reactor) Receive(e p2p.Envelope) {
 			memR.Logger.Error("received empty txs from peer", "src", e.Src)
 			return
 		}
-		txInfo := TxInfo{SenderID: memR.ids.GetForPeer(e.Src)}
-		if e.Src != nil {
-			txInfo.SenderP2PID = e.Src.ID()
-		}
 
-		var err error
-		for _, tx := range protoTxs {
-			ntx := types.Tx(tx)
-			err = memR.mempool.CheckTx(ntx, nil, txInfo)
-			if err != nil {
-				switch {
-				case errors.Is(err, ErrTxInCache):
-					memR.Logger.Debug("Tx already exists in cache", "tx", ntx.String())
-				case errors.As(err, &ErrMempoolIsFull{}):
-					// using debug level to avoid flooding when traffic is high
-					memR.Logger.Debug(err.Error())
-				default:
-					memR.Logger.Info("Could not check tx", "tx", ntx.String(), "err", err)
-				}
-			}
-		}
+		// send the transactions to the checkTxRoutine
+		memR.ids.GetCheckTxChan(e.Src) <- protoTxs
 	default:
 		memR.Logger.Error("unknown message type", "src", e.Src, "chId", e.ChannelID, "msg", e.Message)
 		memR.Switch.StopPeerForError(e.Src, fmt.Errorf("mempool cannot handle message of type: %T", e.Message))
@@ -245,6 +230,38 @@ func (memR *Reactor) broadcastTxRoutine(peer p2p.Peer) {
 		case <-next.NextWaitChan():
 			// see the start of the for loop for nil check
 			next = next.Next()
+		case <-peer.Quit():
+			return
+		case <-memR.Quit():
+			return
+		}
+	}
+}
+
+func (memR *Reactor) checkTxRoutine(peer p2p.Peer) {
+	peerID := memR.ids.GetForPeer(peer)
+	checkTxChan := memR.ids.GetCheckTxChan(peer)
+	txInfo := TxInfo{SenderID: peerID, SenderP2PID: peer.ID()}
+
+	for {
+		select {
+		case protoTxs := <-checkTxChan:
+			var err error
+			for _, tx := range protoTxs {
+				ntx := types.Tx(tx)
+				err = memR.mempool.CheckTx(ntx, nil, txInfo)
+				if err != nil {
+					switch {
+					case errors.Is(err, ErrTxInCache):
+						memR.Logger.Debug("Tx already exists in cache", "tx", ntx.String())
+					case errors.As(err, &ErrMempoolIsFull{}):
+						// using debug level to avoid flooding when traffic is high
+						memR.Logger.Debug(err.Error())
+					default:
+						memR.Logger.Info("Could not check tx", "tx", ntx.String(), "err", err)
+					}
+				}
+			}
 		case <-peer.Quit():
 			return
 		case <-memR.Quit():
