@@ -422,20 +422,6 @@ func createMConnection(
 		}
 		p.metrics.PeerReceiveBytesTotal.With(labels...).Add(float64(len(msgBytes)))
 		p.metrics.MessageReceiveBytesTotal.With("message_type", p.mlc.ValueToMetricLabel(msg)).Add(float64(len(msgBytes)))
-
-		done := make(chan struct{})
-		go func() {
-			time.Sleep(5 * time.Second)
-			select {
-			case <-done:
-				return
-			default:
-				fmt.Printf("onReceive processing for >5s: %s %s\n", reactor.String(), p.ID())
-			}
-		}()
-
-		defer close(done)
-
 		reactor.Receive(Envelope{
 			ChannelID: chID,
 			Src:       p,

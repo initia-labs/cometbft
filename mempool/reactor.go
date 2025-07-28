@@ -244,6 +244,11 @@ func (memR *Reactor) checkTxRoutine(peer p2p.Peer) {
 	txInfo := TxInfo{SenderID: peerID, SenderP2PID: peer.ID()}
 
 	for {
+		// In case of both next.NextWaitChan() and peer.Quit() are variable at the same time
+		if !memR.IsRunning() || !peer.IsRunning() {
+			return
+		}
+
 		select {
 		case protoTxs := <-checkTxChan:
 			var err error
