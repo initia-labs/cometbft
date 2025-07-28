@@ -164,15 +164,15 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 					// ignore invalid chunk
 					continue
 				}
+				chunk := dataWithHeader.ChunkData
+				checksum := rstypes.GetChecksumFromChunk(chunk)
 				rs.logger.Info("received a batch chunk",
 					"batch_chain_height", batchInfo.BatchChainHeight,
 					"range", fmt.Sprintf("%d ~ %d", batchDataHeader.Start, batchDataHeader.End),
-					"index", fmt.Sprintf("%d/%d", dataWithHeader.Index, dataWithHeader.Length),
+					"index", fmt.Sprintf("%d/%d", dataWithHeader.Index+1, dataWithHeader.Length),
 					"chunk_size", len(dataWithHeader.ChunkData),
 				)
 
-				chunk := dataWithHeader.ChunkData
-				checksum := rstypes.GetChecksumFromChunk(chunk)
 				if uint64(len(batchDataHeader.Checksums)) <= dataWithHeader.Index {
 					// ignore invalid chunk
 					rs.logger.Info("invalid chunk index", "checksums", len(batchDataHeader.Checksums), "index", dataWithHeader.Index)
@@ -201,8 +201,8 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength int, chunks map[uint64][]byte, chunkSize int, batchChainHeight int64, batchInfoIndex int64) error {
 	rs.logger.Info("handle complete chunks", "chunks", chunkLength, "chunk_size", chunkSize)
 	batchBytes := make([]byte, 0, chunkSize)
-	for index := range chunks {
-		chunk, ok := chunks[index]
+	for index := range chunkLength {
+		chunk, ok := chunks[uint64(index)]
 		if !ok {
 			rs.logger.Info("missing chunks", "index", index, "length", chunkLength)
 			return nil
