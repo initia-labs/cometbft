@@ -126,10 +126,10 @@ func (memR *Reactor) AddPeer(peer p2p.Peer) {
 			defer memR.mempool.metrics.ActiveOutboundConnections.Add(-1)
 			memR.broadcastTxRoutine(peer)
 		}()
-
-		// start a routine to check transactions from the peer
-		go memR.checkTxRoutine(peer)
 	}
+
+	// start a routine to check transactions from the peer
+	go memR.checkTxRoutine(peer)
 }
 
 // RemovePeer implements Reactor.

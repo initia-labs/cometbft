@@ -146,12 +146,6 @@ type State struct {
 
 	// offline state sync height indicating to which height the node synced offline
 	offlineStateSyncHeight int64
-
-	// isApplyingBlock indicates whether the consensus state is currently applying a block.
-	// This flag prevents double entering finalizeCommit when receiving +2/3 precommit votes
-	// in VoteMessage handling. BlockPartMessage has its own prevention by tracking already
-	// received block parts to avoid duplicate processing.
-	isApplyingBlock bool
 }
 
 // StateOption sets an optional parameter on the State.
@@ -1847,9 +1841,20 @@ func (cs *State) finalizeCommit(height int64) {
 	// Create a copy of the state for staging and an event cache for txs.
 	stateCopy := cs.state.Copy()
 
-	// Unlock the state mutex before applying the block to prevent long mutex hold times.
-	// The isApplyingBlock flag helps track when we're in this critical section.
-	cs.isApplyingBlock = true
+	// Unlock the state mutex before applying the block to avoid long lock times.
+	//
+	// Safety: tryFinalizeCommit can only be called when both:
+	// 1. We are in the commit step
+	// 2. All block parts have been received and verified
+	//
+	// Multiple calls are prevented by:
+	// - Round/step checks in enterNewRound, enterPrecommit, and enterCommit
+	//   - see handleMsg's VoteMessage
+	// - The `added` check in addProposalBlockPart
+	//   - see handleMsg's BlockPartMessage
+	//
+	// Block execution is time consuming, so we unlock here.
+	// The state remains protected from concurrent modifications due to the above safety conditions.
 	cs.mtx.Unlock()
 
 	// Execute and commit the block, update and save the state, and update the mempool.
@@ -1871,7 +1876,6 @@ func (cs *State) finalizeCommit(height int64) {
 
 	// Lock the state mutex after applying the block to ensure thread safety.
 	cs.mtx.Lock()
-	cs.isApplyingBlock = false
 
 	// must be called before we update state
 	cs.recordMetrics(height, block)
@@ -2415,10 +2419,6 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 		}
 
 	case cmtproto.PrecommitType:
-		if cs.isApplyingBlock {
-			return added, err
-		}
-
 		precommits := cs.Votes.Precommits(vote.Round)
 		cs.Logger.Debug("added vote to precommit",
 			"height", vote.Height,
