@@ -1849,7 +1849,7 @@ func (cs *State) finalizeCommit(height int64) {
 	//
 	// Multiple calls are prevented by:
 	// - Round/step checks in enterNewRound, enterPrecommit, and enterCommit
-	//   - see handleMsg's VoteMessage
+	//   - see handleMsg's VoteMessage => tryAddVote => addVote => enterCommit
 	// - The `added` check in addProposalBlockPart
 	//   - see handleMsg's BlockPartMessage
 	//
