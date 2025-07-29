@@ -25,6 +25,8 @@ import (
 
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/store"
+
+	"sync"
 )
 
 var _ txindex.FiltermapTxIndexer = (*TxIndex)(nil)
@@ -50,6 +52,8 @@ type TxIndex struct {
 	isMigrating bool
 
 	filtermap *filtermaps.FilterMaps
+
+	unlockBlockProcessing sync.Once
 }
 
 // NewTxIndex creates new KV indexer.
@@ -60,12 +64,13 @@ func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store,
 	})
 
 	return &TxIndex{
-		store:        store,
-		log:          log.NewNopLogger(),
-		blockStore:   blockStore,
-		stateStore:   stateStore,
-		retainHeight: retainHeight,
-		filtermap:    fm,
+		store:                 store,
+		log:                   log.NewNopLogger(),
+		blockStore:            blockStore,
+		stateStore:            stateStore,
+		retainHeight:          retainHeight,
+		filtermap:             fm,
+		unlockBlockProcessing: sync.Once{},
 	}
 }
 
@@ -136,7 +141,9 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch, height int64) error {
 		return err
 	}
 
-	txi.filtermap.SetBlockProcessing(false)
+	txi.unlockBlockProcessing.Do(func() {
+		txi.filtermap.SetBlockProcessing(false)
+	})
 
 	txi.filtermap.SetTarget(uint64(height-1), 0)
 	return nil
@@ -214,6 +221,7 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, resultCh chan ab
 
 	heightInfo.heightRange = heightRange
 
+	// filtermap only supports equality operator, otherwise it will return an error
 	filters, err := filtersFromConditions(conditions)
 	if err != nil {
 		return err
