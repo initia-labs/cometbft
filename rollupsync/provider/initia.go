@@ -155,6 +155,8 @@ func (lp L1Provider) GetOracleTx(ctx context.Context, height int64) ([]byte, err
 	resBlock, err := lp.client.Block(ctx, &height)
 	if err != nil {
 		return nil, err
+	} else if len(resBlock.Block.Txs) == 0 {
+		return nil, fmt.Errorf("no tx found at height %d", height)
 	}
 	return resBlock.Block.Txs[0], nil
 }

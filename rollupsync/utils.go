@@ -3,8 +3,12 @@ package rollupsync
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/binary"
 	"io"
+	"math"
+	"math/rand/v2"
+	"time"
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	cmtypes "github.com/cometbft/cometbft/types"
@@ -59,4 +63,25 @@ func unmarshalCommit(commitBz []byte) (*cmtypes.Commit, error) {
 	}
 
 	return cmtypes.CommitFromProto(pbc)
+}
+
+func SleepWithRetry(ctx context.Context, interval int64, worker func(retry int) bool) error {
+	retry := 0
+	for {
+		if success := worker(retry); success {
+			return nil
+		}
+
+		sleepTime := 2 * math.Exp2(float64(retry)) * float64(interval)
+		sleepTime += rand.Float64() * sleepTime * 0.5
+		sleepTime = math.Min(sleepTime, 5000) // max 5 seconds
+		timer := time.NewTimer(time.Duration(sleepTime) * time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+		}
+		retry++
+	}
 }

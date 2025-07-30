@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"time"
 
 	authzv1beta1 "cosmossdk.io/api/cosmos/authz/v1beta1"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
@@ -33,11 +32,18 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 					return err
 				}
 
-				oracleTx, err := rs.fetchOracleTx(ctx, int64(msg.Height))
+				err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+					res, err := rs.l1Provider.GetOracleTx(ctx, int64(msg.Height))
+					if err != nil {
+						rs.logger.Error("failed to fetch oracle tx", "height", msg.Height, "retry", retry, "error", err.Error())
+						return false
+					}
+					msg.Data = res
+					return true
+				})
 				if err != nil {
 					return errors.Join(errors.New("failed to fetch oracle tx"), err)
 				}
-				msg.Data = oracleTx
 
 				// https://github.com/cosmos/cosmos-sdk/blob/main/docs/learn/advanced/05-encoding.md#anys-typeurl
 				err = anyutil.MarshalFrom(anyMsg, msg, proto.MarshalOptions{})
@@ -59,11 +65,18 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 					return err
 				}
 
-				oracleTx, err := rs.fetchOracleTx(ctx, int64(msg.Height))
+				err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+					res, err := rs.l1Provider.GetOracleTx(ctx, int64(msg.Height))
+					if err != nil {
+						rs.logger.Error("failed to fetch oracle tx", "height", msg.Height, "retry", retry, "error", err.Error())
+						return false
+					}
+					msg.Data = res
+					return true
+				})
 				if err != nil {
 					return errors.Join(errors.New("failed to fetch oracle tx"), err)
 				}
-				msg.Data = oracleTx
 
 				// https://github.com/cosmos/cosmos-sdk/blob/main/docs/learn/advanced/05-encoding.md#anys-typeurl
 				err = anyutil.MarshalFrom(authzMsg.Msgs[0], msg, proto.MarshalOptions{})
@@ -94,9 +107,18 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 
 				// fill ValidatorSet
 				height := tmHeader.SignedHeader.Commit.Height
-				validators, err := rs.getAllValidators(ctx, height)
+				var validators []*types.Validator
+				err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+					res, err := rs.l1Provider.GetAllValidators(ctx, height)
+					if err != nil {
+						rs.logger.Error("failed to fetch validators", "height", height, "retry", retry, "error", err.Error())
+						return false
+					}
+					validators = res
+					return true
+				})
 				if err != nil {
-					return err
+					return errors.Join(errors.New("failed to fetch validators"), err)
 				}
 				cmtValidators, _, err := toCmtProtoValidators(validators)
 				if err != nil {
@@ -114,18 +136,39 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 
 				// fill TrustedValidators
 				height = int64(tmHeader.TrustedHeight.RevisionHeight)
-				validators, err = rs.getAllValidators(ctx, height)
+
+				err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+					res, err := rs.l1Provider.GetAllValidators(ctx, height)
+					if err != nil {
+						rs.logger.Error("failed to fetch validators", "height", height, "retry", retry, "error", err.Error())
+						return false
+					}
+					validators = res
+					return true
+				})
 				if err != nil {
-					return err
+					return errors.Join(errors.New("failed to fetch validators"), err)
 				}
+
 				cmtValidators, _, err = toCmtProtoValidators(validators)
 				if err != nil {
 					return err
 				}
-				blockHeader, err := rs.l1Provider.GetHeader(ctx, height)
+
+				var blockHeader *types.Header
+				err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+					res, err := rs.l1Provider.GetHeader(ctx, height)
+					if err != nil {
+						rs.logger.Error("failed to fetch block header", "height", height, "retry", retry, "error", err.Error())
+						return false
+					}
+					blockHeader = res
+					return true
+				})
 				if err != nil {
-					return err
+					return errors.Join(errors.New("failed to fetch block header"), err)
 				}
+
 				if tmHeader.TrustedValidators == nil {
 					tmHeader.TrustedValidators = new(cmtproto.ValidatorSet)
 				}
@@ -138,9 +181,19 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 
 				// fill commit signatures
 				height = tmHeader.SignedHeader.Commit.Height + 1
-				block, err := rs.l1Provider.GetBlock(ctx, height)
+
+				var block *types.Block
+				err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+					res, err := rs.l1Provider.GetBlock(ctx, height)
+					if err != nil {
+						rs.logger.Error("failed to fetch block header", "height", height, "retry", retry, "error", err.Error())
+						return false
+					}
+					block = res
+					return true
+				})
 				if err != nil {
-					return err
+					return errors.Join(errors.New("failed to fetch block header"), err)
 				}
 
 				for sigIndex, signature := range tmHeader.SignedHeader.Commit.Signatures {
@@ -171,48 +224,6 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 		block.Txs[i] = convertedTxBytes
 	}
 	return nil
-}
-
-func (rs *RollupSyncer) fetchOracleTx(ctx context.Context, height int64) ([]byte, error) {
-	ticker := time.NewTicker(time.Duration(rs.cfg.FetchInterval) * time.Millisecond)
-	defer ticker.Stop()
-
-	retry := 0
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-ticker.C:
-			oracleTx, err := rs.l1Provider.GetOracleTx(ctx, height)
-			if err != nil {
-				rs.logger.Error("failed to fetch oracle tx", "height", height, "retry", retry, "error", err.Error())
-				retry++
-				continue
-			}
-			return oracleTx, nil
-		}
-	}
-}
-
-func (rs *RollupSyncer) getAllValidators(ctx context.Context, height int64) ([]*types.Validator, error) {
-	ticker := time.NewTicker(time.Duration(rs.cfg.FetchInterval) * time.Millisecond)
-	defer ticker.Stop()
-
-	retry := 0
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-ticker.C:
-			validators, err := rs.l1Provider.GetAllValidators(ctx, height)
-			if err != nil {
-				rs.logger.Error("failed to fetch validators", "height", height, "retry", retry, "error", err.Error())
-				retry++
-				continue
-			}
-			return validators, nil
-		}
-	}
 }
 
 func toCmtProtoValidators(validators []*types.Validator) ([]*cmtproto.Validator, int, error) {
