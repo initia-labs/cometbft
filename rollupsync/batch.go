@@ -243,9 +243,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 		select {
 		case <-rs.blockChClosed:
 		case rs.blockCh <- rstypes.BlockChanInfo{
-			Block:            block,
-			BatchChainHeight: batchChainHeight,
-			BatchInfoIndex:   batchInfoIndex,
+			Block: block,
 		}:
 		}
 	}

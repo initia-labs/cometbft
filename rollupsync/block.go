@@ -65,7 +65,7 @@ LOOP:
 				}
 			}
 
-			if lastBatchInfoIndex != blockInfo.BatchInfoIndex || lastBatchChainHeight != blockInfo.BatchChainHeight-1 {
+			if lastBatchInfoIndex < blockInfo.BatchInfoIndex || lastBatchChainHeight < blockInfo.BatchChainHeight-1 {
 				lastBatchInfoIndex = blockInfo.BatchInfoIndex
 				lastBatchChainHeight = blockInfo.BatchChainHeight - 1
 
