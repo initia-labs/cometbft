@@ -65,6 +65,9 @@ func unmarshalCommit(commitBz []byte) (*cmtypes.Commit, error) {
 	return cmtypes.CommitFromProto(pbc)
 }
 
+// SleepWithRetry repeatedly calls the worker function with exponential backoff until it succeeds.
+// The backoff is calculated as: 2^retry * interval milliseconds with 50% jitter, capped at 5 seconds.
+// Returns nil on success or context error on cancellation.
 func SleepWithRetry(ctx context.Context, interval int64, worker func(retry int) bool) error {
 	retry := 0
 	for {
@@ -76,9 +79,9 @@ func SleepWithRetry(ctx context.Context, interval int64, worker func(retry int) 
 		sleepTime += rand.Float64() * sleepTime * 0.5
 		sleepTime = math.Min(sleepTime, 5000) // max 5 seconds
 		timer := time.NewTimer(time.Duration(sleepTime) * time.Millisecond)
-		defer timer.Stop()
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return ctx.Err()
 		case <-timer.C:
 		}

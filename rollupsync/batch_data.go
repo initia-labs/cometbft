@@ -10,7 +10,6 @@ import (
 	ibcprotoclient "github.com/cometbft/cometbft/proto/tmibc/core/client/v1"
 	ibcprotopmlcs "github.com/cometbft/cometbft/proto/tmibc/lightclients/tendermint/v1"
 	"github.com/cometbft/cometbft/rollupsync/provider"
-	coretypes "github.com/cometbft/cometbft/rpc/core/types"
 	"github.com/cometbft/cometbft/types"
 	"github.com/cosmos/cosmos-proto/anyutil"
 	opchildv1 "github.com/initia-labs/OPinit/api/opinit/opchild/v1"
@@ -229,7 +228,6 @@ func (rs *RollupSyncer) GetAllValidatorsWithRetry(ctx context.Context, height in
 	total := 0
 
 	for {
-		var res *coretypes.ResultValidators
 		err := SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
 			res, err := rs.l1Provider.GetValidators(ctx, height, page, perPage)
 			if err != nil {
@@ -244,7 +242,7 @@ func (rs *RollupSyncer) GetAllValidatorsWithRetry(ctx context.Context, height in
 			return nil, errors.Join(errors.New("failed to fetch validators"), err)
 		}
 
-		if total != 0 && len(validators) == res.Total {
+		if total != 0 && len(validators) == total {
 			break
 		}
 		page++
