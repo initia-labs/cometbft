@@ -146,6 +146,8 @@ func RollbackTo(bs BlockStore, ss Store, rollbackHeight int64, removeBlock bool)
 	// rollback 1 block
 	if invalidState.LastBlockHeight == rollbackHeight+1 {
 		return Rollback(bs, ss, removeBlock)
+	} else {
+		removeBlock = true
 	}
 
 	// state store height is equal to blockstore height. We're good to proceed with rolling back state
