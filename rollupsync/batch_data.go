@@ -10,6 +10,7 @@ import (
 	ibcprotoclient "github.com/cometbft/cometbft/proto/tmibc/core/client/v1"
 	ibcprotopmlcs "github.com/cometbft/cometbft/proto/tmibc/lightclients/tendermint/v1"
 	"github.com/cometbft/cometbft/rollupsync/provider"
+	coretypes "github.com/cometbft/cometbft/rpc/core/types"
 	"github.com/cometbft/cometbft/types"
 	"github.com/cosmos/cosmos-proto/anyutil"
 	opchildv1 "github.com/initia-labs/OPinit/api/opinit/opchild/v1"
@@ -107,16 +108,7 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 
 				// fill ValidatorSet
 				height := tmHeader.SignedHeader.Commit.Height
-				var validators []*types.Validator
-				err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
-					res, err := rs.l1Provider.GetAllValidators(ctx, height)
-					if err != nil {
-						rs.logger.Error("failed to fetch validators", "height", height, "retry", retry, "error", err.Error())
-						return false
-					}
-					validators = res
-					return true
-				})
+				validators, err := rs.GetAllValidatorsWithRetry(ctx, height)
 				if err != nil {
 					return errors.Join(errors.New("failed to fetch validators"), err)
 				}
@@ -137,15 +129,7 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 				// fill TrustedValidators
 				height = int64(tmHeader.TrustedHeight.RevisionHeight)
 
-				err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
-					res, err := rs.l1Provider.GetAllValidators(ctx, height)
-					if err != nil {
-						rs.logger.Error("failed to fetch validators", "height", height, "retry", retry, "error", err.Error())
-						return false
-					}
-					validators = res
-					return true
-				})
+				validators, err = rs.GetAllValidatorsWithRetry(ctx, height)
 				if err != nil {
 					return errors.Join(errors.New("failed to fetch validators"), err)
 				}
@@ -236,4 +220,34 @@ func toCmtProtoValidators(validators []*types.Validator) ([]*cmtproto.Validator,
 		cmtValidators = append(cmtValidators, protoVal)
 	}
 	return cmtValidators, len(validators), nil
+}
+
+func (rs *RollupSyncer) GetAllValidatorsWithRetry(ctx context.Context, height int64) ([]*types.Validator, error) {
+	validators := make([]*types.Validator, 0)
+	page := 1
+	perPage := 100
+	total := 0
+
+	for {
+		var res *coretypes.ResultValidators
+		err := SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+			res, err := rs.l1Provider.GetValidators(ctx, height, page, perPage)
+			if err != nil {
+				rs.logger.Error("failed to fetch validators", "height", height, "retry", retry, "error", err.Error())
+				return false
+			}
+			validators = append(validators, res.Validators...)
+			total = res.Total
+			return true
+		})
+		if err != nil {
+			return nil, errors.Join(errors.New("failed to fetch validators"), err)
+		}
+
+		if total != 0 && len(validators) == res.Total {
+			break
+		}
+		page++
+	}
+	return validators, nil
 }
