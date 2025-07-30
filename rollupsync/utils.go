@@ -3,8 +3,12 @@ package rollupsync
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/binary"
 	"io"
+	"math"
+	"math/rand/v2"
+	"time"
 
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	cmtypes "github.com/cometbft/cometbft/types"
@@ -59,4 +63,29 @@ func unmarshalCommit(commitBz []byte) (*cmtypes.Commit, error) {
 	}
 
 	return cmtypes.CommitFromProto(pbc)
+}
+
+// SleepWithRetry repeatedly calls the worker function with exponential backoff until it succeeds.
+// The backoff is calculated as: 2^retry * interval milliseconds with 50% jitter, capped at 5 seconds.
+// Returns nil on success or context error on cancellation.
+func SleepWithRetry(ctx context.Context, interval int64, worker func(retry int) bool) error {
+	retry := 0
+	for {
+		if success := worker(retry); success {
+			return nil
+		}
+
+		sleepTime := 2 * math.Exp2(float64(retry)) * float64(interval)
+		sleepTime += rand.Float64() * sleepTime * 0.5
+		sleepTime = math.Min(sleepTime, 5000) // max 5 seconds
+		timer := time.NewTimer(time.Duration(sleepTime) * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		timer.Stop()
+		retry++
+	}
 }

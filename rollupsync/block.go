@@ -63,15 +63,14 @@ LOOP:
 				if rs.targetBlockHeight != 0 && rs.state.LastBlockHeight == int64(rs.targetBlockHeight) {
 					break LOOP
 				}
-			}
+				if lastBatchInfoIndex < blockInfo.BatchInfoIndex || lastBatchChainHeight < blockInfo.BatchChainHeight-1 {
+					lastBatchInfoIndex = blockInfo.BatchInfoIndex
+					lastBatchChainHeight = blockInfo.BatchChainHeight - 1
 
-			if lastBatchInfoIndex != blockInfo.BatchInfoIndex || lastBatchChainHeight != blockInfo.BatchChainHeight-1 {
-				lastBatchInfoIndex = blockInfo.BatchInfoIndex
-				lastBatchChainHeight = blockInfo.BatchChainHeight - 1
-
-				err := rs.blockExec.Store().SetRollupSyncBatchChainHeight(lastBatchInfoIndex, lastBatchChainHeight)
-				if err != nil {
-					return err
+					err := rs.blockExec.Store().SetRollupSyncBatchChainHeight(lastBatchInfoIndex, lastBatchChainHeight)
+					if err != nil {
+						return err
+					}
 				}
 			}
 		}

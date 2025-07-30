@@ -9,6 +9,7 @@ import (
 	"github.com/cometbft/cometbft/config"
 	"github.com/cometbft/cometbft/libs/log"
 	rpchttp "github.com/cometbft/cometbft/rpc/client/http"
+	coretypes "github.com/cometbft/cometbft/rpc/core/types"
 
 	"google.golang.org/protobuf/proto"
 
@@ -155,33 +156,28 @@ func (lp L1Provider) GetOracleTx(ctx context.Context, height int64) ([]byte, err
 	resBlock, err := lp.client.Block(ctx, &height)
 	if err != nil {
 		return nil, err
+	} else if len(resBlock.Block.Txs) == 0 {
+		return nil, fmt.Errorf("no tx found at height %d", height)
 	}
 	return resBlock.Block.Txs[0], nil
 }
 
-func (lp L1Provider) GetAllValidators(ctx context.Context, height int64) ([]*cmttypes.Validator, error) {
-	validators := make([]*cmttypes.Validator, 0)
-	page := 1
-	perPage := 100
-	for {
-		res, err := lp.client.Validators(ctx, &height, &page, &perPage)
-		if err != nil {
-			return nil, err
-		}
-		validators = append(validators, res.Validators...)
-
-		if len(validators) == res.Total {
-			break
-		}
-		page++
+func (lp L1Provider) GetValidators(ctx context.Context, height int64, page int, perPage int) (*coretypes.ResultValidators, error) {
+	res, err := lp.client.Validators(ctx, &height, &page, &perPage)
+	if err != nil {
+		return nil, err
+	} else if res.Total == 0 {
+		return nil, fmt.Errorf("no validators found at height %d", height)
 	}
-	return validators, nil
+	return res, nil
 }
 
 func (lp L1Provider) GetBlock(ctx context.Context, height int64) (*cmttypes.Block, error) {
 	resBlock, err := lp.client.Block(ctx, &height)
 	if err != nil {
 		return nil, err
+	} else if resBlock.Block == nil || resBlock.Block.Height == 0 {
+		return nil, fmt.Errorf("no block found at height %d", height)
 	}
 	return resBlock.Block, nil
 }
@@ -190,6 +186,8 @@ func (lp L1Provider) GetHeader(ctx context.Context, height int64) (*cmttypes.Hea
 	resHeader, err := lp.client.Header(ctx, &height)
 	if err != nil {
 		return nil, err
+	} else if resHeader.Header == nil || resHeader.Header.Height == 0 {
+		return nil, fmt.Errorf("no header found at height %d", height)
 	}
 	return resHeader.Header, nil
 }
