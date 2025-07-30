@@ -85,6 +85,7 @@ func SleepWithRetry(ctx context.Context, interval int64, worker func(retry int) 
 			return ctx.Err()
 		case <-timer.C:
 		}
+		timer.Stop()
 		retry++
 	}
 }
