@@ -229,14 +229,14 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 		default:
 		}
 		block, err := unmarshalBlock(blockBytes)
-		if block.ChainID != rs.state.ChainID {
-			rs.logger.Error("invalid chain id; ignore the entire batch", "expected", rs.state.ChainID, "got", block.ChainID)
-			return nil
-		}
 		if err != nil {
 			rs.logger.Info("failed to unmarshal block", "index", i, "length", len(rawBlocks), "error", err.Error())
 			// ignore invalid block
 			continue
+		}
+		if block.ChainID != rs.state.ChainID {
+			rs.logger.Error("invalid chain id; ignore the entire batch", "expected", rs.state.ChainID, "got", block.ChainID)
+			return nil
 		}
 		lastBlock = block
 
