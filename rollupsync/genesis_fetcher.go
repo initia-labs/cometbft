@@ -12,7 +12,7 @@ import (
 	"github.com/cometbft/cometbft/types"
 )
 
-func FetchGenesis(ctx context.Context, logger log.Logger, cfg *config.RollupSyncConfig) (*types.GenesisDoc, error) {
+func FetchGenesis(ctx context.Context, logger log.Logger, cfg *config.RollupSyncConfig, genesisChainID string, genesisTimestamp int64, initialSearchHeight int64) (*types.GenesisDoc, error) {
 	l1Provider, err := provider.NewL1Provider(logger, cfg)
 	if err != nil {
 		return nil, err
@@ -47,7 +47,10 @@ func FetchGenesis(ctx context.Context, logger log.Logger, cfg *config.RollupSync
 	batchChClosed := make(chan struct{})
 	defer close(batchChClosed)
 
-	go batchProvider.BatchFetcher(ctx, batchCh, batchChClosed, 1)
+	if initialSearchHeight < 1 {
+		initialSearchHeight = 1
+	}
+	go batchProvider.BatchFetcher(ctx, batchCh, batchChClosed, initialSearchHeight)
 
 	genesisChunks := make(map[int]rstypes.BatchDataGenesis)
 
@@ -76,6 +79,9 @@ func FetchGenesis(ctx context.Context, logger log.Logger, cfg *config.RollupSync
 						return nil, err
 					}
 
+					if (genesisChainID != "" && genesisDoc.ChainID != genesisChainID) || (genesisTimestamp != 0 && genesisDoc.GenesisTime.UnixMilli() < genesisTimestamp) {
+						continue
+					}
 					return &genesisDoc, nil
 				}
 			}
