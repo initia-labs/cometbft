@@ -20,6 +20,7 @@ LOOP:
 		case blockInfo := <-rs.blockCh:
 			if blockInfo.Block != nil {
 				block := blockInfo.Block
+
 				if block.Height <= rs.state.LastBlockHeight {
 					if block.Height == 1 {
 						rs.logger.Info("ignore genesis block")
