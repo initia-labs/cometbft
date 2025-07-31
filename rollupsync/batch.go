@@ -223,6 +223,10 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 	var lastBlock *comettypes.Block
 	for i, blockBytes := range rawBlocks {
 		block, err := unmarshalBlock(blockBytes)
+		if block.ChainID != rs.state.ChainID {
+			rs.logger.Error("invalid chain id; ignore the entire batch", "expected", rs.state.ChainID, "got", block.ChainID)
+			return nil
+		}
 		if err != nil {
 			rs.logger.Info("failed to unmarshal block", "index", i, "length", len(rawBlocks), "error", err.Error())
 			// ignore invalid block
@@ -233,11 +237,6 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 		err = rs.fillData(ctx, block)
 		if err != nil {
 			return errors.Join(errors.New("failed to fill oracle data to block"), err)
-		}
-
-		err = block.ValidateBasic()
-		if err != nil {
-			return errors.Join(fmt.Errorf("invalid block: %d", block.Height), err)
 		}
 
 		select {
