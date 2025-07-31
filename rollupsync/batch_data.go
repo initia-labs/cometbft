@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"math"
 
 	authzv1beta1 "cosmossdk.io/api/cosmos/authz/v1beta1"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
@@ -16,7 +17,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error {
+// Note: due to the bug in GoRelayer that incorrectly sets the proposer,
+// when proposerWithLowestPriority is true, we need to fill the proposer with the lowest priority.
+func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block, proposerWithLowestPriority bool) error {
 	for i, txBytes := range block.Txs {
 		raw, body, err := provider.UnmarshalCosmosTx(txBytes)
 		if err != nil {
@@ -105,7 +108,7 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 				}
 
 				// fill ValidatorSet
-				if tmHeader.ValidatorSet == nil {
+				if tmHeader.ValidatorSet.Size() == 0 || proposerWithLowestPriority {
 					tmHeader.ValidatorSet = new(cmtproto.ValidatorSet)
 
 					height := tmHeader.SignedHeader.Commit.Height
@@ -119,15 +122,19 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 					}
 
 					tmHeader.ValidatorSet.Validators = cmtValidators
-					for _, val := range cmtValidators {
-						if bytes.Equal(val.Address, tmHeader.Header.ProposerAddress) {
-							tmHeader.ValidatorSet.Proposer = val
+					if proposerWithLowestPriority {
+						tmHeader.ValidatorSet.Proposer = getProposerWithLowestPriority(cmtValidators)
+					} else {
+						for _, val := range cmtValidators {
+							if bytes.Equal(val.Address, tmHeader.Header.ProposerAddress) {
+								tmHeader.ValidatorSet.Proposer = val
+							}
 						}
 					}
 				}
 
 				// fill TrustedValidators
-				if tmHeader.TrustedValidators == nil {
+				if tmHeader.TrustedValidators.Size() == 0 || proposerWithLowestPriority {
 					tmHeader.TrustedValidators = new(cmtproto.ValidatorSet)
 
 					height := int64(tmHeader.TrustedHeight.RevisionHeight + 1)
@@ -156,25 +163,28 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 						return errors.Join(errors.New("failed to fetch block header"), err)
 					}
 					tmHeader.TrustedValidators.Validators = cmtValidators
-					for _, val := range cmtValidators {
-						if bytes.Equal(val.Address, blockHeader.ProposerAddress.Bytes()) {
-							tmHeader.TrustedValidators.Proposer = val
+					if proposerWithLowestPriority {
+						tmHeader.TrustedValidators.Proposer = getProposerWithLowestPriority(cmtValidators)
+					} else {
+						for _, val := range cmtValidators {
+							if bytes.Equal(val.Address, blockHeader.ProposerAddress.Bytes()) {
+								tmHeader.TrustedValidators.Proposer = val
+							}
 						}
 					}
-
 				}
 
 				// fill commit signatures
 				height := tmHeader.SignedHeader.Commit.Height + 1
 
-				var block *types.Block
+				var tmpBlock *types.Block
 				err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
 					res, err := rs.l1Provider.GetBlock(ctx, height)
 					if err != nil {
 						rs.logger.Error("failed to fetch block header", "height", height, "retry", retry, "error", err.Error())
 						return false
 					}
-					block = res
+					tmpBlock = res
 					return true
 				})
 				if err != nil {
@@ -185,7 +195,7 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 					if len(signature.Signature) == 2 {
 						// fill signature
 						blockSigIndex := int(signature.Signature[0]) + int(signature.Signature[1])<<8
-						tmHeader.SignedHeader.Commit.Signatures[sigIndex] = *block.LastCommit.Signatures[blockSigIndex].ToProto()
+						tmHeader.SignedHeader.Commit.Signatures[sigIndex] = *tmpBlock.LastCommit.Signatures[blockSigIndex].ToProto()
 					}
 				}
 
@@ -250,4 +260,16 @@ func (rs *RollupSyncer) GetAllValidatorsWithRetry(ctx context.Context, height in
 		page++
 	}
 	return validators, nil
+}
+
+func getProposerWithLowestPriority(validators []*cmtproto.Validator) *cmtproto.Validator {
+	lowestPriority := int64(math.MaxInt64)
+	var proposer *cmtproto.Validator
+	for _, val := range validators {
+		if val.ProposerPriority < lowestPriority {
+			lowestPriority = val.ProposerPriority
+			proposer = val
+		}
+	}
+	return proposer
 }

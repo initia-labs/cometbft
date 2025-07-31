@@ -21,12 +21,6 @@ LOOP:
 			if blockInfo.Block != nil {
 				block := blockInfo.Block
 
-				err := block.ValidateBasic()
-				if err != nil {
-					rs.logger.Error("invalid block", "height", block.Height, "err", err.Error())
-					continue
-				}
-
 				if block.Height <= rs.state.LastBlockHeight {
 					if block.Height == 1 {
 						rs.logger.Info("ignore genesis block")

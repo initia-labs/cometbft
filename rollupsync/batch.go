@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cometbft/cometbft/rollupsync/provider"
@@ -222,6 +223,11 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 
 	var lastBlock *comettypes.Block
 	for i, blockBytes := range rawBlocks {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		block, err := unmarshalBlock(blockBytes)
 		if block.ChainID != rs.state.ChainID {
 			rs.logger.Error("invalid chain id; ignore the entire batch", "expected", rs.state.ChainID, "got", block.ChainID)
@@ -234,9 +240,32 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 		}
 		lastBlock = block
 
-		err = rs.fillData(ctx, block)
+		err = rs.fillData(ctx, block, false)
 		if err != nil {
-			return errors.Join(errors.New("failed to fill oracle data to block"), err)
+			rs.logger.Error("failed to fill data to block", "error", err)
+			continue
+		}
+		initialBlockData := block.Data
+
+		validationErr := block.ValidateBasic()
+		if validationErr != nil && strings.Contains(validationErr.Error(), "wrong Header.DataHash") {
+			// to clear the cached data hash
+			block.Data = initialBlockData
+			rs.logger.Info("wrong Header.DataHash, try to fill data with lowest priority proposer", "height", block.Height)
+			err := rs.fillData(ctx, block, true)
+			if err != nil {
+				rs.logger.Error("failed to fill data to block", "error", err)
+				continue
+			}
+
+			err = block.ValidateBasic()
+			if err != nil {
+				rs.logger.Error("invalid block", "height", block.Height, "error", err)
+				continue
+			}
+		} else if validationErr != nil {
+			rs.logger.Error("invalid block", "height", block.Height, "error", validationErr)
+			continue
 		}
 
 		select {
