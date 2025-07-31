@@ -94,7 +94,6 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 				if err != nil {
 					return err
 				}
-
 				if updateClientMsg.ClientMessage.TypeUrl != "/ibc.lightclients.tendermint.v1.Header" {
 					continue
 				}
@@ -106,64 +105,67 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block) error 
 				}
 
 				// fill ValidatorSet
-				height := tmHeader.SignedHeader.Commit.Height
-				validators, err := rs.GetAllValidatorsWithRetry(ctx, height)
-				if err != nil {
-					return errors.Join(errors.New("failed to fetch validators"), err)
-				}
-				cmtValidators, _, err := toCmtProtoValidators(validators)
-				if err != nil {
-					return err
-				}
 				if tmHeader.ValidatorSet == nil {
 					tmHeader.ValidatorSet = new(cmtproto.ValidatorSet)
-				}
-				tmHeader.ValidatorSet.Validators = cmtValidators
-				for _, val := range cmtValidators {
-					if bytes.Equal(val.Address, tmHeader.SignedHeader.Header.ProposerAddress) {
-						tmHeader.ValidatorSet.Proposer = val
+
+					height := tmHeader.SignedHeader.Commit.Height
+					validators, err := rs.GetAllValidatorsWithRetry(ctx, height)
+					if err != nil {
+						return errors.Join(errors.New("failed to fetch validators"), err)
+					}
+					cmtValidators, _, err := toCmtProtoValidators(validators)
+					if err != nil {
+						return err
+					}
+
+					tmHeader.ValidatorSet.Validators = cmtValidators
+					for _, val := range cmtValidators {
+						if bytes.Equal(val.Address, tmHeader.Header.ProposerAddress) {
+							tmHeader.ValidatorSet.Proposer = val
+						}
 					}
 				}
 
 				// fill TrustedValidators
-				height = int64(tmHeader.TrustedHeight.RevisionHeight)
-
-				validators, err = rs.GetAllValidatorsWithRetry(ctx, height)
-				if err != nil {
-					return errors.Join(errors.New("failed to fetch validators"), err)
-				}
-
-				cmtValidators, _, err = toCmtProtoValidators(validators)
-				if err != nil {
-					return err
-				}
-
-				var blockHeader *types.Header
-				err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
-					res, err := rs.l1Provider.GetHeader(ctx, height)
-					if err != nil {
-						rs.logger.Error("failed to fetch block header", "height", height, "retry", retry, "error", err.Error())
-						return false
-					}
-					blockHeader = res
-					return true
-				})
-				if err != nil {
-					return errors.Join(errors.New("failed to fetch block header"), err)
-				}
-
 				if tmHeader.TrustedValidators == nil {
 					tmHeader.TrustedValidators = new(cmtproto.ValidatorSet)
-				}
-				tmHeader.TrustedValidators.Validators = cmtValidators
-				for _, val := range cmtValidators {
-					if bytes.Equal(val.Address, blockHeader.ProposerAddress.Bytes()) {
-						tmHeader.TrustedValidators.Proposer = val
+
+					height := int64(tmHeader.TrustedHeight.RevisionHeight + 1)
+
+					validators, err := rs.GetAllValidatorsWithRetry(ctx, height)
+					if err != nil {
+						return errors.Join(errors.New("failed to fetch validators"), err)
 					}
+
+					cmtValidators, _, err := toCmtProtoValidators(validators)
+					if err != nil {
+						return err
+					}
+
+					var blockHeader *types.Header
+					err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+						res, err := rs.l1Provider.GetHeader(ctx, height)
+						if err != nil {
+							rs.logger.Error("failed to fetch block header", "height", height, "retry", retry, "error", err.Error())
+							return false
+						}
+						blockHeader = res
+						return true
+					})
+					if err != nil {
+						return errors.Join(errors.New("failed to fetch block header"), err)
+					}
+					tmHeader.TrustedValidators.Validators = cmtValidators
+					for _, val := range cmtValidators {
+						if bytes.Equal(val.Address, blockHeader.ProposerAddress.Bytes()) {
+							tmHeader.TrustedValidators.Proposer = val
+						}
+					}
+
 				}
 
 				// fill commit signatures
-				height = tmHeader.SignedHeader.Commit.Height + 1
+				height := tmHeader.SignedHeader.Commit.Height + 1
 
 				var block *types.Block
 				err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
