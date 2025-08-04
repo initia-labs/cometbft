@@ -145,7 +145,7 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch, height int64) error {
 		txi.filtermap.SetBlockProcessing(false)
 	})
 
-	txi.filtermap.SetTarget(uint64(height-1), 0)
+	txi.filtermap.SetTarget(uint64(height - 1))
 	return nil
 }
 

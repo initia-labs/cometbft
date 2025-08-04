@@ -105,7 +105,7 @@ type FilterMaps struct {
 	targetHeight        uint64
 	matcherSyncRequests []*FilterMapsMatcherBackend
 	stop                bool
-	targetCh            chan targetUpdate
+	targetCh            chan uint64
 	blockProcessingCh   chan bool
 	blockProcessing     bool
 	matcherSyncCh       chan *FilterMapsMatcherBackend
@@ -203,7 +203,7 @@ func NewFilterMaps(db dbm.DB, blockStore *store.BlockStore, stateStore sm.Store,
 
 		closeCh:           make(chan struct{}),
 		waitIdleCh:        make(chan chan bool),
-		targetCh:          make(chan targetUpdate, 1),
+		targetCh:          make(chan uint64, 1),
 		blockProcessingCh: make(chan bool, 1),
 		history:           config.History,
 		disabled:          config.Disabled,

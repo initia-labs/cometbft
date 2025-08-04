@@ -101,21 +101,13 @@ func (f *FilterMaps) disableForError(op string, err error) {
 	close(f.disabledCh)
 }
 
-type targetUpdate struct {
-	targetHeight  uint64
-	historyCutoff uint64
-}
-
 // SetTarget sets a new target chain view for the indexer to render.
 // Note that SetTargetView never blocks.
-func (f *FilterMaps) SetTarget(targetHeight uint64, historyCutoff uint64) {
+func (f *FilterMaps) SetTarget(targetHeight uint64) {
 	for {
 		select {
 		case <-f.targetCh:
-		case f.targetCh <- targetUpdate{
-			targetHeight:  targetHeight,
-			historyCutoff: historyCutoff,
-		}:
+		case f.targetCh <- targetHeight:
 			return
 		}
 	}
@@ -217,8 +209,8 @@ func (f *FilterMaps) processSingleEvent(blocking bool) bool {
 }
 
 // setTargetView updates the target chain view of the iterator.
-func (f *FilterMaps) setTarget(target targetUpdate) {
-	f.targetHeight = target.targetHeight
+func (f *FilterMaps) setTarget(targetHeight uint64) {
+	f.targetHeight = targetHeight
 }
 
 // tryIndexHead tries to render head maps according to the current targetView.
