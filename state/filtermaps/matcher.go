@@ -17,9 +17,11 @@
 package filtermaps
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -45,6 +47,7 @@ type MatcherBackend interface {
 	GetBlockLvPointer(ctx context.Context, blockNumber uint64) (uint64, error)
 	GetFilterMapRows(ctx context.Context, mapIndices []uint32, rowIndex uint32, baseLayerOnly bool) ([]FilterRow, error)
 	GetLogByLvIndex(ctx context.Context, lvIndex uint64) (*TxEvent, error)
+	GetLvIndexRange(ctx context.Context, lvIndex uint64) (lvIndexRange, error)
 	SyncLogIndex(ctx context.Context) (SyncRange, error)
 	Close()
 }
@@ -119,61 +122,7 @@ func (m *matcherEnv) processStreaming() error {
 		return errors.New("not a multiEventMatcher")
 	}
 
-	numMatchers := len(multiMatcher.matchers)
-
-	// create channels for each matcher
-	channels := make([]<-chan streamingTxEventResult, numMatchers)
-
 	firstEpoch, lastEpoch := m.firstMap>>m.params.logMapsPerEpoch, m.lastMap>>m.params.logMapsPerEpoch
-
-	// start each matcher in a separate goroutine
-	for i, singleMatcher := range multiMatcher.matchers {
-		ch := make(chan streamingTxEventResult, 100) // buffered for performance
-		channels[i] = ch
-
-		go m.runStreamingMatcher(singleMatcher, firstEpoch, lastEpoch, ch)
-	}
-
-	// perform streaming intersection and send results directly to result channel
-	return m.streamingIntersectTxEventsDirectly(channels)
-}
-
-type matcherEnv struct {
-	ctx                   context.Context
-	backend               MatcherBackend
-	params                *Params
-	matcher               matcher
-	firstIndex, lastIndex uint64
-	firstMap, lastMap     uint32
-	resultCh              chan<- *TxEvent
-}
-
-// streamingTxEventResult represents a streaming result from a matcher
-type streamingTxEventResult struct {
-	txEvent *TxEvent
-	err     error
-	done    bool // indicates end of stream
-}
-
-const batchSize = 32
-
-// runStreamingMatcher runs a single matcher and streams results to a channel
-func (m *matcherEnv) runStreamingMatcher(singleMatcher *singleMatcher, firstEpoch, lastEpoch uint32, ch chan<- streamingTxEventResult) {
-	defer close(ch)
-
-	// create temporary matcherEnv for this single matcher
-	tempEnv := &matcherEnv{
-		ctx:        m.ctx,
-		backend:    m.backend,
-		params:     m.params,
-		matcher:    singleMatcher,
-		firstIndex: m.firstIndex,
-		lastIndex:  m.lastIndex,
-		firstMap:   m.firstMap,
-		lastMap:    m.lastMap,
-	}
-
-	var lastSeenTx *txKey
 
 	// Process epochs sequentially to maintain order
 	for epochIndex := firstEpoch; epochIndex <= lastEpoch; epochIndex++ {
@@ -198,157 +147,9 @@ func (m *matcherEnv) runStreamingMatcher(singleMatcher *singleMatcher, firstEpoc
 
 			batch := mapIndices[i:end]
 
-			// Process batch and stream results
-			if err := m.processBatch(tempEnv, batch, lastSeenTx, ch); err != nil {
-				ch <- streamingTxEventResult{err: err}
-				return
-			}
-		}
-	}
-	// signal end of stream
-	ch <- streamingTxEventResult{done: true}
-}
-
-// processBatch processes a batch of map indices and streams results immediately
-func (m *matcherEnv) processBatch(tempEnv *matcherEnv, batch []uint32, lastSeenTx *txKey, ch chan<- streamingTxEventResult) error {
-	matchResultCh := make(chan matcherStreamingResult, len(batch))
-	errCh := make(chan error, 1)
-
-	go func() {
-		defer close(matchResultCh)
-		if err := tempEnv.streamingGetAllMatches(batch, matchResultCh); err != nil {
-			errCh <- err
-		}
-		close(errCh)
-	}()
-
-	for {
-		select {
-		case result, ok := <-matchResultCh:
-			if !ok {
-				// Channel closed, batch processing complete
-				return nil
-			}
-
-			if result.matches == nil {
-				return ErrMatchAll
-			}
-
-			mTxEvents, err := tempEnv.getLogsFromMatches(result.matches)
+			err := m.runMatcher(multiMatcher.matchers, batch)
 			if err != nil {
 				return err
-			}
-
-			// Stream unique transactions immediately as they're found
-			for _, txEvent := range mTxEvents {
-				key := txKey{
-					blockNumber: uint64(txEvent.BlockNumber),
-					txIndex:     uint32(txEvent.TxIndex),
-				}
-
-				if lastSeenTx == nil || compareTxKeys(key, *lastSeenTx) > 0 {
-					lastSeenTx = &key
-					select {
-					case ch <- streamingTxEventResult{txEvent: txEvent}:
-					case <-m.ctx.Done():
-						return nil
-					}
-				}
-			}
-
-		case err := <-errCh:
-			if err != nil {
-				return err
-			}
-
-		case <-m.ctx.Done():
-			return nil
-		}
-	}
-}
-
-// streamingIntersectTxEventsDirectly performs N-way streaming intersection and sends results directly to result channel
-func (m *matcherEnv) streamingIntersectTxEventsDirectly(channels []<-chan streamingTxEventResult) error {
-	numChannels := len(channels)
-	if numChannels == 0 {
-		return nil
-	}
-
-	// current head of each stream
-	heads := make([]*TxEvent, numChannels)
-	done := make([]bool, numChannels)
-	errored := false
-
-	// initialize heads by reading first item from each channel
-	for i := 0; i < numChannels; i++ {
-		if err := m.readNextFromChannel(channels[i], &heads[i], &done[i], &errored); err != nil {
-			return err
-		}
-		if errored {
-			return fmt.Errorf("error in matcher %d", i)
-		}
-	}
-
-	for {
-		select {
-		case <-m.ctx.Done():
-			return m.ctx.Err()
-		default:
-		}
-
-		anyDone := false
-		for i := 0; i < numChannels; i++ {
-			if done[i] {
-				anyDone = true
-				break
-			}
-		}
-		if anyDone {
-			break
-		}
-
-		// find minimum and maximum transaction keys
-		minKey := txKey{blockNumber: uint64(heads[0].BlockNumber), txIndex: uint32(heads[0].TxIndex)}
-		maxKey := minKey
-
-		for i := 1; i < numChannels; i++ {
-			key := txKey{blockNumber: uint64(heads[i].BlockNumber), txIndex: uint32(heads[i].TxIndex)}
-			if compareTxKeys(key, minKey) < 0 {
-				minKey = key
-			}
-			if compareTxKeys(key, maxKey) > 0 {
-				maxKey = key
-			}
-		}
-
-		// if all heads have the same key, we found an intersection
-		if compareTxKeys(minKey, maxKey) == 0 {
-			select {
-			case <-m.ctx.Done():
-				return m.ctx.Err()
-			case m.resultCh <- heads[0]:
-			}
-
-			for i := 0; i < numChannels; i++ {
-				if err := m.readNextFromChannel(channels[i], &heads[i], &done[i], &errored); err != nil {
-					return err
-				}
-				if errored {
-					return fmt.Errorf("error in matcher %d", i)
-				}
-			}
-		} else {
-			// advance streams that have the minimum key
-			for i := 0; i < numChannels; i++ {
-				key := txKey{blockNumber: uint64(heads[i].BlockNumber), txIndex: uint32(heads[i].TxIndex)}
-				if compareTxKeys(key, minKey) == 0 {
-					if err := m.readNextFromChannel(channels[i], &heads[i], &done[i], &errored); err != nil {
-						return err
-					}
-					if errored {
-						return fmt.Errorf("error in matcher %d", i)
-					}
-				}
 			}
 		}
 	}
@@ -356,77 +157,175 @@ func (m *matcherEnv) streamingIntersectTxEventsDirectly(channels []<-chan stream
 	return nil
 }
 
-// readNextFromChannel reads the next TxEvent from a channel
-func (m *matcherEnv) readNextFromChannel(ch <-chan streamingTxEventResult, head **TxEvent, done *bool, errored *bool) error {
-	select {
-	case result, ok := <-ch:
-		if !ok {
-			*done = true
-			return nil
-		}
-		if result.err != nil {
-			*errored = true
-			return result.err
-		}
-		if result.done {
-			*done = true
-			return nil
-		}
-		*head = result.txEvent
-		return nil
-	case <-m.ctx.Done():
-		return m.ctx.Err()
-	}
+type matcherEnv struct {
+	ctx                   context.Context
+	backend               MatcherBackend
+	params                *Params
+	matcher               matcher
+	firstIndex, lastIndex uint64
+	firstMap, lastMap     uint32
+	resultCh              chan<- *TxEvent
 }
 
-// compareTxKeys compares two transaction keys for sorting
-// returns -1 if a < b, 0 if a == b, 1 if a > b
-func compareTxKeys(a, b txKey) int {
-	if a.blockNumber < b.blockNumber {
-		return -1
-	}
-	if a.blockNumber > b.blockNumber {
-		return 1
-	}
-	if a.txIndex < b.txIndex {
-		return -1
-	}
-	if a.txIndex > b.txIndex {
-		return 1
-	}
-	return 0
+const batchSize = 32
+
+type singleMatcherResult struct {
+	index   int
+	matches potentialMatches
 }
 
-// txKey represents a unique transaction identifier
-type txKey struct {
-	blockNumber uint64
-	txIndex     uint32
+type potentialResult struct {
+	match        uint64
+	lvIndexRange *lvIndexRange
+	txIndex      uint64
 }
 
-// getLogsFromMatches returns the list of potentially matching logs located at
-// the given list of matching log indices. Matches outside the firstIndex to
-// lastIndex range are not returned. This is used for intermediate processing
-// where results need to be collected before streaming.
-func (m *matcherEnv) getLogsFromMatches(matches potentialMatches) ([]*TxEvent, error) {
-	var txEvents []*TxEvent
-	for _, match := range matches {
-		if match < m.firstIndex || match > m.lastIndex {
-			continue
+// runStreamingMatcher runs a single matcher and streams results to a channel
+func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error {
+	matcherResults := make([]singleMatcherResult, len(matchers))
+
+	for i, singleMatcher := range matchers {
+		// create temporary matcherEnv for this single matcher
+		tempEnv := &matcherEnv{
+			ctx:        m.ctx,
+			backend:    m.backend,
+			params:     m.params,
+			matcher:    singleMatcher,
+			firstIndex: m.firstIndex,
+			lastIndex:  m.lastIndex,
+			firstMap:   m.firstMap,
+			lastMap:    m.lastMap,
 		}
-		txEvent, err := m.backend.GetLogByLvIndex(m.ctx, match)
+
+		results, err := tempEnv.getAllMatches(batch)
 		if err != nil {
-			return txEvents, fmt.Errorf("failed to retrieve log at index %d: %v", match, err)
+			return err
 		}
-		if txEvent != nil {
-			txEvents = append(txEvents, txEvent)
+		matcherResults[i] = singleMatcherResult{
+			index:   i,
+			matches: results,
 		}
 	}
-	return txEvents, nil
+
+	// sort by number of matches
+	sort.Slice(matcherResults, func(i, j int) bool {
+		return len(matcherResults[i].matches) < len(matcherResults[j].matches)
+	})
+
+	potentialResults, err := m.getPotentialResults(&matcherResults[0])
+	if err != nil {
+		return err
+	}
+	for elem := potentialResults.Front(); elem != nil; elem = elem.Next() {
+	}
+
+	for _, matcherResult := range matcherResults[1:] {
+		err := m.deleteUnmatchedResults(potentialResults, &matcherResult)
+		if err != nil {
+			return err
+		}
+	}
+
+	result := potentialResults.Front()
+	for result != nil {
+		select {
+		case <-m.ctx.Done():
+			return m.ctx.Err()
+		case m.resultCh <- &TxEvent{
+			BlockNumber: int64(result.Value.(potentialResult).lvIndexRange.blockNumber + 1),
+			TxIndex:     int(result.Value.(potentialResult).txIndex),
+		}:
+			result = result.Next()
+		}
+	}
+	return nil
 }
 
-// streamingGetAllMatches sends results as they become available instead of waiting for all results
-func (m *matcherEnv) streamingGetAllMatches(mapIndices []uint32, resultCh chan<- matcherStreamingResult) error {
+func (m *matcherEnv) getPotentialResults(matcherResult *singleMatcherResult) (*list.List, error) {
+	potentialResults := list.New()
 
+	var rg *lvIndexRange
+	for _, result := range matcherResult.matches {
+		if !isLvIndexInRange(result, rg) {
+			lvIndexRange, err := m.backend.GetLvIndexRange(m.ctx, result)
+			if err != nil {
+				return nil, err
+			}
+			rg = &lvIndexRange
+		}
+
+		txIndex, err := getTxIndexInRange(result, rg)
+		if err != nil {
+			return nil, err
+		}
+
+		if lastElem := potentialResults.Back(); lastElem == nil ||
+			lastElem.Value.(potentialResult).txIndex != txIndex ||
+			lastElem.Value.(potentialResult).lvIndexRange.blockNumber != rg.blockNumber {
+			potentialResults.PushBack(potentialResult{
+				match:        result,
+				lvIndexRange: rg,
+				txIndex:      txIndex,
+			})
+		}
+	}
+	return potentialResults, nil
+}
+
+func (m *matcherEnv) deleteUnmatchedResults(potentialResults *list.List, matcherResult *singleMatcherResult) error {
+	currentPotentialResult := potentialResults.Front()
+	matcherResultPointer := 0
+	for matcherResultPointer < len(matcherResult.matches) && currentPotentialResult != nil {
+		potentialResult := currentPotentialResult.Value.(potentialResult)
+
+		lr, err := lvIndexInRange(matcherResult.matches[matcherResultPointer], potentialResult.lvIndexRange)
+		if err != nil {
+			return err
+		} else if lr == 0 {
+			currentPotentialResult = currentPotentialResult.Next()
+			matcherResultPointer++
+		} else if lr < 0 {
+			matcherResultPointer++
+		} else {
+			nextElem := currentPotentialResult.Next()
+			potentialResults.Remove(currentPotentialResult)
+			currentPotentialResult = nextElem
+		}
+	}
+	return nil
+}
+
+func isLvIndexInRange(lvIndex uint64, rg *lvIndexRange) bool {
+	if rg == nil {
+		return false
+	}
+	return lvIndex >= rg.startLvIndex && lvIndex < rg.startLvIndex+rg.accumulatedPointers[len(rg.accumulatedPointers)-1]
+}
+
+func lvIndexInRange(lvIndex uint64, rg *lvIndexRange) (int, error) {
+	if rg == nil {
+		return 0, fmt.Errorf("lvIndexRange is nil")
+	} else if lvIndex < rg.startLvIndex {
+		return -1, nil
+	} else if lvIndex >= rg.startLvIndex+rg.accumulatedPointers[len(rg.accumulatedPointers)-1] {
+		return 1, nil
+	} else {
+		return 0, nil
+	}
+}
+
+func getTxIndexInRange(lvIndex uint64, rg *lvIndexRange) (uint64, error) {
+	startLvIndex := rg.startLvIndex
+	for i, accumulatedPointer := range rg.accumulatedPointers {
+		if lvIndex >= startLvIndex && lvIndex < startLvIndex+accumulatedPointer {
+			return uint64(i), nil
+		}
+	}
+	return 0, fmt.Errorf("log value index %d is not in range %d-%d", lvIndex, rg.startLvIndex, rg.startLvIndex+rg.accumulatedPointers[len(rg.accumulatedPointers)-1])
+}
+
+func (m *matcherEnv) getAllMatches(mapIndices []uint32) (potentialMatches, error) {
+	matcherResults := make(potentialMatches, 0)
 	instance := m.matcher.newInstance(mapIndices)
 	remainingIndices := len(mapIndices)
 	maxLayers := uint32(10) // Reasonable limit to prevent infinite loops
@@ -434,36 +333,18 @@ func (m *matcherEnv) streamingGetAllMatches(mapIndices []uint32, resultCh chan<-
 	for layerIndex := uint32(0); remainingIndices > 0 && layerIndex < maxLayers; layerIndex++ {
 		results, err := instance.getMatchesForLayer(m.ctx, layerIndex)
 		if err != nil {
-			return err
+			return nil, err
 		}
-
-		// Stream results as they become available
-		for _, result := range results {
-			select {
-			case resultCh <- matcherStreamingResult{
-				mapIndex: result.mapIndex,
-				matches:  result.matches,
-			}:
-				remainingIndices--
-			case <-m.ctx.Done():
-				return m.ctx.Err()
-			}
-		}
+		matcherResults = append(matcherResults, results...)
 
 		// Context check between layers
 		select {
 		case <-m.ctx.Done():
-			return m.ctx.Err()
+			return nil, m.ctx.Err()
 		default:
 		}
 	}
-
-	return nil
-}
-
-type matcherStreamingResult struct {
-	mapIndex uint32
-	matches  potentialMatches
+	return matcherResults, nil
 }
 
 // matcher defines a general abstraction for any matcher configuration that
@@ -482,15 +363,8 @@ type matcher interface {
 // a result has been returned has no effect. Exactly one matcherResult is
 // returned per requested map index unless dropped.
 type matcherInstance interface {
-	getMatchesForLayer(ctx context.Context, layerIndex uint32) ([]matcherResult, error)
+	getMatchesForLayer(ctx context.Context, layerIndex uint32) (potentialMatches, error)
 	dropIndices(mapIndices []uint32)
-}
-
-// matcherResult contains the list of potentially matching log value indices
-// for a given map index.
-type matcherResult struct {
-	mapIndex uint32
-	matches  potentialMatches
 }
 
 // singleMatcher implements matcher by returning matches for a single log value hash.
@@ -523,7 +397,7 @@ func (m *singleMatcher) newInstance(mapIndices []uint32) matcherInstance {
 }
 
 // getMatchesForLayer implements matcherInstance.
-func (m *singleMatcherInstance) getMatchesForLayer(ctx context.Context, layerIndex uint32) (results []matcherResult, err error) {
+func (m *singleMatcherInstance) getMatchesForLayer(ctx context.Context, layerIndex uint32) (results potentialMatches, err error) {
 	var st int
 	m.stats.setState(&st, stOther)
 	params := m.backend.GetParams()
@@ -572,10 +446,7 @@ func (m *singleMatcherInstance) getMatchesForLayer(ctx context.Context, layerInd
 				m.stats.setState(&st, stProcess)
 				matches := params.potentialMatches(filterRows, mapIndex, m.value)
 				m.stats.addAmount(st, int64(len(matches)))
-				results = append(results, matcherResult{
-					mapIndex: mapIndex,
-					matches:  matches,
-				})
+				results = append(results, matches...)
 				m.stats.setState(&st, stOther)
 				delete(m.filterRows, mapIndex)
 			} else {
@@ -690,7 +561,7 @@ type multiEventMatcherInstance struct {
 
 // getMatchesForLayer implements matcherInstance.
 // This is a placeholder - the actual processing happens in processEpoch.
-func (m *multiEventMatcherInstance) getMatchesForLayer(ctx context.Context, layerIndex uint32) ([]matcherResult, error) {
+func (m *multiEventMatcherInstance) getMatchesForLayer(ctx context.Context, layerIndex uint32) (potentialMatches, error) {
 	// This should not be called for multi-event matching
 	// The actual logic is in processEpoch
 	return nil, fmt.Errorf("multiEventMatcherInstance.getMatchesForLayer should not be called")
