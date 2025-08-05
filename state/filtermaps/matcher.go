@@ -27,6 +27,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/mclock"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/cometbft/cometbft/libs/log"
 )
@@ -184,27 +185,36 @@ type potentialResult struct {
 func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error {
 	matcherResults := make([]singleMatcherResult, len(matchers))
 
-	for i, singleMatcher := range matchers {
-		// create temporary matcherEnv for this single matcher
-		tempEnv := &matcherEnv{
-			ctx:        m.ctx,
-			backend:    m.backend,
-			params:     m.params,
-			matcher:    singleMatcher,
-			firstIndex: m.firstIndex,
-			lastIndex:  m.lastIndex,
-			firstMap:   m.firstMap,
-			lastMap:    m.lastMap,
-		}
+	eg, _ := errgroup.WithContext(m.ctx)
 
-		results, err := tempEnv.getAllMatches(batch)
-		if err != nil {
-			return err
-		}
-		matcherResults[i] = singleMatcherResult{
-			index:   i,
-			matches: results,
-		}
+	for i, singleMatcher := range matchers {
+		eg.Go(func() error {
+			// create temporary matcherEnv for this single matcher
+			tempEnv := &matcherEnv{
+				ctx:        m.ctx,
+				backend:    m.backend,
+				params:     m.params,
+				matcher:    singleMatcher,
+				firstIndex: m.firstIndex,
+				lastIndex:  m.lastIndex,
+				firstMap:   m.firstMap,
+				lastMap:    m.lastMap,
+			}
+
+			results, err := tempEnv.getAllMatches(batch)
+			if err != nil {
+				return err
+			}
+			matcherResults[i] = singleMatcherResult{
+				index:   i,
+				matches: results,
+			}
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return err
 	}
 
 	// sort by number of matches
