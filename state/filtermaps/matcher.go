@@ -38,6 +38,7 @@ const doRuntimeStats = true
 // Handling this case in filtermaps would require an extra special case and
 // would actually be slower than reverting to legacy filter.
 var ErrMatchAll = errors.New("match all patterns not supported")
+var ErrZeroMatches = errors.New("no matches found")
 
 // MatcherBackend defines the functions required for searching in the log index
 // data structure. It is currently implemented by FilterMapsMatcherBackend but
@@ -205,6 +206,9 @@ func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error
 			if err != nil {
 				return err
 			}
+			if len(results) == 0 {
+				return ErrZeroMatches
+			}
 			matcherResults[i] = singleMatcherResult{
 				index:   i,
 				matches: results,
@@ -213,7 +217,7 @@ func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error
 		})
 	}
 
-	if err := eg.Wait(); err != nil {
+	if err := eg.Wait(); err != nil && !errors.Is(err, ErrZeroMatches) {
 		return err
 	}
 
