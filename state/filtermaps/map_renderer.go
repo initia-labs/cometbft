@@ -694,11 +694,12 @@ func (fmr *filterMapsRange) addRenderedRange(firstRendered, afterLastRendered, a
 
 // logIterator iterates on the linear log value index range.
 type logIterator struct {
-	params                                          *Params
-	stateStore                                      sm.Store
-	targetHeight                                    uint64
-	blockNumber                                     uint64
-	txResults                                       []*abci.ExecTxResult
+	params       *Params
+	stateStore   sm.Store
+	targetHeight uint64
+	blockNumber  uint64
+	txResults    []*abci.ExecTxResult
+	// txEventsPointers indicates the start log value index of each tx index + the number of log values in the tx
 	txEventsPointers                                []uint64
 	blockStart, delimiter, skipToBoundary, finished bool
 	txIndex, eventIndex, attrIndex                  int
@@ -828,13 +829,13 @@ func (l *logIterator) next() error {
 		}
 
 		txEventsPointers := make([]uint64, len(blockResponse.TxResults))
+		l.txResults = blockResponse.TxResults
+		l.txEventsPointers = txEventsPointers
 		for i, txResult := range blockResponse.TxResults {
 			for _, event := range txResult.Events {
 				txEventsPointers[i] += uint64(len(event.Attributes))
 			}
 		}
-		l.txResults = blockResponse.TxResults
-		l.txEventsPointers = txEventsPointers
 		l.txIndex, l.eventIndex, l.attrIndex, l.blockStart = 0, 0, 0, true
 	} else {
 		l.attrIndex++
@@ -858,6 +859,7 @@ func (l *logIterator) enforceValidState() {
 			l.skipToBoundary = true
 			return
 		}
+		l.txEventsPointers[l.txIndex] += l.lvIndex
 
 		txResult := l.txResults[l.txIndex]
 		for ; l.eventIndex < len(txResult.Events); l.eventIndex++ {

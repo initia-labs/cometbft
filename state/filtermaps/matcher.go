@@ -309,7 +309,7 @@ func isLvIndexInRange(lvIndex uint64, rg *lvIndexRange) bool {
 	if rg == nil {
 		return false
 	}
-	return lvIndex >= rg.startLvIndex && lvIndex < rg.startLvIndex+rg.accumulatedPointers[len(rg.accumulatedPointers)-1]
+	return lvIndex >= rg.startLvIndex && lvIndex < rg.txEventsPointers[len(rg.txEventsPointers)-1]
 }
 
 func lvIndexInRange(lvIndex uint64, rg *lvIndexRange) (int, error) {
@@ -317,7 +317,7 @@ func lvIndexInRange(lvIndex uint64, rg *lvIndexRange) (int, error) {
 		return 0, fmt.Errorf("lvIndexRange is nil")
 	} else if lvIndex < rg.startLvIndex {
 		return -1, nil
-	} else if lvIndex >= rg.startLvIndex+rg.accumulatedPointers[len(rg.accumulatedPointers)-1] {
+	} else if lvIndex >= rg.txEventsPointers[len(rg.txEventsPointers)-1] {
 		return 1, nil
 	} else {
 		return 0, nil
@@ -326,12 +326,13 @@ func lvIndexInRange(lvIndex uint64, rg *lvIndexRange) (int, error) {
 
 func getTxIndexInRange(lvIndex uint64, rg *lvIndexRange) (uint64, error) {
 	startLvIndex := rg.startLvIndex
-	for i, accumulatedPointer := range rg.accumulatedPointers {
-		if lvIndex >= startLvIndex && lvIndex < startLvIndex+accumulatedPointer {
+	for i, txEventsPointer := range rg.txEventsPointers {
+		if lvIndex >= startLvIndex && lvIndex < txEventsPointer {
 			return uint64(i), nil
 		}
+		startLvIndex = txEventsPointer
 	}
-	return 0, fmt.Errorf("log value index %d is not in range %d-%d", lvIndex, rg.startLvIndex, rg.startLvIndex+rg.accumulatedPointers[len(rg.accumulatedPointers)-1])
+	return 0, fmt.Errorf("log value index %d is not in range %d-%d", lvIndex, rg.startLvIndex, rg.txEventsPointers[len(rg.txEventsPointers)-1])
 }
 
 func (m *matcherEnv) getAllMatches(mapIndices []uint32) (potentialMatches, error) {

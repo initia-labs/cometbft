@@ -451,10 +451,9 @@ func (f *FilterMaps) setRange(batch dbm.Batch, newHeight uint64, newRange filter
 }
 
 type lvIndexRange struct {
-	blockNumber         uint64
-	startLvIndex        uint64
-	txEventsPointers    []uint64
-	accumulatedPointers []uint64
+	blockNumber      uint64
+	startLvIndex     uint64
+	txEventsPointers []uint64
 }
 
 func (f *FilterMaps) getLvIndexRange(lvIndex uint64) (lvIndexRange, error) {
@@ -501,17 +500,10 @@ func (f *FilterMaps) getLvIndexRange(lvIndex uint64) (lvIndexRange, error) {
 		return lvIndexRange{}, fmt.Errorf("failed to retrieve tx events pointers of block %d containing searched log value index %d: %v", firstBlockNumber, lvIndex, err)
 	}
 
-	accumulatedPointers := make([]uint64, len(txEventsPointers))
-	accumulatedPointers[0] = txEventsPointers[0]
-	for i := 1; i < len(accumulatedPointers); i++ {
-		accumulatedPointers[i] = accumulatedPointers[i-1] + txEventsPointers[i]
-	}
-
 	return lvIndexRange{
-		blockNumber:         firstBlockNumber,
-		startLvIndex:        lvPointer,
-		txEventsPointers:    txEventsPointers,
-		accumulatedPointers: accumulatedPointers,
+		blockNumber:      firstBlockNumber,
+		startLvIndex:     lvPointer,
+		txEventsPointers: txEventsPointers,
 	}, nil
 }
 
