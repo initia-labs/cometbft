@@ -454,6 +454,7 @@ type lvIndexRange struct {
 	blockNumber      uint64
 	startLvIndex     uint64
 	txEventsPointers []uint64
+	txLvPointers     []uint64
 }
 
 func (f *FilterMaps) getLvIndexRange(lvIndex uint64) (lvIndexRange, error) {
@@ -500,10 +501,20 @@ func (f *FilterMaps) getLvIndexRange(lvIndex uint64) (lvIndexRange, error) {
 		return lvIndexRange{}, fmt.Errorf("failed to retrieve tx events pointers of block %d containing searched log value index %d: %v", firstBlockNumber, lvIndex, err)
 	}
 
+	txLvPointers := make([]uint64, len(txEventsPointers)+1)
+	txLvPointers[0] = lvPointer
+	for i := 0; i < len(txEventsPointers); i++ {
+		if txEventsPointers[i] > f.valuesPerMap-txLvPointers[i]%f.valuesPerMap {
+			txLvPointers[i+1] += f.valuesPerMap - txLvPointers[i]%f.valuesPerMap // skip to map boundary
+		}
+		txLvPointers[i+1] += txLvPointers[i] + txEventsPointers[i]
+	}
+
 	return lvIndexRange{
 		blockNumber:      firstBlockNumber,
 		startLvIndex:     lvPointer,
 		txEventsPointers: txEventsPointers,
+		txLvPointers:     txLvPointers,
 	}, nil
 }
 

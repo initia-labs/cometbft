@@ -59,13 +59,12 @@ type mapRenderer struct {
 
 // renderedMap represents a single filter map that is being rendered in memory.
 type renderedMap struct {
-	filterMap             filterMap
-	mapIndex              uint32
-	lastBlock             uint64
-	blockLvPtrs           []uint64   // start pointers of blocks starting in this map; last one is lastBlock
-	blockTxEventsPointers [][]uint64 // tx events pointers of blocks starting in this map
-	finished              bool       // iterator finished; all values rendered
-	headDelimiter         uint64     // if finished then points to the future block delimiter of the head block
+	filterMap     filterMap
+	mapIndex      uint32
+	lastBlock     uint64
+	blockLvPtrs   []uint64 // start pointers of blocks starting in this map; last one is lastBlock
+	finished      bool     // iterator finished; all values rendered
+	headDelimiter uint64   // if finished then points to the future block delimiter of the head block
 }
 
 // firstBlock returns the first block number that starts in the given map.
@@ -106,11 +105,10 @@ func (f *FilterMaps) renderMapsFromSnapshot(cp *renderedMap) (*mapRenderer, erro
 	return &mapRenderer{
 		f: f,
 		currentMap: &renderedMap{
-			filterMap:             cp.filterMap.fullCopy(),
-			mapIndex:              cp.mapIndex,
-			lastBlock:             cp.lastBlock,
-			blockLvPtrs:           slices.Clone(cp.blockLvPtrs),
-			blockTxEventsPointers: slices.Clone(cp.blockTxEventsPointers),
+			filterMap:   cp.filterMap.fullCopy(),
+			mapIndex:    cp.mapIndex,
+			lastBlock:   cp.lastBlock,
+			blockLvPtrs: slices.Clone(cp.blockLvPtrs),
 		},
 		finishedMaps: make(map[uint32]*renderedMap),
 		finished:     common.NewRange(cp.mapIndex, 0),
@@ -253,21 +251,14 @@ func (f *FilterMaps) loadHeadSnapshot() error {
 			return fmt.Errorf("failed to retrieve log value pointer of head snapshot block %d: %v", firstBlock+uint64(i), err)
 		}
 	}
-	blockTxEventsPointers := make([][]uint64, lastBlock+1-firstBlock)
-	for i := range blockTxEventsPointers {
-		blockTxEventsPointers[i], err = f.getBlockTxEventsPointers(firstBlock + uint64(i))
-		if err != nil {
-			return fmt.Errorf("failed to retrieve tx events pointers of head snapshot block %d: %v", firstBlock+uint64(i), err)
-		}
-	}
+
 	f.renderSnapshots.Add(f.indexedRange.blocks.Last(), &renderedMap{
-		filterMap:             fm.fullCopy(),
-		mapIndex:              f.indexedRange.maps.Last(),
-		lastBlock:             f.indexedRange.blocks.Last(),
-		blockLvPtrs:           lvPtrs,
-		blockTxEventsPointers: blockTxEventsPointers,
-		finished:              true,
-		headDelimiter:         f.indexedRange.headDelimiter,
+		filterMap:     fm.fullCopy(),
+		mapIndex:      f.indexedRange.maps.Last(),
+		lastBlock:     f.indexedRange.blocks.Last(),
+		blockLvPtrs:   lvPtrs,
+		finished:      true,
+		headDelimiter: f.indexedRange.headDelimiter,
 	})
 	return nil
 }
@@ -278,13 +269,12 @@ func (r *mapRenderer) makeSnapshot() {
 		panic("iterator state inconsistent with current rendered map")
 	}
 	r.f.renderSnapshots.Add(r.currentMap.lastBlock, &renderedMap{
-		filterMap:             r.currentMap.filterMap.fastCopy(),
-		mapIndex:              r.currentMap.mapIndex,
-		lastBlock:             r.currentMap.lastBlock,
-		blockLvPtrs:           r.currentMap.blockLvPtrs,
-		blockTxEventsPointers: r.currentMap.blockTxEventsPointers,
-		finished:              true,
-		headDelimiter:         r.iterator.lvIndex,
+		filterMap:     r.currentMap.filterMap.fastCopy(),
+		mapIndex:      r.currentMap.mapIndex,
+		lastBlock:     r.currentMap.lastBlock,
+		blockLvPtrs:   r.currentMap.blockLvPtrs,
+		finished:      true,
+		headDelimiter: r.iterator.lvIndex,
 	})
 }
 
@@ -330,7 +320,6 @@ func (r *mapRenderer) renderCurrentMap(stopCb func() bool) (bool, error) {
 
 	if r.iterator.lvIndex == 0 {
 		r.currentMap.blockLvPtrs = []uint64{0}
-		r.currentMap.blockTxEventsPointers = [][]uint64{{}}
 	}
 	type lvPos struct{ rowIndex, layerIndex uint32 }
 	rowMappingCache := lru.NewCache[common.Hash, lvPos](cachedRowMappings)
@@ -369,7 +358,6 @@ func (r *mapRenderer) renderCurrentMap(stopCb func() bool) (bool, error) {
 			if r.iterator.blockStart {
 				blocksProcessed++
 				r.currentMap.blockLvPtrs = append(r.currentMap.blockLvPtrs, r.iterator.lvIndex)
-				r.currentMap.blockTxEventsPointers = append(r.currentMap.blockTxEventsPointers, r.iterator.txEventsPointers)
 			}
 			if !r.f.testDisableSnapshots && r.renderBefore >= r.f.indexedRange.maps.AfterLast() &&
 				(r.iterator.delimiter || r.iterator.finished) {
@@ -505,12 +493,9 @@ func (r *mapRenderer) writeFinishedMaps(pauseCb func() bool) error {
 			return fmt.Errorf("failed to store last block of map %d: %v", mapIndex, err)
 		}
 		checkWriteCnt()
-		for i, lvPtr := range renderedMap.blockLvPtrs {
+		for _, lvPtr := range renderedMap.blockLvPtrs {
 			if err := r.f.storeBlockLvPointer(batch, blockNumber, lvPtr); err != nil {
 				return fmt.Errorf("failed to store block lv pointer %d: %v", lvPtr, err)
-			}
-			if err := r.f.storeBlockTxEventsPointers(batch, blockNumber, renderedMap.blockTxEventsPointers[i]); err != nil {
-				return fmt.Errorf("failed to store block tx events pointers %d: %v", renderedMap.blockTxEventsPointers[i], err)
 			}
 			checkWriteCnt()
 			blockNumber++
@@ -526,9 +511,6 @@ func (r *mapRenderer) writeFinishedMaps(pauseCb func() bool) error {
 		for ; blockNumber < oldRange.blocks.AfterLast(); blockNumber++ {
 			if err := r.f.deleteBlockLvPointer(batch, blockNumber); err != nil {
 				return fmt.Errorf("failed to delete block lv pointer %d: %v", blockNumber, err)
-			}
-			if err := r.f.deleteBlockTxEventsPointers(batch, blockNumber); err != nil {
-				return fmt.Errorf("failed to delete block tx events pointers %d: %v", blockNumber, err)
 			}
 			checkWriteCnt()
 		}
@@ -828,12 +810,11 @@ func (l *logIterator) next() error {
 			return fmt.Errorf("failed to load block response for block %d: %v", l.blockNumber+1, err)
 		}
 
-		txEventsPointers := make([]uint64, len(blockResponse.TxResults))
 		l.txResults = blockResponse.TxResults
-		l.txEventsPointers = txEventsPointers
+		l.txEventsPointers = make([]uint64, len(blockResponse.TxResults))
 		for i, txResult := range blockResponse.TxResults {
 			for _, event := range txResult.Events {
-				txEventsPointers[i] += uint64(len(event.Attributes))
+				l.txEventsPointers[i] += uint64(len(event.Attributes))
 			}
 		}
 		l.txIndex, l.eventIndex, l.attrIndex, l.blockStart = 0, 0, 0, true
@@ -859,7 +840,6 @@ func (l *logIterator) enforceValidState() {
 			l.skipToBoundary = true
 			return
 		}
-		l.txEventsPointers[l.txIndex] += l.lvIndex
 
 		txResult := l.txResults[l.txIndex]
 		for ; l.eventIndex < len(txResult.Events); l.eventIndex++ {
