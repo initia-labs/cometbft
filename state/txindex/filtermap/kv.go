@@ -274,6 +274,7 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, resultCh chan ab
 		return filtermaps.GetPotentialMatches(innerCtx, txi.log, backend, uint64(begin-1), uint64(end-1), filters, filtermapResultCh)
 	})
 
+	blockCache := make(map[int64]*abci.ResponseFinalizeBlock)
 	g.Go(func() error {
 		lastEvent := &filtermaps.TxEvent{}
 		for result := range filtermapResultCh {
@@ -281,7 +282,16 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, resultCh chan ab
 				continue
 			}
 
-			txResult, err := txi.checkMatch(result, filters)
+			blockResponse, ok := blockCache[result.BlockNumber]
+			if !ok {
+				blockResponse, err = txi.stateStore.LoadFinalizeBlockResponse(result.BlockNumber)
+				if err != nil {
+					return err
+				}
+				blockCache[result.BlockNumber] = blockResponse
+			}
+
+			txResult, err := txi.checkMatch(result, filters, blockResponse.TxResults[result.TxIndex].Events)
 			if err != nil {
 				return err
 			}
@@ -295,11 +305,11 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, resultCh chan ab
 	return g.Wait()
 }
 
-func (txi *TxIndex) checkMatch(txEvent *filtermaps.TxEvent, filters []string) (*abci.TxResult, error) {
+func (txi *TxIndex) checkMatch(txEvent *filtermaps.TxEvent, filters []string, events []abci.Event) (*abci.TxResult, error) {
 	matchCount := 0
 FILTERLOOP:
 	for _, filter := range filters {
-		for _, event := range txEvent.Event {
+		for _, event := range events {
 			for _, attr := range event.Attributes {
 				eventString := filtermaps.EventString(event.Type, attr)
 				if eventString == filter {

@@ -14,10 +14,6 @@ import (
 	"github.com/cometbft/cometbft/types"
 )
 
-const (
-	maxTotalCount = 150
-)
-
 // Tx allows you to query the transaction results. `nil` could mean the
 // transaction is in the mempool, invalidated, or was not sent in the first
 // place.
@@ -197,8 +193,6 @@ func (env *Environment) txSearchV2(
 		return nil, err
 	}
 
-	resultChan, errChan := env.TxIndexerV2.Search(ctx.Context(), q, maxTotalCount)
-
 	perPage := env.validatePerPage(perPagePtr)
 	page := 1
 	if pagePtr != nil {
@@ -206,9 +200,9 @@ func (env *Environment) txSearchV2(
 	}
 	if page <= 0 {
 		return nil, fmt.Errorf("page should be greater than 0")
-	} else if page*perPage > maxTotalCount {
-		return nil, fmt.Errorf("page size is too large, max count is %d", maxTotalCount)
 	}
+
+	resultChan, errChan := env.TxIndexerV2.Search(ctx.Context(), q, int64(perPage+1))
 
 	results := make([]*ctypes.ResultTx, 0, perPage)
 	totalCount := 0
@@ -229,9 +223,9 @@ RESULT_LOOP:
 				break RESULT_LOOP
 			}
 			totalCount++
-			if totalCount > maxTotalCount {
+			if totalCount > page*perPage {
 				break RESULT_LOOP
-			} else if totalCount <= (page-1)*perPage || totalCount > page*perPage {
+			} else if totalCount <= (page-1)*perPage {
 				continue
 			}
 
@@ -311,8 +305,6 @@ func (env *Environment) TxSearchV3(
 	}
 	if page <= 0 {
 		return nil, fmt.Errorf("page should be greater than 0")
-	} else if page*perPage > maxTotalCount {
-		return nil, fmt.Errorf("page size is too large, max count is %d", maxTotalCount)
 	}
 
 	results := make([]*ctypes.ResultTx, 0, perPage)
@@ -334,9 +326,9 @@ RESULT_LOOP:
 				break RESULT_LOOP
 			}
 			totalCount++
-			if totalCount > maxTotalCount {
+			if totalCount > page*perPage {
 				break RESULT_LOOP
-			} else if totalCount <= (page-1)*perPage || totalCount > page*perPage {
+			} else if totalCount <= (page-1)*perPage {
 				continue
 			}
 

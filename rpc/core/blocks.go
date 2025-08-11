@@ -326,11 +326,9 @@ func (env *Environment) blockSearchV2(
 	}
 	if page <= 0 {
 		return nil, fmt.Errorf("page should be greater than 0")
-	} else if page*perPage > maxTotalCount {
-		return nil, fmt.Errorf("page size is too large, max count is %d", maxTotalCount)
 	}
 
-	resultChan, errChan := env.BlockIndexerV2.Search(ctx.Context(), q, maxTotalCount)
+	resultChan, errChan := env.BlockIndexerV2.Search(ctx.Context(), q, int64(perPage+1))
 	results := make([]*ctypes.ResultBlock, 0, perPage)
 	totalCount := 0
 
@@ -342,9 +340,9 @@ RESULT_LOOP:
 				break RESULT_LOOP
 			}
 			totalCount++
-			if totalCount > maxTotalCount {
+			if totalCount > page*perPage {
 				break RESULT_LOOP
-			} else if totalCount <= (page-1)*perPage || totalCount > page*perPage {
+			} else if totalCount <= (page-1)*perPage {
 				continue
 			}
 

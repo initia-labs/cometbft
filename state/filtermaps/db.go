@@ -14,10 +14,11 @@ import (
 var (
 	filterMapsRangeKey = []byte(filterMapsPrefix + "R")
 
-	filterMapsPrefix         = "fm-"
-	filterMapRowPrefix       = []byte(filterMapsPrefix + "r") // filterMapRowPrefix + mapRowIndex (uint64 big endian) -> filter row
-	filterMapLastBlockPrefix = []byte(filterMapsPrefix + "b") // filterMapLastBlockPrefix + mapIndex (uint32 big endian) -> block number (uint64 big endian)
-	filterMapBlockLVPrefix   = []byte(filterMapsPrefix + "p") // filterMapBlockLVPrefix + num (uint64 big endian) -> log value pointer (uint64 big endian)
+	filterMapsPrefix             = "fm-"
+	filterMapRowPrefix           = []byte(filterMapsPrefix + "r")  // filterMapRowPrefix + mapRowIndex (uint64 big endian) -> filter row
+	filterMapLastBlockPrefix     = []byte(filterMapsPrefix + "b")  // filterMapLastBlockPrefix + mapIndex (uint32 big endian) -> block number (uint64 big endian)
+	filterMapBlockLVPrefix       = []byte(filterMapsPrefix + "p")  // filterMapBlockLVPrefix + num (uint64 big endian) -> log value pointer (uint64 big endian)
+	filterMapBlockTxEventsPrefix = []byte(filterMapsPrefix + "te") // filterMapBlockTxEventsPrefix + num (uint64 big endian) -> tx events pointer (uint64 big endian)
 )
 
 type FilterMapsRange struct {
@@ -139,6 +140,45 @@ func DeleteBlockLvPointer(db dbm.Batch, blockNumber uint64) error {
 
 func DeleteBlockLvPointers(db dbm.DB, blocks common.Range[uint64], stopCallback func(bool) bool) error {
 	return SafeDeleteRange(db, filterMapBlockLVKey(blocks.First()), filterMapBlockLVKey(blocks.AfterLast()), stopCallback)
+}
+
+// filterMapBlockTxEventsKey = filterMapBlockTxEventsPrefix + num (uint64 big endian)
+func filterMapBlockTxEventsKey(number uint64) []byte {
+	l := len(filterMapBlockTxEventsPrefix)
+	key := make([]byte, l+8)
+	copy(key[:l], filterMapBlockTxEventsPrefix)
+	binary.BigEndian.PutUint64(key[l:], number)
+	return key
+}
+
+func ReadBlockTxEventsPointers(db dbm.DB, blockNumber uint64) ([]uint64, error) {
+	encPtr, err := db.Get(filterMapBlockTxEventsKey(blockNumber))
+	if err != nil {
+		return nil, err
+	}
+	numPointers := binary.BigEndian.Uint64(encPtr[:8])
+	txEventsPointers := make([]uint64, numPointers)
+	for i := uint64(0); i < numPointers; i++ {
+		txEventsPointers[i] = binary.BigEndian.Uint64(encPtr[8*i+8 : 8*(i+1)+8])
+	}
+	return txEventsPointers, nil
+}
+
+func WriteBlockTxEventsPointers(db dbm.Batch, blockNumber uint64, txEventsPointers []uint64) error {
+	encPtr := make([]byte, 8+len(txEventsPointers)*8)
+	binary.BigEndian.PutUint64(encPtr, uint64(len(txEventsPointers)))
+	for i, txEventPointer := range txEventsPointers {
+		binary.BigEndian.PutUint64(encPtr[8+i*8:8*(i+1)+8], txEventPointer)
+	}
+	return db.Set(filterMapBlockTxEventsKey(blockNumber), encPtr)
+}
+
+func DeleteBlockTxEventsPointers(db dbm.Batch, blockNumber uint64) error {
+	return db.Delete(filterMapBlockTxEventsKey(blockNumber))
+}
+
+func DeleteBlockTxEventsPointersList(db dbm.DB, blocks common.Range[uint64], stopCallback func(bool) bool) error {
+	return SafeDeleteRange(db, filterMapBlockTxEventsKey(blocks.First()), filterMapBlockTxEventsKey(blocks.AfterLast()), stopCallback)
 }
 
 // filterMapLastBlockKey = filterMapLastBlockPrefix + mapIndex (uint32 big endian)

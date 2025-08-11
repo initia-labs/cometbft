@@ -33,11 +33,12 @@ import (
 )
 
 const (
-	databaseVersion       = 2    // reindexed if database version does not match
-	cachedLastBlocks      = 1000 // last block of map pointers
-	cachedLvPointers      = 1000 // first log value pointer of block pointers
-	cachedFilterMaps      = 3    // complete filter maps (cached by map renderer)
-	cachedRenderSnapshots = 8    // saved map renderer data at block boundaries
+	databaseVersion        = 2    // reindexed if database version does not match
+	cachedLastBlocks       = 1000 // last block of map pointers
+	cachedLvPointers       = 1000 // first log value pointer of block pointers
+	cachedTxEventsPointers = 1000 // tx events pointers of blocks
+	cachedFilterMaps       = 3    // complete filter maps (cached by map renderer)
+	cachedRenderSnapshots  = 8    // saved map renderer data at block boundaries
 )
 
 // FilterMaps is the in-memory representation of the log index structure that is
@@ -55,10 +56,9 @@ type FilterMaps struct {
 	disabled   bool
 	disabledCh chan struct{} // closed by indexer if disabled
 
-	closeCh        chan struct{}
-	closeWg        sync.WaitGroup
-	history        uint64
-	exportFileName string
+	closeCh chan struct{}
+	closeWg sync.WaitGroup
+	history uint64
 	Params
 
 	db         dbm.DB
@@ -82,9 +82,10 @@ type FilterMaps struct {
 	cleanedEpochsBefore uint32
 
 	// also accessed by indexer and matcher backend but no locking needed.
-	filterMapCache *lru.Cache[uint32, filterMap]
-	lastBlockCache *lru.Cache[uint32, uint64]
-	lvPointerCache *lru.Cache[uint64, uint64]
+	filterMapCache        *lru.Cache[uint32, filterMap]
+	lastBlockCache        *lru.Cache[uint32, uint64]
+	lvPointerCache        *lru.Cache[uint64, uint64]
+	txEventsPointersCache *lru.Cache[uint64, []uint64]
 
 	// the matchers set and the fields of FilterMapsMatcherBackend instances are
 	// read and written both by exported functions and the indexer.
@@ -222,12 +223,13 @@ func NewFilterMaps(db dbm.DB, blockStore *store.BlockStore, stateStore sm.Store,
 		// deleting last unindexed epoch might have been interrupted by shutdown
 		cleanedEpochsBefore: max(rs.MapsFirst>>params.logMapsPerEpoch, 1) - 1,
 
-		matcherSyncCh:   make(chan *FilterMapsMatcherBackend),
-		matchers:        make(map[*FilterMapsMatcherBackend]struct{}),
-		filterMapCache:  lru.NewCache[uint32, filterMap](cachedFilterMaps),
-		lastBlockCache:  lru.NewCache[uint32, uint64](cachedLastBlocks),
-		lvPointerCache:  lru.NewCache[uint64, uint64](cachedLvPointers),
-		renderSnapshots: lru.NewCache[uint64, *renderedMap](cachedRenderSnapshots),
+		matcherSyncCh:         make(chan *FilterMapsMatcherBackend),
+		matchers:              make(map[*FilterMapsMatcherBackend]struct{}),
+		filterMapCache:        lru.NewCache[uint32, filterMap](cachedFilterMaps),
+		lastBlockCache:        lru.NewCache[uint32, uint64](cachedLastBlocks),
+		lvPointerCache:        lru.NewCache[uint64, uint64](cachedLvPointers),
+		txEventsPointersCache: lru.NewCache[uint64, []uint64](cachedTxEventsPointers),
+		renderSnapshots:       lru.NewCache[uint64, *renderedMap](cachedRenderSnapshots),
 	}
 	f.checkRevertRange() // revert maps that are inconsistent with the current chain view
 	return f
@@ -448,6 +450,80 @@ func (f *FilterMaps) setRange(batch dbm.Batch, newHeight uint64, newRange filter
 	}
 }
 
+type lvIndexRange struct {
+	blockNumber      uint64
+	startLvIndex     uint64
+	txEventsPointers []uint64 // each one represents the number of the event's attributes in a tx
+	// each one indicates the log value index pointer of the tx.
+	// the last one is the end of lv pointer of the last tx.
+	// so, the length of txLvPointers is the length of txEventsPointers + 1.
+	txLvPointers []uint64
+}
+
+func (f *FilterMaps) getLvIndexRange(lvIndex uint64) (lvIndexRange, error) {
+	mapIndex := uint32(lvIndex >> f.logValuesPerMap)
+	if !f.indexedRange.maps.Includes(mapIndex) {
+		return lvIndexRange{}, nil
+	}
+	// find possible block range based on map to block pointers
+	lastBlockNumber, err := f.getLastBlockOfMap(mapIndex)
+	if err != nil {
+		return lvIndexRange{}, fmt.Errorf("failed to retrieve last block of map %d containing searched log value index %d: %v", mapIndex, lvIndex, err)
+	}
+	var firstBlockNumber uint64
+	if mapIndex > 0 {
+		firstBlockNumber, err = f.getLastBlockOfMap(mapIndex - 1)
+		if err != nil {
+			return lvIndexRange{}, fmt.Errorf("failed to retrieve last block of map %d before searched log value index %d: %v", mapIndex, lvIndex, err)
+		}
+	}
+	if firstBlockNumber < f.indexedRange.blocks.First() {
+		firstBlockNumber = f.indexedRange.blocks.First()
+	}
+	// find block with binary search based on block to log value index pointers
+	for firstBlockNumber < lastBlockNumber {
+		midBlockNumber := (firstBlockNumber + lastBlockNumber + 1) / 2
+		midLvPointer, err := f.getBlockLvPointer(midBlockNumber)
+		if err != nil {
+			return lvIndexRange{}, fmt.Errorf("failed to retrieve log value pointer of block %d while binary searching log value index %d: %v", midBlockNumber, lvIndex, err)
+		}
+		if lvIndex < midLvPointer {
+			lastBlockNumber = midBlockNumber - 1
+		} else {
+			firstBlockNumber = midBlockNumber
+			if lvIndex == midLvPointer {
+				break
+			}
+		}
+	}
+
+	lvPointer, err := f.getBlockLvPointer(firstBlockNumber)
+	if err != nil {
+		return lvIndexRange{}, fmt.Errorf("failed to retrieve log value pointer of block %d containing searched log value index %d: %v", firstBlockNumber, lvIndex, err)
+	}
+
+	txEventsPointers, err := f.getBlockTxEventsPointers(firstBlockNumber)
+	if err != nil {
+		return lvIndexRange{}, fmt.Errorf("failed to retrieve tx events pointers of block %d containing searched log value index %d: %v", firstBlockNumber, lvIndex, err)
+	}
+
+	txLvPointers := make([]uint64, len(txEventsPointers)+1)
+	txLvPointers[0] = lvPointer
+	for i := 0; i < len(txEventsPointers); i++ {
+		if txEventsPointers[i] > f.valuesPerMap-txLvPointers[i]%f.valuesPerMap {
+			txLvPointers[i+1] += f.valuesPerMap - txLvPointers[i]%f.valuesPerMap // skip to map boundary
+		}
+		txLvPointers[i+1] += txLvPointers[i] + txEventsPointers[i]
+	}
+
+	return lvIndexRange{
+		blockNumber:      firstBlockNumber,
+		startLvIndex:     lvPointer,
+		txEventsPointers: txEventsPointers,
+		txLvPointers:     txLvPointers,
+	}, nil
+}
+
 // getLogByLvIndex returns the log at the given log value index. If the index does
 // not point to the first log value entry of a log then no log and no error are
 // returned as this can happen when the log value index was a false positive.
@@ -525,7 +601,6 @@ func (f *FilterMaps) getLogByLvIndex(lvIndex uint64) (*TxEvent, error) {
 				return &TxEvent{
 					BlockNumber: int64(firstBlockNumber + 1),
 					TxIndex:     txIndex,
-					Event:       txResult.Events,
 				}, nil // potential match
 			}
 			lvPointer += l
@@ -683,11 +758,34 @@ func (f *FilterMaps) storeBlockLvPointer(batch dbm.Batch, blockNumber, lvPointer
 	return WriteBlockLvPointer(batch, blockNumber, lvPointer)
 }
 
+func (f *FilterMaps) getBlockTxEventsPointers(blockNumber uint64) ([]uint64, error) {
+	if txEventsPointers, ok := f.txEventsPointersCache.Get(blockNumber); ok {
+		return txEventsPointers, nil
+	}
+	txEventsPointers, err := ReadBlockTxEventsPointers(f.db, blockNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve tx events pointers of block %d: %v", blockNumber, err)
+	}
+	f.txEventsPointersCache.Add(blockNumber, txEventsPointers)
+	return txEventsPointers, nil
+}
+
+// storeBlockTxEventsPointers stores the tx events pointers of the given block.
+func (f *FilterMaps) storeBlockTxEventsPointers(batch dbm.Batch, blockNumber uint64, txEventsPointers []uint64) error {
+	f.txEventsPointersCache.Add(blockNumber, txEventsPointers)
+	return WriteBlockTxEventsPointers(batch, blockNumber, txEventsPointers)
+}
+
 // deleteBlockLvPointer deletes the starting log value index where the log values
 // generated by the given block are located.
 func (f *FilterMaps) deleteBlockLvPointer(batch dbm.Batch, blockNumber uint64) error {
 	f.lvPointerCache.Remove(blockNumber)
 	return DeleteBlockLvPointer(batch, blockNumber)
+}
+
+func (f *FilterMaps) deleteBlockTxEventsPointers(batch dbm.Batch, blockNumber uint64) error {
+	f.txEventsPointersCache.Remove(blockNumber)
+	return DeleteBlockTxEventsPointers(batch, blockNumber)
 }
 
 // getLastBlockOfMap returns the number and id of the block that generated the
@@ -793,6 +891,9 @@ func (f *FilterMaps) deleteTailEpoch(epoch uint32) (bool, error) {
 		}
 		delBlockRange := common.NewRange(firstBlock, lastBlock-firstBlock) // keep last entry
 		if err := DeleteBlockLvPointers(f.db, delBlockRange, stopCb); err != nil {
+			return err
+		}
+		if err := DeleteBlockTxEventsPointersList(f.db, delBlockRange, stopCb); err != nil {
 			return err
 		}
 		for blockNumber := firstBlock; blockNumber < lastBlock; blockNumber++ {
