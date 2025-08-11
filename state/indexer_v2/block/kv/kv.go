@@ -50,8 +50,9 @@ type BlockIndexer struct {
 
 func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *BlockIndexer {
 	fm := filtermaps.NewFilterMaps(dbm.NewPrefixDB(store, []byte("filtermap")), blockStore, stateStore, filtermaps.DefaultParams, filtermaps.Config{
-		History:  uint64(retainHeight),
-		Disabled: false,
+		History:     uint64(retainHeight),
+		Disabled:    false,
+		IsTxIndexer: false,
 	})
 
 	return &BlockIndexer{

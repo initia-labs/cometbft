@@ -188,8 +188,9 @@ func (fmr *filterMapsRange) hasIndexedBlocks() bool {
 
 // Config contains the configuration options for NewFilterMaps.
 type Config struct {
-	History  uint64 // number of historical blocks to index
-	Disabled bool   // disables indexing completely
+	History     uint64 // number of historical blocks to index
+	Disabled    bool   // disables indexing completely
+	IsTxIndexer bool   // if true, the indexer is tx indexer, otherwise it is block indexer
 }
 
 // NewFilterMaps creates a new FilterMaps and starts the indexer.
@@ -210,6 +211,7 @@ func NewFilterMaps(db dbm.DB, blockStore *store.BlockStore, stateStore sm.Store,
 		blockProcessingCh: make(chan bool, 1),
 		history:           config.History,
 		disabled:          config.Disabled,
+		isTxIndexer:       config.IsTxIndexer,
 		disabledCh:        make(chan struct{}),
 		Params:            params,
 		targetHeight:      rs.BlocksAfterLast,
