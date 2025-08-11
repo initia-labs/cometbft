@@ -12,6 +12,9 @@ import (
 
 // BlockIndexer defines an interface contract for indexing block events.
 type BlockIndexer interface {
+	// Start starts the indexer.
+	Start()
+
 	// Has returns true if the given height has been indexed. An error is returned
 	// upon database query failure.
 	Has(height int64) (bool, error)
@@ -21,28 +24,8 @@ type BlockIndexer interface {
 
 	// Search performs a query for block heights that match a given FinalizeBlock
 	// event search criteria.
-	Search(ctx context.Context, q *query.Query, maxCount int64) (chan int64, chan error)
+	Search(ctx context.Context, q *query.Query) (chan int64, chan error)
 
+	//Set Logger
 	SetLogger(l log.Logger)
-
-	// Prune removes all block indexes below a certain height.
-	Prune(curHeight int64) error
-
-	// StartMigration starts the migration process.
-	StartMigration()
-
-	// FinishMigration finalizes the migration process.
-	FinishMigration() error
-
-	// SetMigrationHeight sets the migration height to the given height.
-	SetMigrationHeight(height int64) error
-
-	// MigrationHeight returns the height of the migration.
-	MigrationHeight() (int64, error)
-
-	// IsMigrating returns true if the migration is active.
-	IsMigrating() bool
-
-	// NotifyNewBlock notifies the indexer that a new block has been added.
-	NotifyNewBlock(height int64)
 }

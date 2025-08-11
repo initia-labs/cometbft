@@ -59,13 +59,13 @@ type mapRenderer struct {
 
 // renderedMap represents a single filter map that is being rendered in memory.
 type renderedMap struct {
-	filterMap             filterMap
-	mapIndex              uint32
-	lastBlock             uint64
-	blockLvPtrs           []uint64   // start pointers of blocks starting in this map; last one is lastBlock
-	blockTxEventsPointers [][]uint64 // tx events pointers of blocks starting in this map. Each one includes the length of the event’s attributes in between.
-	finished              bool       // iterator finished; all values rendered
-	headDelimiter         uint64     // if finished then points to the future block delimiter of the head block
+	filterMap           filterMap
+	mapIndex            uint32
+	lastBlock           uint64
+	blockLvPtrs         []uint64   // start pointers of blocks starting in this map; last one is lastBlock
+	blockEventsPointers [][]uint64 // tx events pointers of blocks starting in this map. Each one includes the length of the event’s attributes in between.
+	finished            bool       // iterator finished; all values rendered
+	headDelimiter       uint64     // if finished then points to the future block delimiter of the head block
 }
 
 // firstBlock returns the first block number that starts in the given map.
@@ -106,11 +106,11 @@ func (f *FilterMaps) renderMapsFromSnapshot(cp *renderedMap) (*mapRenderer, erro
 	return &mapRenderer{
 		f: f,
 		currentMap: &renderedMap{
-			filterMap:             cp.filterMap.fullCopy(),
-			mapIndex:              cp.mapIndex,
-			lastBlock:             cp.lastBlock,
-			blockLvPtrs:           slices.Clone(cp.blockLvPtrs),
-			blockTxEventsPointers: slices.Clone(cp.blockTxEventsPointers),
+			filterMap:           cp.filterMap.fullCopy(),
+			mapIndex:            cp.mapIndex,
+			lastBlock:           cp.lastBlock,
+			blockLvPtrs:         slices.Clone(cp.blockLvPtrs),
+			blockEventsPointers: slices.Clone(cp.blockEventsPointers),
 		},
 		finishedMaps: make(map[uint32]*renderedMap),
 		finished:     common.NewRange(cp.mapIndex, 0),
@@ -253,21 +253,21 @@ func (f *FilterMaps) loadHeadSnapshot() error {
 			return fmt.Errorf("failed to retrieve log value pointer of head snapshot block %d: %v", firstBlock+uint64(i), err)
 		}
 	}
-	blockTxEventsPointers := make([][]uint64, lastBlock+1-firstBlock)
-	for i := range blockTxEventsPointers {
-		blockTxEventsPointers[i], err = f.getBlockTxEventsPointers(firstBlock + uint64(i))
+	blockEventsPointers := make([][]uint64, lastBlock+1-firstBlock)
+	for i := range blockEventsPointers {
+		blockEventsPointers[i], err = f.getBlockEventsPointers(firstBlock + uint64(i))
 		if err != nil {
 			return fmt.Errorf("failed to retrieve tx events pointers of head snapshot block %d: %v", firstBlock+uint64(i), err)
 		}
 	}
 	f.renderSnapshots.Add(f.indexedRange.blocks.Last(), &renderedMap{
-		filterMap:             fm.fullCopy(),
-		mapIndex:              f.indexedRange.maps.Last(),
-		lastBlock:             f.indexedRange.blocks.Last(),
-		blockLvPtrs:           lvPtrs,
-		blockTxEventsPointers: blockTxEventsPointers,
-		finished:              true,
-		headDelimiter:         f.indexedRange.headDelimiter,
+		filterMap:           fm.fullCopy(),
+		mapIndex:            f.indexedRange.maps.Last(),
+		lastBlock:           f.indexedRange.blocks.Last(),
+		blockLvPtrs:         lvPtrs,
+		blockEventsPointers: blockEventsPointers,
+		finished:            true,
+		headDelimiter:       f.indexedRange.headDelimiter,
 	})
 	return nil
 }
@@ -278,13 +278,13 @@ func (r *mapRenderer) makeSnapshot() {
 		panic("iterator state inconsistent with current rendered map")
 	}
 	r.f.renderSnapshots.Add(r.currentMap.lastBlock, &renderedMap{
-		filterMap:             r.currentMap.filterMap.fastCopy(),
-		mapIndex:              r.currentMap.mapIndex,
-		lastBlock:             r.currentMap.lastBlock,
-		blockLvPtrs:           r.currentMap.blockLvPtrs,
-		blockTxEventsPointers: r.currentMap.blockTxEventsPointers,
-		finished:              true,
-		headDelimiter:         r.iterator.lvIndex,
+		filterMap:           r.currentMap.filterMap.fastCopy(),
+		mapIndex:            r.currentMap.mapIndex,
+		lastBlock:           r.currentMap.lastBlock,
+		blockLvPtrs:         r.currentMap.blockLvPtrs,
+		blockEventsPointers: r.currentMap.blockEventsPointers,
+		finished:            true,
+		headDelimiter:       r.iterator.lvIndex,
 	})
 }
 
@@ -330,7 +330,7 @@ func (r *mapRenderer) renderCurrentMap(stopCb func() bool) (bool, error) {
 
 	if r.iterator.lvIndex == 0 {
 		r.currentMap.blockLvPtrs = []uint64{0}
-		r.currentMap.blockTxEventsPointers = [][]uint64{{}}
+		r.currentMap.blockEventsPointers = [][]uint64{{}}
 	}
 	type lvPos struct{ rowIndex, layerIndex uint32 }
 	rowMappingCache := lru.NewCache[common.Hash, lvPos](cachedRowMappings)
@@ -369,7 +369,7 @@ func (r *mapRenderer) renderCurrentMap(stopCb func() bool) (bool, error) {
 			if r.iterator.blockStart {
 				blocksProcessed++
 				r.currentMap.blockLvPtrs = append(r.currentMap.blockLvPtrs, r.iterator.lvIndex)
-				r.currentMap.blockTxEventsPointers = append(r.currentMap.blockTxEventsPointers, r.iterator.txEventsPointers)
+				r.currentMap.blockEventsPointers = append(r.currentMap.blockEventsPointers, r.iterator.eventsPointers)
 			}
 			if !r.f.testDisableSnapshots && r.renderBefore >= r.f.indexedRange.maps.AfterLast() &&
 				(r.iterator.delimiter || r.iterator.finished) {
@@ -509,8 +509,8 @@ func (r *mapRenderer) writeFinishedMaps(pauseCb func() bool) error {
 			if err := r.f.storeBlockLvPointer(batch, blockNumber, lvPtr); err != nil {
 				return fmt.Errorf("failed to store block lv pointer %d: %v", lvPtr, err)
 			}
-			if err := r.f.storeBlockTxEventsPointers(batch, blockNumber, renderedMap.blockTxEventsPointers[i]); err != nil {
-				return fmt.Errorf("failed to store block tx events pointers %d: %v", renderedMap.blockTxEventsPointers[i], err)
+			if err := r.f.storeBlockEventsPointers(batch, blockNumber, renderedMap.blockEventsPointers[i]); err != nil {
+				return fmt.Errorf("failed to store block tx events pointers %d: %v", renderedMap.blockEventsPointers[i], err)
 			}
 			checkWriteCnt()
 			blockNumber++
@@ -698,11 +698,12 @@ type logIterator struct {
 	stateStore                                      sm.Store
 	targetHeight                                    uint64
 	blockNumber                                     uint64
-	txResults                                       []*abci.ExecTxResult
-	txEventsPointers                                []uint64
+	eventsList                                      [][]abci.Event
+	eventsPointers                                  []uint64
 	blockStart, delimiter, skipToBoundary, finished bool
 	txIndex, eventIndex, attrIndex                  int
 	lvIndex                                         uint64
+	isTxIndexer                                     bool
 }
 
 var errUnindexedRange = errors.New("unindexed range")
@@ -724,23 +725,40 @@ func (f *FilterMaps) newLogIteratorFromBlockDelimiter(blockNumber, lvIndex uint6
 		return nil, fmt.Errorf("failed to load block response for block %d: %v", blockNumber+1, err)
 	}
 
-	txEventsPointers := make([]uint64, len(blockResponse.TxResults))
-	for i, txResult := range blockResponse.TxResults {
-		for _, event := range txResult.Events {
-			txEventsPointers[i] += uint64(len(event.Attributes))
+	var eventsList [][]abci.Event
+	var eventsPointers []uint64
+
+	if f.isTxIndexer {
+		eventsList = make([][]abci.Event, len(blockResponse.TxResults))
+		eventsPointers = make([]uint64, len(blockResponse.TxResults))
+
+		for i, txResult := range blockResponse.TxResults {
+			eventsList[i] = txResult.Events
+		}
+	} else {
+		eventsList = make([][]abci.Event, 1)
+		eventsPointers = make([]uint64, 1)
+
+		eventsList[0] = blockResponse.Events
+	}
+
+	for i, events := range eventsList {
+		for _, event := range events {
+			eventsPointers[i] += uint64(len(event.Attributes))
 		}
 	}
 
 	l := &logIterator{
-		targetHeight:     f.targetHeight,
-		params:           &f.Params,
-		blockNumber:      blockNumber,
-		txResults:        blockResponse.TxResults,
-		txEventsPointers: txEventsPointers,
-		finished:         finished,
-		delimiter:        !finished,
-		lvIndex:          lvIndex,
-		stateStore:       stateStore,
+		targetHeight:   f.targetHeight,
+		params:         &f.Params,
+		blockNumber:    blockNumber,
+		eventsList:     eventsList,
+		eventsPointers: eventsPointers,
+		finished:       finished,
+		delimiter:      !finished,
+		lvIndex:        lvIndex,
+		stateStore:     stateStore,
+		isTxIndexer:    f.isTxIndexer,
 	}
 	l.enforceValidState()
 	return l, nil
@@ -758,23 +776,40 @@ func (f *FilterMaps) newLogIteratorFromMapBoundary(mapIndex uint32, startBlock, 
 		return nil, fmt.Errorf("failed to load block response for block %d: %v", startBlock+1, err)
 	}
 
-	txEventsPointers := make([]uint64, len(blockResponse.TxResults))
-	for i, txResult := range blockResponse.TxResults {
-		for _, event := range txResult.Events {
-			txEventsPointers[i] += uint64(len(event.Attributes))
+	var eventsList [][]abci.Event
+	var eventsPointers []uint64
+
+	if f.isTxIndexer {
+		eventsList = make([][]abci.Event, len(blockResponse.TxResults))
+		eventsPointers = make([]uint64, len(blockResponse.TxResults))
+
+		for i, txResult := range blockResponse.TxResults {
+			eventsList[i] = txResult.Events
+		}
+	} else {
+		eventsList = make([][]abci.Event, 1)
+		eventsPointers = make([]uint64, 1)
+
+		eventsList[0] = blockResponse.Events
+	}
+
+	for i, events := range eventsList {
+		for _, event := range events {
+			eventsPointers[i] += uint64(len(event.Attributes))
 		}
 	}
 
 	// initialize iterator at block start
 	l := &logIterator{
-		targetHeight:     f.targetHeight,
-		params:           &f.Params,
-		blockNumber:      startBlock,
-		txResults:        blockResponse.TxResults,
-		txEventsPointers: txEventsPointers,
-		blockStart:       true,
-		lvIndex:          startLvPtr,
-		stateStore:       stateStore,
+		targetHeight:   f.targetHeight,
+		params:         &f.Params,
+		blockNumber:    startBlock,
+		eventsList:     eventsList,
+		eventsPointers: eventsPointers,
+		blockStart:     true,
+		lvIndex:        startLvPtr,
+		stateStore:     stateStore,
+		isTxIndexer:    f.isTxIndexer,
 	}
 	l.enforceValidState()
 	targetIndex := uint64(mapIndex) << f.logValuesPerMap
@@ -799,10 +834,10 @@ func (l *logIterator) updateChainHeight(targetHeight uint64) {
 
 // getValueHash returns the log value hash at the current position.
 func (l *logIterator) getValueHash() common.Hash {
-	if l.delimiter || l.finished || l.skipToBoundary || !l.txResults[l.txIndex].Events[l.eventIndex].Attributes[l.attrIndex].Index {
+	if l.delimiter || l.finished || l.skipToBoundary || !l.eventsList[l.txIndex][l.eventIndex].Attributes[l.attrIndex].Index {
 		return common.Hash{}
 	}
-	event := l.txResults[l.txIndex].Events[l.eventIndex]
+	event := l.eventsList[l.txIndex][l.eventIndex]
 	filter := EventString(event.Type, event.Attributes[l.attrIndex])
 	return eventValue(filter)
 }
@@ -827,14 +862,30 @@ func (l *logIterator) next() error {
 			return fmt.Errorf("failed to load block response for block %d: %v", l.blockNumber+1, err)
 		}
 
-		txEventsPointers := make([]uint64, len(blockResponse.TxResults))
-		for i, txResult := range blockResponse.TxResults {
-			for _, event := range txResult.Events {
-				txEventsPointers[i] += uint64(len(event.Attributes))
+		var eventsList [][]abci.Event
+		var eventsPointers []uint64
+
+		if l.isTxIndexer {
+			eventsList = make([][]abci.Event, len(blockResponse.TxResults))
+			eventsPointers = make([]uint64, len(blockResponse.TxResults))
+
+			for i, txResult := range blockResponse.TxResults {
+				eventsList[i] = txResult.Events
+			}
+		} else {
+			eventsList = make([][]abci.Event, 1)
+			eventsPointers = make([]uint64, 1)
+
+			eventsList[0] = blockResponse.Events
+		}
+
+		for i, events := range eventsList {
+			for _, event := range events {
+				eventsPointers[i] += uint64(len(event.Attributes))
 			}
 		}
-		l.txResults = blockResponse.TxResults
-		l.txEventsPointers = txEventsPointers
+		l.eventsList = eventsList
+		l.eventsPointers = eventsPointers
 		l.txIndex, l.eventIndex, l.attrIndex, l.blockStart = 0, 0, 0, true
 	} else {
 		l.attrIndex++
@@ -852,16 +903,16 @@ func (l *logIterator) enforceValidState() {
 	if l.delimiter || l.finished || l.skipToBoundary {
 		return
 	}
-	for ; l.txIndex < len(l.txResults); l.txIndex++ {
-		if l.eventIndex == 0 && l.attrIndex == 0 && l.txEventsPointers[l.txIndex] > l.params.valuesPerMap-l.lvIndex%l.params.valuesPerMap {
+	for ; l.txIndex < len(l.eventsList); l.txIndex++ {
+		if l.eventIndex == 0 && l.attrIndex == 0 && l.eventsPointers[l.txIndex] > l.params.valuesPerMap-l.lvIndex%l.params.valuesPerMap {
 			// next log would be split by map boundary; skip to boundary
 			l.skipToBoundary = true
 			return
 		}
 
-		txResult := l.txResults[l.txIndex]
-		for ; l.eventIndex < len(txResult.Events); l.eventIndex++ {
-			event := txResult.Events[l.eventIndex]
+		events := l.eventsList[l.txIndex]
+		for ; l.eventIndex < len(events); l.eventIndex++ {
+			event := events[l.eventIndex]
 			if l.attrIndex <= len(event.Attributes)-1 {
 				return
 			}

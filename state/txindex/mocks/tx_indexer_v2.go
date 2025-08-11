@@ -5,9 +5,8 @@ package mocks
 import (
 	context "context"
 
-	mock "github.com/stretchr/testify/mock"
-
 	log "github.com/cometbft/cometbft/libs/log"
+	mock "github.com/stretchr/testify/mock"
 
 	query "github.com/cometbft/cometbft/libs/pubsub/query"
 
@@ -21,35 +20,17 @@ type TxIndexerV2 struct {
 	mock.Mock
 }
 
-// AddBatch provides a mock function with given fields: b
-func (_m *TxIndexerV2) AddBatch(b *txindex.Batch) error {
-	ret := _m.Called(b)
+// AddBatch provides a mock function with given fields: b, height
+func (_m *TxIndexerV2) AddBatch(b *txindex.Batch, height int64) error {
+	ret := _m.Called(b, height)
 
 	if len(ret) == 0 {
 		panic("no return value specified for AddBatch")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(*txindex.Batch) error); ok {
-		r0 = rf(b)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// FinishMigration provides a mock function with no fields
-func (_m *TxIndexerV2) FinishMigration() error {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for FinishMigration")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func() error); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(*txindex.Batch, int64) error); ok {
+		r0 = rf(b, height)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -87,57 +68,6 @@ func (_m *TxIndexerV2) Get(hash []byte) (*types.TxResult, error) {
 	return r0, r1
 }
 
-// IsMigrating provides a mock function with no fields
-func (_m *TxIndexerV2) IsMigrating() bool {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for IsMigrating")
-	}
-
-	var r0 bool
-	if rf, ok := ret.Get(0).(func() bool); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(bool)
-	}
-
-	return r0
-}
-
-// MigrationHeight provides a mock function with no fields
-func (_m *TxIndexerV2) MigrationHeight() (int64, error) {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for MigrationHeight")
-	}
-
-	var r0 int64
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (int64, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() int64); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(int64)
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// NotifyNewBlock provides a mock function with given fields: height
-func (_m *TxIndexerV2) NotifyNewBlock(height int64) {
-	_m.Called(height)
-}
-
 // Prune provides a mock function with given fields: curHeight
 func (_m *TxIndexerV2) Prune(curHeight int64) error {
 	ret := _m.Called(curHeight)
@@ -156,9 +86,9 @@ func (_m *TxIndexerV2) Prune(curHeight int64) error {
 	return r0
 }
 
-// Search provides a mock function with given fields: ctx, q, maxCount
-func (_m *TxIndexerV2) Search(ctx context.Context, q *query.Query, maxCount int64) (chan types.TxResult, chan error) {
-	ret := _m.Called(ctx, q, maxCount)
+// Search provides a mock function with given fields: ctx, q
+func (_m *TxIndexerV2) Search(ctx context.Context, q *query.Query) (chan types.TxResult, chan error) {
+	ret := _m.Called(ctx, q)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Search")
@@ -166,19 +96,19 @@ func (_m *TxIndexerV2) Search(ctx context.Context, q *query.Query, maxCount int6
 
 	var r0 chan types.TxResult
 	var r1 chan error
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64) (chan types.TxResult, chan error)); ok {
-		return rf(ctx, q, maxCount)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) (chan types.TxResult, chan error)); ok {
+		return rf(ctx, q)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64) chan types.TxResult); ok {
-		r0 = rf(ctx, q, maxCount)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) chan types.TxResult); ok {
+		r0 = rf(ctx, q)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(chan types.TxResult)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *query.Query, int64) chan error); ok {
-		r1 = rf(ctx, q, maxCount)
+	if rf, ok := ret.Get(1).(func(context.Context, *query.Query) chan error); ok {
+		r1 = rf(ctx, q)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).(chan error)
@@ -193,26 +123,8 @@ func (_m *TxIndexerV2) SetLogger(l log.Logger) {
 	_m.Called(l)
 }
 
-// SetMigrationHeight provides a mock function with given fields: height
-func (_m *TxIndexerV2) SetMigrationHeight(height int64) error {
-	ret := _m.Called(height)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetMigrationHeight")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(int64) error); ok {
-		r0 = rf(height)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// StartMigration provides a mock function with no fields
-func (_m *TxIndexerV2) StartMigration() {
+// Start provides a mock function with no fields
+func (_m *TxIndexerV2) Start() {
 	_m.Called()
 }
 

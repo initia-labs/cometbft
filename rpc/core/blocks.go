@@ -301,15 +301,6 @@ func (env *Environment) blockSearchV2(
 		return nil, errors.New("block indexing is disabled")
 	}
 
-	// during migration, we return an error to indicate the service is temporarily unavailable
-	if env.BlockIndexerV2.IsMigrating() {
-		migrationHeight, err := env.BlockIndexerV2.MigrationHeight()
-		if err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("BlockSearchV2 is not ready yet, migration height: %d", migrationHeight)
-	}
-
 	if orderBy == "desc" {
 		return nil, errors.New("order_by is not supported")
 	}
@@ -328,10 +319,18 @@ func (env *Environment) blockSearchV2(
 		return nil, fmt.Errorf("page should be greater than 0")
 	}
 
-	resultChan, errChan := env.BlockIndexerV2.Search(ctx.Context(), q, int64(perPage+1))
+	resultChan, errChan := env.BlockIndexerV2.Search(ctx.Context(), q)
 	results := make([]*ctypes.ResultBlock, 0, perPage)
 	totalCount := 0
 
+	// cache for block and response
+	type cache struct {
+		block     *types.Block
+		blockMeta *types.BlockMeta
+	}
+
+	// use cache to avoid loading the same block and response multiple times
+	blockCache := make(map[int64]cache)
 RESULT_LOOP:
 	for {
 		select {
@@ -346,16 +345,28 @@ RESULT_LOOP:
 				continue
 			}
 
-			block := env.BlockStore.LoadBlock(result)
-			if block == nil {
-				totalCount--
-				continue
+			var block *types.Block
+			var blockMeta *types.BlockMeta
+			if c, ok := blockCache[result]; ok {
+				block = c.block
+				blockMeta = c.blockMeta
+			} else {
+				block := env.BlockStore.LoadBlock(result)
+				if block == nil {
+					totalCount--
+					continue
+				}
+				blockMeta := env.BlockStore.LoadBlockMeta(block.Height)
+				if blockMeta == nil {
+					totalCount--
+					continue
+				}
+				blockCache[result] = cache{
+					block:     block,
+					blockMeta: blockMeta,
+				}
 			}
-			blockMeta := env.BlockStore.LoadBlockMeta(block.Height)
-			if blockMeta == nil {
-				totalCount--
-				continue
-			}
+
 			results = append(results, &ctypes.ResultBlock{
 				Block:   block,
 				BlockID: blockMeta.BlockID,
