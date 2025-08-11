@@ -126,8 +126,6 @@ func (is *IndexerService) OnStart() error {
 						}
 						return
 					}
-				} else {
-					is.Logger.Info("indexed block events v2", "height", height)
 				}
 
 				if err = is.txIdxr.AddBatch(batch); err != nil {
@@ -150,8 +148,6 @@ func (is *IndexerService) OnStart() error {
 						}
 						return
 					}
-				} else {
-					is.Logger.Info("indexed transactions v2", "height", height, "num_txs", numTxs)
 				}
 
 				if running := blockIdxPruningRunning.Swap(true); !running {

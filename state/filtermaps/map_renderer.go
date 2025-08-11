@@ -297,6 +297,7 @@ func (r *mapRenderer) run(stopCb func() bool, writeCb func()) (bool, error) {
 		if done, err := r.renderCurrentMap(stopCb); !done {
 			return done, err // stopped or failed
 		}
+		r.f.logger.Info("finished rendering map", "map index", r.currentMap.mapIndex, "first block", r.currentMap.firstBlock(), "last block", r.currentMap.lastBlock)
 		// map finished
 		r.finishedMaps[r.currentMap.mapIndex] = r.currentMap
 		r.finished.SetLast(r.finished.AfterLast())
