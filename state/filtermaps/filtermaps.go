@@ -453,8 +453,11 @@ func (f *FilterMaps) setRange(batch dbm.Batch, newHeight uint64, newRange filter
 type lvIndexRange struct {
 	blockNumber      uint64
 	startLvIndex     uint64
-	txEventsPointers []uint64
-	txLvPointers     []uint64
+	txEventsPointers []uint64 // each one represents the number of the event's attributes in a tx
+	// each one indicates the log value index pointer of the tx.
+	// the last one is the end of lv pointer of the last tx.
+	// so, the length of txLvPointers is the length of txEventsPointers + 1.
+	txLvPointers []uint64
 }
 
 func (f *FilterMaps) getLvIndexRange(lvIndex uint64) (lvIndexRange, error) {
@@ -488,6 +491,9 @@ func (f *FilterMaps) getLvIndexRange(lvIndex uint64) (lvIndexRange, error) {
 			lastBlockNumber = midBlockNumber - 1
 		} else {
 			firstBlockNumber = midBlockNumber
+			if lvIndex == midLvPointer {
+				break
+			}
 		}
 	}
 

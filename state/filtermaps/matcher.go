@@ -230,8 +230,6 @@ func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error
 	if err != nil {
 		return err
 	}
-	for elem := potentialResults.Front(); elem != nil; elem = elem.Next() {
-	}
 
 	for _, matcherResult := range matcherResults[1:] {
 		err := m.deleteUnmatchedResults(potentialResults, &matcherResult)

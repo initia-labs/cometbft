@@ -274,6 +274,7 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, resultCh chan ab
 		return filtermaps.GetPotentialMatches(innerCtx, txi.log, backend, uint64(begin-1), uint64(end-1), filters, filtermapResultCh)
 	})
 
+	blockCache := make(map[int64]*abci.ResponseFinalizeBlock)
 	g.Go(func() error {
 		lastEvent := &filtermaps.TxEvent{}
 		for result := range filtermapResultCh {
@@ -281,9 +282,13 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, resultCh chan ab
 				continue
 			}
 
-			blockResponse, err := txi.stateStore.LoadFinalizeBlockResponse(result.BlockNumber)
-			if err != nil {
-				return err
+			blockResponse, ok := blockCache[result.BlockNumber]
+			if !ok {
+				blockResponse, err = txi.stateStore.LoadFinalizeBlockResponse(result.BlockNumber)
+				if err != nil {
+					return err
+				}
+				blockCache[result.BlockNumber] = blockResponse
 			}
 
 			txResult, err := txi.checkMatch(result, filters, blockResponse.TxResults[result.TxIndex].Events)

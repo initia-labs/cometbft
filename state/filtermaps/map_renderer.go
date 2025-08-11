@@ -63,7 +63,7 @@ type renderedMap struct {
 	mapIndex              uint32
 	lastBlock             uint64
 	blockLvPtrs           []uint64   // start pointers of blocks starting in this map; last one is lastBlock
-	blockTxEventsPointers [][]uint64 // tx events pointers of blocks starting in this map
+	blockTxEventsPointers [][]uint64 // tx events pointers of blocks starting in this map. Each one includes the length of the event’s attributes in between.
 	finished              bool       // iterator finished; all values rendered
 	headDelimiter         uint64     // if finished then points to the future block delimiter of the head block
 }
