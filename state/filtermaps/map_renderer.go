@@ -331,7 +331,7 @@ func (r *mapRenderer) renderCurrentMap(stopCb func() bool) (bool, error) {
 
 	if r.iterator.lvIndex == 0 {
 		r.currentMap.blockLvPtrs = []uint64{0}
-		r.currentMap.blockEventsPointers = [][]uint64{{}}
+		r.currentMap.blockEventsPointers = [][]uint64{r.iterator.eventsPointers}
 	}
 	type lvPos struct{ rowIndex, layerIndex uint32 }
 	rowMappingCache := lru.NewCache[common.Hash, lvPos](cachedRowMappings)
