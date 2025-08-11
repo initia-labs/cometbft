@@ -230,7 +230,6 @@ func (idx *BlockIndexer) search(ctx context.Context, q *query.Query, resultCh ch
 			}
 
 			blockNumber := idx.checkMatch(result, filters, blockResponse.Events)
-
 			lastEvent = result
 			if blockNumber >= 0 {
 				resultCh <- blockNumber

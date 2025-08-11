@@ -279,7 +279,7 @@ func (env *Environment) blockSearch(
 
 // BlockSearchV2 allows you to query for a paginated set of blocks matching
 // FinalizeBlock event search criteria.
-// This method uses a bloom filter to speed up queries in most cases.
+// This method uses a filtermap to speed up queries in most cases.
 // More: https://docs.cometbft.com/v0.38.x/rpc/#/Info/block_search/v2
 func (env *Environment) BlockSearchV2(
 	ctx *rpctypes.Context,
@@ -351,12 +351,12 @@ RESULT_LOOP:
 				block = c.block
 				blockMeta = c.blockMeta
 			} else {
-				block := env.BlockStore.LoadBlock(result)
+				block = env.BlockStore.LoadBlock(result)
 				if block == nil {
 					totalCount--
 					continue
 				}
-				blockMeta := env.BlockStore.LoadBlockMeta(block.Height)
+				blockMeta = env.BlockStore.LoadBlockMeta(block.Height)
 				if blockMeta == nil {
 					totalCount--
 					continue
