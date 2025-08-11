@@ -22,12 +22,12 @@ import (
 	"github.com/cometbft/cometbft/state/filtermaps"
 )
 
-var _ indexer.BlockIndexer = (*BlockerIndexer)(nil)
+var _ indexer.BlockIndexer = (*BlockIndexer)(nil)
 
-// BlockerIndexer implements a block indexer, indexing FinalizeBlock
+// BlockIndexer implements a block indexer, indexing FinalizeBlock
 // events with an underlying KV store. Block events are indexed by their height,
 // such that matching search criteria returns the respective block height(s).
-type BlockerIndexer struct {
+type BlockIndexer struct {
 	store dbm.DB
 
 	blockStore *store.BlockStore
@@ -48,13 +48,13 @@ type BlockerIndexer struct {
 	unlockBlockProcessing sync.Once
 }
 
-func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *BlockerIndexer {
+func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *BlockIndexer {
 	fm := filtermaps.NewFilterMaps(dbm.NewPrefixDB(store, []byte("filtermap")), blockStore, stateStore, filtermaps.DefaultParams, filtermaps.Config{
 		History:  uint64(retainHeight),
 		Disabled: false,
 	})
 
-	return &BlockerIndexer{
+	return &BlockIndexer{
 		store:                 store,
 		blockStore:            blockStore,
 		stateStore:            stateStore,
@@ -65,17 +65,17 @@ func New(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retain
 	}
 }
 
-func (idx *BlockerIndexer) Start() {
+func (idx *BlockIndexer) Start() {
 	idx.filtermap.SetBlockProcessing(true)
 	idx.filtermap.Start()
 }
 
-func (idx *BlockerIndexer) SetLogger(l log.Logger) {
+func (idx *BlockIndexer) SetLogger(l log.Logger) {
 	idx.log = l
-	idx.filtermap.SetLogger(l.With("module", "filtermap"))
+	idx.filtermap.SetLogger(l)
 }
 
-func (idx *BlockerIndexer) Has(height int64) (bool, error) {
+func (idx *BlockIndexer) Has(height int64) (bool, error) {
 	_, err := idx.stateStore.LoadFinalizeBlockResponse(height)
 	if err != nil {
 		return false, err
@@ -88,7 +88,7 @@ func (idx *BlockerIndexer) Has(height int64) (bool, error) {
 //
 // block bloom: encode(bb | height) => block bloom
 // section bloom: encode(sb | sectionIndex) => section bloom
-func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
+func (idx *BlockIndexer) Index(bh types.EventDataNewBlockEvents) error {
 	idx.unlockBlockProcessing.Do(func() {
 		idx.filtermap.SetBlockProcessing(false)
 	})
@@ -102,7 +102,7 @@ func (idx *BlockerIndexer) Index(bh types.EventDataNewBlockEvents) error {
 // one or more block heights. In the case of height queries, i.e. block.height=H,
 // if the height is indexed, that height alone will be returned. An error and
 // nil slice is returned. Otherwise, a non-nil slice and nil error is returned.
-func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query) (chan int64, chan error) {
+func (idx *BlockIndexer) Search(ctx context.Context, q *query.Query) (chan int64, chan error) {
 	resultChan := make(chan int64)
 	errChan := make(chan error)
 
@@ -117,7 +117,7 @@ func (idx *BlockerIndexer) Search(ctx context.Context, q *query.Query) (chan int
 	return resultChan, errChan
 }
 
-func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, resultCh chan int64) error {
+func (idx *BlockIndexer) search(ctx context.Context, q *query.Query, resultCh chan int64) error {
 	select {
 	case <-ctx.Done():
 		return nil
@@ -241,7 +241,7 @@ func (idx *BlockerIndexer) search(ctx context.Context, q *query.Query, resultCh 
 	return g.Wait()
 }
 
-func (idx *BlockerIndexer) checkMatch(txEvent *filtermaps.TxEvent, filters []string, events []abci.Event) int64 {
+func (idx *BlockIndexer) checkMatch(txEvent *filtermaps.TxEvent, filters []string, events []abci.Event) int64 {
 	matchCount := 0
 FILTERLOOP:
 	for _, filter := range filters {

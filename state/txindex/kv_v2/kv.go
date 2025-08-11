@@ -78,7 +78,7 @@ func (txi *TxIndex) Start() {
 
 func (txi *TxIndex) SetLogger(l log.Logger) {
 	txi.log = l
-	txi.filtermap.SetLogger(l.With("module", "filtermap"))
+	txi.filtermap.SetLogger(l)
 }
 
 // Get gets transaction from the TxIndex storage and returns it or nil if the
