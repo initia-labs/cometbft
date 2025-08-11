@@ -72,6 +72,7 @@ func (idx *BlockerIndexer) Start() {
 
 func (idx *BlockerIndexer) SetLogger(l log.Logger) {
 	idx.log = l
+	idx.filtermap.SetLogger(l.With("module", "filtermap"))
 }
 
 func (idx *BlockerIndexer) Has(height int64) (bool, error) {
