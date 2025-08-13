@@ -14,11 +14,11 @@ import (
 var (
 	filterMapsRangeKey = []byte(filterMapsPrefix + "R")
 
-	filterMapsPrefix             = "fm-"
-	filterMapRowPrefix           = []byte(filterMapsPrefix + "r")  // filterMapRowPrefix + mapRowIndex (uint64 big endian) -> filter row
-	filterMapLastBlockPrefix     = []byte(filterMapsPrefix + "b")  // filterMapLastBlockPrefix + mapIndex (uint32 big endian) -> block number (uint64 big endian)
-	filterMapBlockLVPrefix       = []byte(filterMapsPrefix + "p")  // filterMapBlockLVPrefix + num (uint64 big endian) -> log value pointer (uint64 big endian)
-	filterMapBlockTxEventsPrefix = []byte(filterMapsPrefix + "te") // filterMapBlockTxEventsPrefix + num (uint64 big endian) -> tx events pointer (uint64 big endian)
+	filterMapsPrefix           = "fm-"
+	filterMapRowPrefix         = []byte(filterMapsPrefix + "r")  // filterMapRowPrefix + mapRowIndex (uint64 big endian) -> filter row
+	filterMapLastBlockPrefix   = []byte(filterMapsPrefix + "b")  // filterMapLastBlockPrefix + mapIndex (uint32 big endian) -> block number (uint64 big endian)
+	filterMapBlockLVPrefix     = []byte(filterMapsPrefix + "p")  // filterMapBlockLVPrefix + num (uint64 big endian) -> log value pointer (uint64 big endian)
+	filterMapBlockEventsPrefix = []byte(filterMapsPrefix + "te") // filterMapBlockEventsPrefix + num (uint64 big endian) -> tx events pointer (uint64 big endian)
 )
 
 type FilterMapsRange struct {
@@ -142,11 +142,11 @@ func DeleteBlockLvPointers(db dbm.DB, blocks common.Range[uint64], stopCallback 
 	return SafeDeleteRange(db, filterMapBlockLVKey(blocks.First()), filterMapBlockLVKey(blocks.AfterLast()), stopCallback)
 }
 
-// filterMapBlockTxEventsKey = filterMapBlockTxEventsPrefix + num (uint64 big endian)
+// filterMapBlockEventsKey = filterMapBlockEventsPrefix + num (uint64 big endian)
 func filterMapBlockEventsKey(number uint64) []byte {
-	l := len(filterMapBlockTxEventsPrefix)
+	l := len(filterMapBlockEventsPrefix)
 	key := make([]byte, l+8)
-	copy(key[:l], filterMapBlockTxEventsPrefix)
+	copy(key[:l], filterMapBlockEventsPrefix)
 	binary.BigEndian.PutUint64(key[l:], number)
 	return key
 }

@@ -528,7 +528,7 @@ func (r *mapRenderer) writeFinishedMaps(pauseCb func() bool) error {
 			if err := r.f.deleteBlockLvPointer(batch, blockNumber); err != nil {
 				return fmt.Errorf("failed to delete block lv pointer %d: %v", blockNumber, err)
 			}
-			if err := r.f.deleteBlockTxEventsPointers(batch, blockNumber); err != nil {
+			if err := r.f.deleteBlockEventsPointers(batch, blockNumber); err != nil {
 				return fmt.Errorf("failed to delete block tx events pointers %d: %v", blockNumber, err)
 			}
 			checkWriteCnt()
@@ -721,46 +721,23 @@ func (f *FilterMaps) newLogIteratorFromBlockDelimiter(blockNumber, lvIndex uint6
 	}
 	finished := blockNumber == f.targetHeight
 
-	blockResponse, err := f.stateStore.LoadFinalizeBlockResponse(int64(blockNumber + 1))
-	if err != nil {
-		return nil, fmt.Errorf("failed to load block response for block %d: %v", blockNumber+1, err)
-	}
-
-	var eventsList [][]abci.Event
-	var eventsPointers []uint64
-
-	if f.isTxIndexer {
-		eventsList = make([][]abci.Event, len(blockResponse.TxResults))
-		eventsPointers = make([]uint64, len(blockResponse.TxResults))
-
-		for i, txResult := range blockResponse.TxResults {
-			eventsList[i] = txResult.Events
-		}
-	} else {
-		eventsList = make([][]abci.Event, 1)
-		eventsPointers = make([]uint64, 1)
-
-		eventsList[0] = blockResponse.Events
-	}
-
-	for i, events := range eventsList {
-		for _, event := range events {
-			eventsPointers[i] += uint64(len(event.Attributes))
-		}
-	}
-
 	l := &logIterator{
-		targetHeight:   f.targetHeight,
-		params:         &f.Params,
-		blockNumber:    blockNumber,
-		eventsList:     eventsList,
-		eventsPointers: eventsPointers,
-		finished:       finished,
-		delimiter:      !finished,
-		lvIndex:        lvIndex,
-		stateStore:     stateStore,
-		isTxIndexer:    f.isTxIndexer,
+		targetHeight: f.targetHeight,
+		params:       &f.Params,
+		blockNumber:  blockNumber,
+		finished:     finished,
+		delimiter:    !finished,
+		lvIndex:      lvIndex,
+		stateStore:   stateStore,
+		isTxIndexer:  f.isTxIndexer,
 	}
+
+	var err error
+	l.eventsList, l.eventsPointers, err = l.getEventsListAndPointers(blockNumber)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get events list and pointers for block %d: %v", blockNumber, err)
+	}
+
 	l.enforceValidState()
 	return l, nil
 }
@@ -772,46 +749,23 @@ func (f *FilterMaps) newLogIteratorFromMapBoundary(mapIndex uint32, startBlock, 
 		return nil, fmt.Errorf("iterator entry point %d after target chain head block %d", startBlock, f.targetHeight)
 	}
 
-	blockResponse, err := f.stateStore.LoadFinalizeBlockResponse(int64(startBlock + 1))
-	if err != nil {
-		return nil, fmt.Errorf("failed to load block response for block %d: %v", startBlock+1, err)
-	}
-
-	var eventsList [][]abci.Event
-	var eventsPointers []uint64
-
-	if f.isTxIndexer {
-		eventsList = make([][]abci.Event, len(blockResponse.TxResults))
-		eventsPointers = make([]uint64, len(blockResponse.TxResults))
-
-		for i, txResult := range blockResponse.TxResults {
-			eventsList[i] = txResult.Events
-		}
-	} else {
-		eventsList = make([][]abci.Event, 1)
-		eventsPointers = make([]uint64, 1)
-
-		eventsList[0] = blockResponse.Events
-	}
-
-	for i, events := range eventsList {
-		for _, event := range events {
-			eventsPointers[i] += uint64(len(event.Attributes))
-		}
-	}
-
 	// initialize iterator at block start
 	l := &logIterator{
-		targetHeight:   f.targetHeight,
-		params:         &f.Params,
-		blockNumber:    startBlock,
-		eventsList:     eventsList,
-		eventsPointers: eventsPointers,
-		blockStart:     true,
-		lvIndex:        startLvPtr,
-		stateStore:     stateStore,
-		isTxIndexer:    f.isTxIndexer,
+		targetHeight: f.targetHeight,
+		params:       &f.Params,
+		blockNumber:  startBlock,
+		blockStart:   true,
+		lvIndex:      startLvPtr,
+		stateStore:   stateStore,
+		isTxIndexer:  f.isTxIndexer,
 	}
+
+	var err error
+	l.eventsList, l.eventsPointers, err = l.getEventsListAndPointers(startBlock)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get events list and pointers for block %d: %v", startBlock, err)
+	}
+
 	l.enforceValidState()
 	targetIndex := uint64(mapIndex) << f.logValuesPerMap
 	if l.lvIndex > targetIndex {
@@ -858,35 +812,12 @@ func (l *logIterator) next() error {
 	if l.delimiter {
 		l.delimiter = false
 		l.blockNumber++
-		blockResponse, err := l.stateStore.LoadFinalizeBlockResponse(int64(l.blockNumber + 1))
+
+		var err error
+		l.eventsList, l.eventsPointers, err = l.getEventsListAndPointers(l.blockNumber)
 		if err != nil {
-			return fmt.Errorf("failed to load block response for block %d: %v", l.blockNumber+1, err)
+			return fmt.Errorf("failed to get events list and pointers for block %d: %v", l.blockNumber, err)
 		}
-
-		var eventsList [][]abci.Event
-		var eventsPointers []uint64
-
-		if l.isTxIndexer {
-			eventsList = make([][]abci.Event, len(blockResponse.TxResults))
-			eventsPointers = make([]uint64, len(blockResponse.TxResults))
-
-			for i, txResult := range blockResponse.TxResults {
-				eventsList[i] = txResult.Events
-			}
-		} else {
-			eventsList = make([][]abci.Event, 1)
-			eventsPointers = make([]uint64, 1)
-
-			eventsList[0] = blockResponse.Events
-		}
-
-		for i, events := range eventsList {
-			for _, event := range events {
-				eventsPointers[i] += uint64(len(event.Attributes))
-			}
-		}
-		l.eventsList = eventsList
-		l.eventsPointers = eventsPointers
 		l.txIndex, l.eventIndex, l.attrIndex, l.blockStart = 0, 0, 0, true
 	} else {
 		l.attrIndex++
@@ -926,4 +857,36 @@ func (l *logIterator) enforceValidState() {
 	} else {
 		l.delimiter = true
 	}
+}
+
+func (l *logIterator) getEventsListAndPointers(blockNumber uint64) ([][]abci.Event, []uint64, error) {
+	blockResponse, err := l.stateStore.LoadFinalizeBlockResponse(int64(blockNumber + 1))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load block response for block %d: %v", blockNumber+1, err)
+	}
+
+	var eventsList [][]abci.Event
+	var eventsPointers []uint64
+
+	if l.isTxIndexer {
+		eventsList = make([][]abci.Event, len(blockResponse.TxResults))
+		eventsPointers = make([]uint64, len(blockResponse.TxResults))
+
+		for i, txResult := range blockResponse.TxResults {
+			eventsList[i] = txResult.Events
+		}
+	} else {
+		eventsList = make([][]abci.Event, 1)
+		eventsPointers = make([]uint64, 1)
+
+		eventsList[0] = blockResponse.Events
+	}
+
+	for i, events := range eventsList {
+		for _, event := range events {
+			eventsPointers[i] += uint64(len(event.Attributes))
+		}
+	}
+
+	return eventsList, eventsPointers, nil
 }

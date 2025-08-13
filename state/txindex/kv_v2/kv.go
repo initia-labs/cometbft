@@ -267,6 +267,7 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, resultCh chan ab
 	g, innerCtx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		defer close(filtermapResultCh)
+		// filtermap uses block number starting from 0, so we need to subtract 1 from begin and end
 		return filtermaps.GetPotentialMatches(innerCtx, txi.log, backend, uint64(begin-1), uint64(end-1), filters, filtermapResultCh)
 	})
 

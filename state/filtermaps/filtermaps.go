@@ -458,12 +458,11 @@ type lvIndexRange struct {
 	blockNumber  uint64
 	startLvIndex uint64
 	// if isTxIndexer is true, each one represents the number of the event's attributes in a tx
-	// if isTxIndexer is false, each one represents the number of the event's attributes in a
+	// if isTxIndexer is false, each one represents the number of the event's attributes in a block
 	eventsPointers []uint64
-	// each one indicates the log value index pointer of the tx.
-	// the last one is the end of lv pointer of the last tx.
+	// each one indicates the log value index pointer of the tx or block depends on the isTxIndexer flag
+	// the last one is the end of lv pointer of the last tx or block.
 	// so, the length of lvPointers is the length of eventsPointers + 1.
-	// if
 	lvPointers []uint64
 }
 
@@ -765,6 +764,7 @@ func (f *FilterMaps) storeBlockLvPointer(batch dbm.Batch, blockNumber, lvPointer
 	return WriteBlockLvPointer(batch, blockNumber, lvPointer)
 }
 
+// getBlockEventsPointers returns the tx events pointers of the given block.
 func (f *FilterMaps) getBlockEventsPointers(blockNumber uint64) ([]uint64, error) {
 	if eventsPointers, ok := f.eventsPointersCache.Get(blockNumber); ok {
 		return eventsPointers, nil
@@ -777,7 +777,7 @@ func (f *FilterMaps) getBlockEventsPointers(blockNumber uint64) ([]uint64, error
 	return eventsPointers, nil
 }
 
-// storeBlockTxEventsPointers stores the tx events pointers of the given block.
+// storeBlockEventsPointers stores the tx events pointers of the given block.
 func (f *FilterMaps) storeBlockEventsPointers(batch dbm.Batch, blockNumber uint64, eventsPointers []uint64) error {
 	f.eventsPointersCache.Add(blockNumber, eventsPointers)
 	return WriteBlockEventsPointers(batch, blockNumber, eventsPointers)
@@ -790,7 +790,8 @@ func (f *FilterMaps) deleteBlockLvPointer(batch dbm.Batch, blockNumber uint64) e
 	return DeleteBlockLvPointer(batch, blockNumber)
 }
 
-func (f *FilterMaps) deleteBlockTxEventsPointers(batch dbm.Batch, blockNumber uint64) error {
+// deleteBlockEventsPointers deletes the tx events pointers of the given block.
+func (f *FilterMaps) deleteBlockEventsPointers(batch dbm.Batch, blockNumber uint64) error {
 	f.eventsPointersCache.Remove(blockNumber)
 	return DeleteBlockEventsPointers(batch, blockNumber)
 }
