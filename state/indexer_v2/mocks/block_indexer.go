@@ -19,24 +19,6 @@ type BlockIndexer struct {
 	mock.Mock
 }
 
-// FinishMigration provides a mock function with no fields
-func (_m *BlockIndexer) FinishMigration() error {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for FinishMigration")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func() error); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
 // Has provides a mock function with given fields: height
 func (_m *BlockIndexer) Has(height int64) (bool, error) {
 	ret := _m.Called(height)
@@ -83,78 +65,9 @@ func (_m *BlockIndexer) Index(_a0 types.EventDataNewBlockEvents) error {
 	return r0
 }
 
-// IsMigrating provides a mock function with no fields
-func (_m *BlockIndexer) IsMigrating() bool {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for IsMigrating")
-	}
-
-	var r0 bool
-	if rf, ok := ret.Get(0).(func() bool); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(bool)
-	}
-
-	return r0
-}
-
-// MigrationHeight provides a mock function with no fields
-func (_m *BlockIndexer) MigrationHeight() (int64, error) {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for MigrationHeight")
-	}
-
-	var r0 int64
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (int64, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() int64); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(int64)
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// NotifyNewBlock provides a mock function with given fields: height
-func (_m *BlockIndexer) NotifyNewBlock(height int64) {
-	_m.Called(height)
-}
-
-// Prune provides a mock function with given fields: curHeight
-func (_m *BlockIndexer) Prune(curHeight int64) error {
-	ret := _m.Called(curHeight)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Prune")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(int64) error); ok {
-		r0 = rf(curHeight)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// Search provides a mock function with given fields: ctx, q, maxCount
-func (_m *BlockIndexer) Search(ctx context.Context, q *query.Query, maxCount int64) (chan int64, chan error) {
-	ret := _m.Called(ctx, q, maxCount)
+// Search provides a mock function with given fields: ctx, q
+func (_m *BlockIndexer) Search(ctx context.Context, q *query.Query) (chan int64, chan error) {
+	ret := _m.Called(ctx, q)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Search")
@@ -162,19 +75,19 @@ func (_m *BlockIndexer) Search(ctx context.Context, q *query.Query, maxCount int
 
 	var r0 chan int64
 	var r1 chan error
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64) (chan int64, chan error)); ok {
-		return rf(ctx, q, maxCount)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) (chan int64, chan error)); ok {
+		return rf(ctx, q)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *query.Query, int64) chan int64); ok {
-		r0 = rf(ctx, q, maxCount)
+	if rf, ok := ret.Get(0).(func(context.Context, *query.Query) chan int64); ok {
+		r0 = rf(ctx, q)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(chan int64)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *query.Query, int64) chan error); ok {
-		r1 = rf(ctx, q, maxCount)
+	if rf, ok := ret.Get(1).(func(context.Context, *query.Query) chan error); ok {
+		r1 = rf(ctx, q)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).(chan error)
@@ -189,26 +102,8 @@ func (_m *BlockIndexer) SetLogger(l log.Logger) {
 	_m.Called(l)
 }
 
-// SetMigrationHeight provides a mock function with given fields: height
-func (_m *BlockIndexer) SetMigrationHeight(height int64) error {
-	ret := _m.Called(height)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetMigrationHeight")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(int64) error); ok {
-		r0 = rf(height)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// StartMigration provides a mock function with no fields
-func (_m *BlockIndexer) StartMigration() {
+// Start provides a mock function with no fields
+func (_m *BlockIndexer) Start() {
 	_m.Called()
 }
 

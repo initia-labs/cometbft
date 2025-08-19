@@ -1,7 +1,6 @@
 package kv
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/google/orderedcode"
@@ -17,17 +16,6 @@ type HeightInfo struct {
 	heightEqIdx     int
 	onlyHeightRange bool
 	onlyHeightEq    bool
-}
-
-func int64FromBytes(bz []byte) int64 {
-	v, _ := binary.Varint(bz)
-	return v
-}
-
-func int64ToBytes(i int64) []byte {
-	buf := make([]byte, binary.MaxVarintLen64)
-	n := binary.PutVarint(buf, i)
-	return buf[:n]
 }
 
 func ParseEventSeqFromEventKey(key []byte) (int64, error) {

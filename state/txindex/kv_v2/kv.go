@@ -1,14 +1,10 @@
 package kv
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"math/big"
-	"sync/atomic"
-	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -25,37 +21,12 @@ import (
 	"github.com/cometbft/cometbft/state/txindex"
 	"github.com/cometbft/cometbft/types"
 
-	"github.com/cometbft/cometbft/state/bloombits"
+	"github.com/cometbft/cometbft/state/filtermaps"
 
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/store"
-)
 
-const (
-	bloomSectionSize = int64(4096)
-
-	sectionBloomKeyPrefix = "sb"
-	blockBloomKeyPrefix   = "bb"
-	baseKey               = "base"
-	heightKey             = "h"
-	sectionIndexKey       = "si"
-	migrationKey          = "migration"
-
-	// bloomServiceThreads is the number of goroutines used globally by an Ethereum
-	// instance to service bloombits lookups for all running filters.
-	bloomServiceThreads = 16
-
-	// bloomFilterThreads is the number of goroutines used locally per filter to
-	// multiplex requests onto the global servicing goroutines.
-	bloomFilterThreads = 3
-
-	// bloomRetrievalBatch is the maximum number of bloom bit retrievals to service
-	// in a single batch.
-	bloomRetrievalBatch = 16
-
-	// bloomRetrievalWait is the maximum time to wait for enough bloom bit requests
-	// to accumulate request an entire batch (avoiding hysteresis).
-	bloomRetrievalWait = time.Duration(0)
+	"sync"
 )
 
 var _ txindex.TxIndexerV2 = (*TxIndex)(nil)
@@ -75,36 +46,40 @@ type TxIndex struct {
 	// If set to 0, the index will retain all tx index.
 	// Else the index will retain txs and blocks with heights >= (current block height - RetainHeight)
 	// except "tx.hash" and "tx.height" and "block.height" which are always retained.
-	retainHeight  int64
-	maxQueryRange int64
+	retainHeight int64
 
-	// isMigrating is true if the indexer is migrating from the old indexer to the new one.
-	isMigrating bool
+	filtermap *filtermaps.FilterMaps
 
-	newBlockNotifier    chan int64
-	sectionBloomRunning atomic.Bool
+	unlockBlockProcessing sync.Once
 }
 
 // NewTxIndex creates new KV indexer.
-func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64, maxQueryRange int64) *TxIndex {
-	txi := &TxIndex{
-		store:         store,
-		log:           log.NewNopLogger(),
-		blockStore:    blockStore,
-		stateStore:    stateStore,
-		retainHeight:  retainHeight,
-		maxQueryRange: maxQueryRange,
+func NewTxIndex(store dbm.DB, blockStore *store.BlockStore, stateStore sm.Store, retainHeight int64) *TxIndex {
+	fm := filtermaps.NewFilterMaps(dbm.NewPrefixDB(store, []byte("filtermap")), blockStore, stateStore, filtermaps.DefaultParams, filtermaps.Config{
+		History:     uint64(retainHeight),
+		Disabled:    false,
+		IsTxIndexer: true,
+	})
 
-		newBlockNotifier: make(chan int64),
+	return &TxIndex{
+		store:                 store,
+		log:                   log.NewNopLogger(),
+		blockStore:            blockStore,
+		stateStore:            stateStore,
+		retainHeight:          retainHeight,
+		filtermap:             fm,
+		unlockBlockProcessing: sync.Once{},
 	}
-	txi.sectionBloomRunning.Store(false)
-	go txi.startSectionBloomCreation()
+}
 
-	return txi
+func (txi *TxIndex) Start() {
+	txi.filtermap.SetBlockProcessing(true)
+	txi.filtermap.Start()
 }
 
 func (txi *TxIndex) SetLogger(l log.Logger) {
 	txi.log = l
+	txi.filtermap.SetLogger(l)
 }
 
 // Get gets transaction from the TxIndex storage and returns it or nil if the
@@ -131,30 +106,9 @@ func (txi *TxIndex) Get(hash []byte) (*abci.TxResult, error) {
 	return txResult, nil
 }
 
-// AddBatch indexes a batch of transactions using the given list of events. Each
-// key that indexed from the tx's events is a composite of the event type and
-// the respective attribute's key delimited by a "." (eg. "account.number").
-// Any event with an empty type is not indexed.
-//
-// The following is indexed:
-//
-// block bloom: encode(bb | height) => block bloom
-// section bloom: encode(sb | sectionIndex) => section bloom
-func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
+func (txi *TxIndex) AddBatch(b *txindex.Batch, height int64) error {
 	storeBatch := txi.store.NewBatch()
 	defer storeBatch.Close()
-
-	if len(b.Ops) == 0 {
-		return nil
-	}
-	blockHeight := b.Ops[0].Height
-
-	// update block bloom
-	blockBloom := bloomForBlock(b.Ops)
-	err := storeBatch.Set(bloomKeyForBlock(blockHeight), blockBloom[:])
-	if err != nil {
-		return err
-	}
 
 	for _, result := range b.Ops {
 		tmpResult := *result
@@ -180,126 +134,17 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 		}
 	}
 
-	base, err := txi.Base()
-	if err != nil {
-		return err
-	} else if base == 0 || base > blockHeight {
-		err = storeBatch.Set([]byte(baseKey), int64ToBytes(blockHeight))
-		if err != nil {
-			return err
-		}
-	}
-
-	// store last indexed height
-	height, err := txi.Height()
-	if err != nil {
-		return err
-	} else if height < blockHeight {
-		err = storeBatch.Set([]byte(heightKey), int64ToBytes(blockHeight))
-		if err != nil {
-			return err
-		}
-	}
-
-	return storeBatch.WriteSync()
-}
-
-func (txi *TxIndex) NotifyNewBlock(height int64) {
-	// if the section bloom is not running, start it and update the flag
-	if txi.sectionBloomRunning.CompareAndSwap(false, true) {
-		txi.newBlockNotifier <- height
-	}
-}
-
-// startSectionBloomCreation creates a section bloom for the given height in a separate goroutine.
-func (txi *TxIndex) startSectionBloomCreation() {
-	logger := txi.log.With("function", "SectionBloomCreation")
-
-	creationFn := func(height int64) {
-		// reset the flag when the function is done
-		defer txi.sectionBloomRunning.Store(false)
-
-		dbSectionIndex, err := txi.SectionIndex()
-		if err != nil {
-			logger.Error("failed to get section index", "err", err)
-			return
-		}
-
-		// skip if the section bloom is already up to date
-		sectionIndex := latestReadySectionIndex(height)
-		if dbSectionIndex >= sectionIndex {
-			return
-		}
-
-		// start the bloom indexing and log the start
-		logger.Debug("section bloom indexing started", "height", height)
-
-		// create a new batch
-		batch := txi.store.NewBatch()
-		nextSectionIndex := dbSectionIndex + 1
-		if nextSectionIndex == 0 {
-			nextSectionIndex = sectionIndex
-		}
-		err = txi.createSectionBloom(nextSectionIndex, batch)
-		if err != nil {
-			logger.Error("failed to do bloom indexing", "err", err)
-			return
-		}
-
-		// write the batch to the store
-		if err := batch.WriteSync(); err != nil {
-			logger.Error("failed to write sync", "err", err)
-			return
-		}
-
-		// close the batch
-		if err := batch.Close(); err != nil {
-			logger.Error("failed to close batch", "err", err)
-			return
-		}
-
-		// log the completion
-		logger.Info("section bloom indexing finished", "height", height, "sectionIndex", sectionIndex)
-	}
-
-	for height := range txi.newBlockNotifier {
-		creationFn(height)
-	}
-}
-
-func (txi *TxIndex) createSectionBloom(sectionIndex int64, batch dbm.Batch) error {
-	gen, err := bloombits.NewGenerator(uint(bloomSectionSize))
+	err := storeBatch.WriteSync()
 	if err != nil {
 		return err
 	}
 
-	for i := range bloomSectionSize {
-		blockBloom, err := txi.store.Get(bloomKeyForBlock(sectionIndex*bloomSectionSize + i))
-		if err != nil {
-			return err
-		} else if blockBloom == nil {
-			blockBloom = make([]byte, bloombits.BloomBitLength/8)
-		}
+	txi.unlockBlockProcessing.Do(func() {
+		txi.filtermap.SetBlockProcessing(false)
+	})
 
-		if err := gen.AddBloom(uint(i), bloombits.Bloom(blockBloom)); err != nil {
-			return err
-		}
-	}
-
-	// write the bloom bits to the store
-	for i := range bloombits.BloomBitLength {
-		bits, err := gen.Bitset(uint(i))
-		if err != nil {
-			return err
-		}
-
-		err = batch.Set(bloomKeyForSectionIndex(sectionIndex, int64(i)), bits)
-		if err != nil {
-			return err
-		}
-	}
-
-	return batch.Set([]byte(sectionIndexKey), int64ToBytes(sectionIndex))
+	txi.filtermap.SetTarget(uint64(height - 1))
+	return nil
 }
 
 // Search performs a search using the given query.
@@ -313,22 +158,22 @@ func (txi *TxIndex) createSectionBloom(sectionIndex int64, batch dbm.Batch) erro
 //
 // Search will exit early and return any result fetched so far,
 // when a message is received on the context chan.
-func (txi *TxIndex) Search(ctx context.Context, q *query.Query, maxCount int64) (chan abci.TxResult, chan error) {
-	resultChan := make(chan abci.TxResult)
-	errChan := make(chan error)
+func (txi *TxIndex) Search(ctx context.Context, q *query.Query) (chan abci.TxResult, chan error) {
+	resultCh := make(chan abci.TxResult)
+	errCh := make(chan error)
 
 	go func() {
 		defer func() {
-			close(resultChan)
-			close(errChan)
+			close(resultCh)
+			close(errCh)
 		}()
 
-		errChan <- txi.search(ctx, q, maxCount, resultChan)
+		errCh <- txi.search(ctx, q, resultCh)
 	}()
-	return resultChan, errChan
+	return resultCh, errCh
 }
 
-func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, resultChan chan abci.TxResult) error {
+func (txi *TxIndex) search(ctx context.Context, q *query.Query, resultCh chan abci.TxResult) error {
 	select {
 	case <-ctx.Done():
 		return nil
@@ -338,7 +183,6 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 
 	// get a list of conditions (like "tx.height > 5")
 	conditions := q.Syntax()
-
 	// if there is a hash condition, return the result immediately
 	hash, ok, err := lookForHash(conditions)
 	if err != nil {
@@ -351,11 +195,9 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 		case res == nil:
 			return nil
 		default:
-			resultChan <- *res
+			resultCh <- *res
 			return nil
 		}
-	} else if txi.isMigrating {
-		return fmt.Errorf("indexer is migrating, only tx hash search is supported")
 	}
 
 	// If we are not matching events and tx.height = 3 occurs more than once, the later value will
@@ -375,19 +217,14 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 
 	heightInfo.heightRange = heightRange
 
+	// filtermap only supports equality operator, otherwise it will return an error
 	filters, err := filtersFromConditions(conditions)
 	if err != nil {
 		return err
 	}
 
 	begin := int64(1)
-	height, err := txi.Height()
-	if err != nil {
-		return err
-	} else if height == 0 {
-		return fmt.Errorf("no data exists")
-	}
-	end := height
+	end := txi.blockStore.Height()
 
 	if heightInfo.height != 0 {
 		begin = heightInfo.height
@@ -416,206 +253,73 @@ func (txi *TxIndex) search(ctx context.Context, q *query.Query, maxCount int64, 
 		}
 	}
 
-	if txi.maxQueryRange > 0 && end-begin+1 > txi.maxQueryRange {
-		return fmt.Errorf("query range is too large, max query range is %d", txi.maxQueryRange)
-	}
-
-	// for indexed events
-
-	innerCountForIndexed := int64(0)
-
-	idxBase, err := txi.Base()
-	if err != nil {
-		return err
-	}
-	begin = max(begin, idxBase, txi.blockStore.Base())
+	begin = max(begin, txi.blockStore.Base())
+	end = min(end, int64(txi.filtermap.GetLastIndexedBlock()))
 
 	// if the begin is greater than the end, return nil
 	if begin > end {
 		return nil
 	}
 
-	sectionIndex, err := txi.SectionIndex()
-	if err != nil {
-		return err
-	} else if indexed := (sectionIndex + 1) * bloomSectionSize; indexed > begin {
-		endForIndexed := min(end, indexed-1)
-		matches := make(chan uint64, 64)
+	backend := txi.filtermap.NewMatcherBackend()
 
-		matcher := bloombits.NewMatcher(uint64(bloomSectionSize), [][][]byte{filters})
-		session, err := matcher.Start(ctx, uint64(begin), uint64(endForIndexed), matches)
-		if err != nil {
-			return err
-		}
-
-		bloomRequests := make(chan chan *bloombits.Retrieval)
-		for range bloomServiceThreads {
-			go func() {
-				for {
-					select {
-					case <-ctx.Done():
-						return
-
-					case request := <-bloomRequests:
-						task := <-request
-						task.Bitsets = make([][]byte, len(task.Sections))
-
-						for i, section := range task.Sections {
-							sectionBitbloom, err := txi.store.Get(bloomKeyForSectionIndex(int64(section), int64(task.Bit)))
-							if err != nil {
-								task.Error = err
-								break
-							} else if sectionBitbloom == nil {
-								// pruned section, return empty bitset
-								task.Bitsets[i] = make([]byte, bloomSectionSize/8)
-								continue
-							}
-							task.Bitsets[i] = sectionBitbloom
-						}
-						request <- task
-					}
-				}
-			}()
-		}
-
-		for i := 0; i < bloomFilterThreads; i++ {
-			go session.Multiplex(bloomRetrievalBatch, bloomRetrievalWait, bloomRequests)
-		}
-
-	MATCHES_LOOP:
-		for {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-
-			case number, ok := <-matches:
-				// Abort if all matches have been fulfilled
-				if !ok {
-					err = session.Error()
-					break MATCHES_LOOP
-				}
-				results, err := txi.checkMatch(int64(number), filters)
-				if err != nil {
-					return err
-				}
-				for _, result := range results {
-					innerCountForIndexed++
-					resultChan <- result
-				}
-			}
-		}
-		if err != nil {
-			return err
-		}
-
-		begin = max(begin, endForIndexed+1)
-	}
-
-	// for unindexed events
-
-	const batchSize = 500
-	innerCountForUnindexed := atomic.Int64{}
-
+	filtermapResultCh := make(chan *filtermaps.TxEvent)
 	g, innerCtx := errgroup.WithContext(ctx)
-	diff := end - begin + 1
-	if diff >= bloomSectionSize*2 {
-		return fmt.Errorf("insufficient indexed data, reduce the query range")
-	}
+	g.Go(func() error {
+		defer close(filtermapResultCh)
+		// filtermap uses block number starting from 0, so we need to subtract 1 from begin and end
+		return filtermaps.GetPotentialMatches(innerCtx, txi.log, backend, uint64(begin-1), uint64(end-1), filters, filtermapResultCh)
+	})
 
-	batchNum := diff / batchSize
-	if diff%batchSize != 0 {
-		batchNum++
-	}
+	blockCache := make(map[int64]*abci.ResponseFinalizeBlock)
+	g.Go(func() error {
+		lastEvent := &filtermaps.TxEvent{}
+		for result := range filtermapResultCh {
+			if result == nil || (result.BlockNumber == lastEvent.BlockNumber && result.TxIndex == lastEvent.TxIndex) {
+				continue
+			}
 
-	resultsArray := make([][]abci.TxResult, batchNum)
-	for i := int64(0); i < batchNum; i++ {
-		// make local copy of i for goroutine
-		idx := i
-		batchBegin := begin + i*batchSize
-		batchEnd := min(batchBegin+batchSize-1, end)
-
-		// fetch logs in parallel
-		g.Go(func() error {
-			for batchNumber := batchBegin; batchNumber <= batchEnd; batchNumber++ {
-				select {
-				case <-innerCtx.Done():
-					return innerCtx.Err()
-				default:
-				}
-				events, err := txi.checkMatch(batchNumber, filters)
+			blockResponse, ok := blockCache[result.BlockNumber]
+			if !ok {
+				blockResponse, err = txi.stateStore.LoadFinalizeBlockResponse(result.BlockNumber)
 				if err != nil {
 					return err
 				}
-				innerCountForUnindexed.Add(int64(len(events)))
-				if innerCountForUnindexed.Load()+innerCountForIndexed >= maxCount {
-					return errors.New("too many results, reduce the query range")
-				}
-				resultsArray[idx] = append(resultsArray[idx], events...)
+				blockCache[result.BlockNumber] = blockResponse
 			}
-			return nil
-		})
-	}
 
-	// wait for all goroutines to finish
-	err = g.Wait()
-	if err != nil {
-		return err
-	}
-
-	// send logs to channel in order
-	for _, results := range resultsArray {
-		for _, result := range results {
-			select {
-			case resultChan <- result:
-			case <-ctx.Done():
-				return ctx.Err()
+			txResult := txi.checkMatch(result, filters, blockResponse.TxResults[result.TxIndex].Events)
+			lastEvent = result
+			if txResult != nil {
+				resultCh <- *txResult
 			}
 		}
-	}
-
-	return nil
+		return nil
+	})
+	return g.Wait()
 }
 
-func (txi *TxIndex) checkMatch(number int64, filters [][]byte) ([]abci.TxResult, error) {
-	results := make([]abci.TxResult, 0)
-
-	res, err := txi.stateStore.LoadFinalizeBlockResponse(number)
-	if err != nil {
-		return nil, nil
-	}
-
-	for txIndex, txResult := range res.TxResults {
-		matchCount := 0
-	TXCHECK_LOOP:
-		for _, conditionFilter := range filters {
-			for _, event := range txResult.Events {
-				if len(event.Type) == 0 {
-					continue
-				}
-				for _, attr := range event.Attributes {
-					if len(attr.Key) == 0 {
-						continue
-					} else if attr.Index {
-						filter := eventFilter(event.Type, attr.Key, attr.Value)
-						if bytes.Equal(conditionFilter, filter) {
-							matchCount++
-							continue TXCHECK_LOOP
-						}
-					}
+func (txi *TxIndex) checkMatch(txEvent *filtermaps.TxEvent, filters []string, events []abci.Event) *abci.TxResult {
+	matchCount := 0
+FILTERLOOP:
+	for _, filter := range filters {
+		for _, event := range events {
+			for _, attr := range event.Attributes {
+				eventString := filtermaps.EventString(event.Type, attr)
+				if eventString == filter {
+					matchCount++
+					continue FILTERLOOP
 				}
 			}
-			// no match found
-			break
-		}
-
-		if matchCount == len(filters) {
-			results = append(results, abci.TxResult{
-				Height: number,
-				Index:  uint32(txIndex),
-			})
 		}
 	}
-	return results, nil
+	if matchCount == len(filters) {
+		return &abci.TxResult{
+			Height: txEvent.BlockNumber,
+			Index:  uint32(txEvent.TxIndex),
+		}
+	}
+	return nil
 }
 
 func lookForHash(conditions []syntax.Condition) (hash []byte, ok bool, err error) {
@@ -636,34 +340,22 @@ func keyForHeight(result *abci.TxResult) []byte {
 	))
 }
 
-func (txi *TxIndex) Base() (int64, error) {
-	base, err := txi.store.Get([]byte(baseKey))
-	if err != nil {
-		return 0, err
-	} else if base == nil {
-		return 0, nil
-	}
-	return int64FromBytes(base), nil
-}
+func filtersFromConditions(conditions []syntax.Condition) ([]string, error) {
+	var filters []string
+	for _, c := range conditions {
+		if c.Tag == types.TxHeightKey {
+			continue
+		} else if c.Tag == types.BlockHeightKey {
+			return nil, fmt.Errorf("block height is not allowed in the query")
+		}
 
-func (txi *TxIndex) Height() (int64, error) {
-	height, err := txi.store.Get([]byte(heightKey))
-	if err != nil {
-		return 0, err
-	} else if height == nil {
-		return 0, nil
+		if c.Op == syntax.TEq {
+			filters = append(filters, fmt.Sprintf("%s=%s", c.Tag, c.Arg.Value()))
+		} else {
+			return nil, fmt.Errorf("unsupported operation: %s", c.Op)
+		}
 	}
-	return int64FromBytes(height), nil
-}
-
-func (txi *TxIndex) SectionIndex() (int64, error) {
-	sectionIndex, err := txi.store.Get([]byte(sectionIndexKey))
-	if err != nil {
-		return 0, err
-	} else if sectionIndex == nil {
-		return -1, nil
-	}
-	return int64FromBytes(sectionIndex), nil
+	return filters, nil
 }
 
 func (txi *TxIndex) Prune(curHeight int64) error {
@@ -675,13 +367,9 @@ func (txi *TxIndex) Prune(curHeight int64) error {
 	pruneBatch := txi.store.NewBatch()
 	defer pruneBatch.Close()
 
-	base, err := txi.Base()
-	if err != nil {
-		return err
-	}
+	base := txi.blockStore.Base()
 
-	// end key is exclusive
-	iter, err := txi.store.Iterator(bloomKeyForBlock(base), bloomKeyForBlock(minHeight+1))
+	iter, err := txi.store.Iterator(keyForHeight(&abci.TxResult{Height: base}), keyForHeight(&abci.TxResult{Height: minHeight + 1}))
 	if err != nil {
 		return err
 	}
@@ -691,111 +379,11 @@ func (txi *TxIndex) Prune(curHeight int64) error {
 		if err := pruneBatch.Delete(iter.Key()); err != nil {
 			return err
 		}
-	}
-
-	iter2, err := txi.store.Iterator(bloomKeyForSectionIndex(base/bloomSectionSize, 0), bloomKeyForSectionIndex(minHeight/bloomSectionSize, bloomSectionSize))
-	if err != nil {
-		return err
-	}
-	defer iter2.Close()
-
-	for ; iter2.Valid(); iter2.Next() {
-		if err := pruneBatch.Delete(iter2.Key()); err != nil {
-			return err
-		}
-	}
-
-	iter3, err := txi.store.Iterator(keyForHeight(&abci.TxResult{Height: base}), keyForHeight(&abci.TxResult{Height: minHeight + 1}))
-	if err != nil {
-		return err
-	}
-	defer iter3.Close()
-
-	for ; iter3.Valid(); iter3.Next() {
-		if err := pruneBatch.Delete(iter3.Key()); err != nil {
-			return err
-		}
 
 		// tx hash
-		if err := pruneBatch.Delete(iter3.Value()); err != nil {
+		if err := pruneBatch.Delete(iter.Value()); err != nil {
 			return err
 		}
 	}
-
-	err = pruneBatch.Set([]byte(baseKey), int64ToBytes(minHeight+1))
-	if err != nil {
-		return err
-	}
 	return pruneBatch.WriteSync()
-}
-
-// latestReadySectionIndex returns the section index for a given height, where all blocks in that section
-// are guaranteed to be ready. The section index is calculated by dividing the height by the bloom section
-// size (4096) and subtracting 1. This ensures we only return a section once all its blocks are available.
-//
-// For example, with a section size of 4096 blocks:
-// - Section -1 contains heights [0, 4095]     - Ready when height >= 4096
-// - Section 0 contains heights [4096, 8191]   - Ready when height >= 8192
-// - Section 1 contains heights [8192, 12287]  - Ready when height >= 12288
-//
-// This approach prevents returning incomplete sections that are still being filled with blocks.
-func latestReadySectionIndex(height int64) int64 {
-	return height/bloomSectionSize - 1
-}
-
-func eventFilter(eventType string, attrKey string, attrValue string) []byte {
-	return fmt.Appendf(nil, "%s.%s=%s", eventType, attrKey, attrValue)
-}
-
-func bloomForBlock(results []*abci.TxResult) bloombits.Bloom {
-	var bin bloombits.Bloom
-	for _, result := range results {
-		for _, event := range result.Result.Events {
-			if len(event.Type) == 0 {
-				continue
-			}
-			for _, attr := range event.Attributes {
-				if len(attr.Key) == 0 {
-					continue
-				} else if attr.Index {
-					bin.Add(eventFilter(event.Type, attr.Key, attr.Value))
-				}
-			}
-		}
-	}
-	return bin
-}
-
-func filtersFromConditions(conditions []syntax.Condition) ([][]byte, error) {
-	var filters [][]byte
-	for _, c := range conditions {
-		if c.Tag == types.TxHeightKey {
-			continue
-		} else if c.Tag == types.BlockHeightKey {
-			return nil, fmt.Errorf("block height is not allowed in the query")
-		}
-
-		if c.Op == syntax.TEq {
-			filter := fmt.Appendf(nil, "%s=%s", c.Tag, c.Arg.Value())
-			filters = append(filters, filter)
-		} else {
-			return nil, fmt.Errorf("unsupported operation: %s", c.Op)
-		}
-	}
-	return filters, nil
-}
-
-func bloomKeyForBlock(height int64) []byte {
-	return fmt.Appendf(nil, "%s/%s",
-		blockBloomKeyPrefix,
-		int64ToBytes(height),
-	)
-}
-
-func bloomKeyForSectionIndex(section int64, index int64) []byte {
-	return fmt.Appendf(nil, "%s/%s/%s",
-		sectionBloomKeyPrefix,
-		int64ToBytes(section),
-		int64ToBytes(index),
-	)
 }

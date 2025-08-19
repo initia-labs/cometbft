@@ -1,7 +1,6 @@
 package txindex_test
 
 import (
-	"slices"
 	"testing"
 	"time"
 
@@ -49,10 +48,10 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 	blockIndexer := blockidxkv.New(db.NewPrefixDB(storeLegacy, []byte("block_events")), 0)
 
 	// tx indexer
-	txIndexerV2 := kvv2.NewTxIndex(store, blockStore, stateStore, 0, 0)
-	blockIndexerV2 := blockidxkvv2.New(db.NewPrefixDB(store, []byte("block_events")), blockStore, nil, 0, 0)
+	txIndexerV2 := kvv2.NewTxIndex(store, blockStore, stateStore, 0)
+	blockIndexerV2 := blockidxkvv2.New(db.NewPrefixDB(store, []byte("block_events")), blockStore, nil, 0)
 
-	service := txindex.NewIndexerService(txIndexer, txIndexerV2, nil, blockIndexer, blockIndexerV2, eventBus, false)
+	service := txindex.NewIndexerService(txIndexer, txIndexerV2, blockIndexer, blockIndexerV2, eventBus, false)
 	service.SetLogger(log.TestingLogger())
 	err = service.Start()
 	require.NoError(t, err)
@@ -127,134 +126,4 @@ func TestIndexerServiceIndexesBlocks(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, txResult2.Height, res.Height)
 	require.Equal(t, txResult2.Index, res.Index)
-}
-
-func TestReconstructMoveEvent(t *testing.T) {
-	finalizedBlockResponse := &abcitypes.ResponseFinalizeBlock{
-		Events: []abcitypes.Event{
-			{
-				Type: "move",
-				Attributes: []abcitypes.EventAttribute{
-					{
-						Key:   "type_tag",
-						Value: "0x1::BasicCoin::MintEvent",
-					},
-					{
-						Key:   "data",
-						Value: "{\"account\":\"0x2\",\"amount\":\"200\",\"coin_type\":\"0x1::BasicCoin::Initia\"}",
-					},
-				},
-			},
-		},
-		TxResults: []*abcitypes.ExecTxResult{
-			{
-				Events: []abcitypes.Event{
-					{
-						Type: "move",
-						Attributes: []abcitypes.EventAttribute{
-							{
-								Key:   "type_tag",
-								Value: "0x1::BasicCoin::MintEvent",
-							},
-							{
-								Key:   "data",
-								Value: "{\"account\":\"0x2\",\"amount\":\"200\",\"coin_type\":\"0x1::BasicCoin::Initia\"}",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	changed := txindex.ReconstructMoveEvent(finalizedBlockResponse)
-	require.True(t, changed)
-
-	require.Equal(t, finalizedBlockResponse.Events[0].Type, "move")
-
-	require.True(t, slices.ContainsFunc(finalizedBlockResponse.Events[0].Attributes, func(attr abcitypes.EventAttribute) bool {
-		return attr.Key == "type_tag" && attr.Value == "0x1::BasicCoin::MintEvent"
-	}))
-	require.True(t, slices.ContainsFunc(finalizedBlockResponse.Events[0].Attributes, func(attr abcitypes.EventAttribute) bool {
-		return attr.Key == "account" && attr.Value == "0x2"
-	}))
-	require.True(t, slices.ContainsFunc(finalizedBlockResponse.Events[0].Attributes, func(attr abcitypes.EventAttribute) bool {
-		return attr.Key == "amount" && attr.Value == "200"
-	}))
-	require.True(t, slices.ContainsFunc(finalizedBlockResponse.Events[0].Attributes, func(attr abcitypes.EventAttribute) bool {
-		return attr.Key == "coin_type" && attr.Value == "0x1::BasicCoin::Initia"
-	}))
-
-	require.Equal(t, finalizedBlockResponse.TxResults[0].Events[0].Type, "move")
-
-	require.True(t, slices.ContainsFunc(finalizedBlockResponse.TxResults[0].Events[0].Attributes, func(attr abcitypes.EventAttribute) bool {
-		return attr.Key == "type_tag" && attr.Value == "0x1::BasicCoin::MintEvent"
-	}))
-	require.True(t, slices.ContainsFunc(finalizedBlockResponse.TxResults[0].Events[0].Attributes, func(attr abcitypes.EventAttribute) bool {
-		return attr.Key == "account" && attr.Value == "0x2"
-	}))
-	require.True(t, slices.ContainsFunc(finalizedBlockResponse.TxResults[0].Events[0].Attributes, func(attr abcitypes.EventAttribute) bool {
-		return attr.Key == "amount" && attr.Value == "200"
-	}))
-	require.True(t, slices.ContainsFunc(finalizedBlockResponse.TxResults[0].Events[0].Attributes, func(attr abcitypes.EventAttribute) bool {
-		return attr.Key == "coin_type" && attr.Value == "0x1::BasicCoin::Initia"
-	}))
-
-	unchangedFinalizedBlockResponse := &abcitypes.ResponseFinalizeBlock{
-		Events: []abcitypes.Event{
-			{
-				Type: "move",
-				Attributes: []abcitypes.EventAttribute{
-					{
-						Key:   "type_tag",
-						Value: "0x1::BasicCoin::MintEvent",
-					},
-					{
-						Key:   "data",
-						Value: "\"account\":\"0x2\",\"amount\":\"200\",\"coin_type\":\"0x1::BasicCoin::Initia\"}",
-					},
-				},
-			},
-		},
-		TxResults: []*abcitypes.ExecTxResult{
-			{
-				Events: []abcitypes.Event{
-					{
-						Type: "move",
-						Attributes: []abcitypes.EventAttribute{
-							{
-								Key:   "type_tag",
-								Value: "0x1::BasicCoin::MintEvent",
-							},
-							{
-								Key:   "adata",
-								Value: "{\"account\":\"0x2\",\"amount\":\"200\",\"coin_type\":\"0x1::BasicCoin::Initia\"}",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	changed = txindex.ReconstructMoveEvent(unchangedFinalizedBlockResponse)
-	require.False(t, changed)
-
-	require.Equal(t, unchangedFinalizedBlockResponse.Events[0].Type, "move")
-
-	require.True(t, slices.ContainsFunc(unchangedFinalizedBlockResponse.Events[0].Attributes, func(attr abcitypes.EventAttribute) bool {
-		return attr.Key == "type_tag" && attr.Value == "0x1::BasicCoin::MintEvent"
-	}))
-	require.True(t, slices.ContainsFunc(unchangedFinalizedBlockResponse.Events[0].Attributes, func(attr abcitypes.EventAttribute) bool {
-		return attr.Key == "data" && attr.Value == "\"account\":\"0x2\",\"amount\":\"200\",\"coin_type\":\"0x1::BasicCoin::Initia\"}"
-	}))
-
-	require.Equal(t, unchangedFinalizedBlockResponse.TxResults[0].Events[0].Type, "move")
-
-	require.True(t, slices.ContainsFunc(unchangedFinalizedBlockResponse.TxResults[0].Events[0].Attributes, func(attr abcitypes.EventAttribute) bool {
-		return attr.Key == "type_tag" && attr.Value == "0x1::BasicCoin::MintEvent"
-	}))
-	require.True(t, slices.ContainsFunc(unchangedFinalizedBlockResponse.TxResults[0].Events[0].Attributes, func(attr abcitypes.EventAttribute) bool {
-		return attr.Key == "adata" && attr.Value == "{\"account\":\"0x2\",\"amount\":\"200\",\"coin_type\":\"0x1::BasicCoin::Initia\"}"
-	}))
 }

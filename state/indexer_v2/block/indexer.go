@@ -7,9 +7,9 @@ import (
 	sm "github.com/cometbft/cometbft/state"
 	indexerv2 "github.com/cometbft/cometbft/state/indexer_v2"
 	blockidxkv "github.com/cometbft/cometbft/state/indexer_v2/block/kv"
-	blockidxv2null "github.com/cometbft/cometbft/state/indexer_v2/block/null"
+	blockidxnull "github.com/cometbft/cometbft/state/indexer_v2/block/null"
 	"github.com/cometbft/cometbft/state/txindex"
-	kvv2 "github.com/cometbft/cometbft/state/txindex/kv_v2"
+	txkvv2 "github.com/cometbft/cometbft/state/txindex/kv_v2"
 	"github.com/cometbft/cometbft/state/txindex/null"
 	"github.com/cometbft/cometbft/store"
 )
@@ -17,17 +17,17 @@ import (
 // IndexerFromConfig constructs a slice of indexer.EventSink using the provided
 // configuration.
 func IndexerFromConfig(cfg *config.Config, dbProvider config.DBProvider, chainID string) (
-	txIdxV2 txindex.TxIndexerV2, blockIdx indexerv2.BlockIndexer, err error,
+	filtermapTxIdx txindex.TxIndexerV2, filtermapBlockIdx indexerv2.BlockIndexer, err error,
 ) {
-	txidxv2, blkidx, _, err := IndexerFromConfigWithDisabledIndexers(cfg, nil, nil, dbProvider, chainID)
-	return txidxv2, blkidx, err
+	filtermapTxIdx, filtermapBlockIdx, _, err = IndexerFromConfigWithDisabledIndexers(cfg, nil, nil, dbProvider, chainID)
+	return filtermapTxIdx, filtermapBlockIdx, err
 }
 
 // IndexerFromConfigWithDisabledIndexers constructs a slice of indexer.EventSink using the provided
 // configuration. If all indexers are disabled in the configuration, it returns null indexers.
 // Otherwise, it creates the appropriate indexers based on the configuration.
 func IndexerFromConfigWithDisabledIndexers(cfg *config.Config, blockStore *store.BlockStore, stateStore sm.Store, dbProvider config.DBProvider, chainID string) (
-	txIdxV2 txindex.TxIndexerV2, blockIdxV2 indexerv2.BlockIndexer, allIndexersDisabled bool, err error,
+	filtermapTxIdx txindex.TxIndexerV2, filtermapBlockIdx indexerv2.BlockIndexer, allIndexersDisabled bool, err error,
 ) {
 	switch cfg.TxIndex.Indexer {
 	case "kv":
@@ -36,12 +36,12 @@ func IndexerFromConfigWithDisabledIndexers(cfg *config.Config, blockStore *store
 			return nil, nil, false, err
 		}
 
-		return kvv2.NewTxIndex(store, blockStore, stateStore, cfg.TxIndex.RetainHeight, cfg.TxIndex.MaxQueryRange),
-			blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events")), blockStore, stateStore, cfg.TxIndex.RetainHeight, cfg.TxIndex.MaxQueryRange),
+		return txkvv2.NewTxIndex(store, blockStore, stateStore, cfg.TxIndex.RetainHeight),
+			blockidxkv.New(dbm.NewPrefixDB(store, []byte("block_events")), blockStore, stateStore, cfg.TxIndex.RetainHeight),
 			false,
 			nil
 
 	default:
-		return &null.TxIndexV2{}, &blockidxv2null.BlockerIndexer{}, true, nil
+		return &null.TxIndexV2{}, &blockidxnull.BlockerIndexer{}, true, nil
 	}
 }
