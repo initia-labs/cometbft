@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -85,6 +86,7 @@ type Config struct {
 	Storage         *StorageConfig         `mapstructure:"storage"`
 	TxIndex         *TxIndexConfig         `mapstructure:"tx_index"`
 	Instrumentation *InstrumentationConfig `mapstructure:"instrumentation"`
+	Attestor        *AttestorConfig        `mapstructure:"attestor"`
 }
 
 // DefaultConfig returns a default configuration for a CometBFT node
@@ -101,6 +103,7 @@ func DefaultConfig() *Config {
 		Storage:         DefaultStorageConfig(),
 		TxIndex:         DefaultTxIndexConfig(),
 		Instrumentation: DefaultInstrumentationConfig(),
+		Attestor:        DefaultAttestorConfig(),
 	}
 }
 
@@ -159,6 +162,9 @@ func (cfg *Config) ValidateBasic() error {
 	}
 	if err := cfg.Instrumentation.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [instrumentation] section: %w", err)
+	}
+	if err := cfg.Attestor.ValidateBasic(); err != nil {
+		return fmt.Errorf("error in [attestor] section: %w", err)
 	}
 	if !cfg.Consensus.CreateEmptyBlocks && cfg.Mempool.Type == MempoolTypeNop {
 		return fmt.Errorf("`nop` mempool does not support create_empty_blocks = false")
@@ -1340,6 +1346,44 @@ func (cfg *InstrumentationConfig) ValidateBasic() error {
 
 func (cfg *InstrumentationConfig) IsPrometheusEnabled() bool {
 	return cfg.Prometheus && cfg.PrometheusListenAddr != ""
+}
+
+//-----------------------------------------------------------------------------
+// AttestorConfig
+
+type AttestorConfig struct {
+	Enable            bool   `mapstructure:"enable"`
+	ChallengerAddress string `mapstructure:"challenger_address"`
+}
+
+func DefaultAttestorConfig() *AttestorConfig {
+	return &AttestorConfig{
+		Enable:            false,
+		ChallengerAddress: "",
+	}
+}
+
+// TestAttestorConfig returns a default configuration for the attestor.
+func TestAttestorConfig() *AttestorConfig {
+	return DefaultAttestorConfig()
+}
+
+// ValidateBasic performs basic validation.
+func (cfg *AttestorConfig) ValidateBasic() error {
+	if cfg.AttestorEnabled() && cfg.ChallengerEnabled() {
+		if _, err := url.Parse(cfg.ChallengerAddress); err != nil {
+			return errors.Wrap(errors.New("invalid challenger address"), err.Error())
+		}
+	}
+	return nil
+}
+
+func (cfg AttestorConfig) AttestorEnabled() bool {
+	return cfg.Enable
+}
+
+func (cfg AttestorConfig) ChallengerEnabled() bool {
+	return cfg.ChallengerAddress != ""
 }
 
 //-----------------------------------------------------------------------------

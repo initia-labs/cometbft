@@ -234,6 +234,17 @@ type ResultABCIQuery struct {
 	Response abci.ResponseQuery `json:"response"`
 }
 
+// Query abci msg with attestation
+type ResultABCIQueryWithAttestation struct {
+	Response    abci.ResponseQuery `json:"response"`
+	Attestation []byte             `json:"attestation"`
+	PubKey      []byte             `json:"pub_key"`
+}
+
+type ResultAttestorPubKey struct {
+	PubKey []byte `json:"pub_key"`
+}
+
 // Result of broadcasting evidence
 type ResultBroadcastEvidence struct {
 	Hash []byte `json:"hash"`

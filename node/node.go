@@ -711,6 +711,10 @@ func (n *Node) ConfigureRPC() (*rpccore.Environment, error) {
 	if err := rpcCoreEnv.InitGenesisChunks(); err != nil {
 		return nil, err
 	}
+
+	if n.config.Attestor.AttestorEnabled() {
+		rpcCoreEnv.NodeKey = n.nodeKey.PrivKey
+	}
 	return &rpcCoreEnv, nil
 }
 

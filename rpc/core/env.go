@@ -90,6 +90,7 @@ type Environment struct {
 	BlockIndexer indexer.BlockIndexer
 	EventBus     *types.EventBus // thread safe
 	Mempool      mempl.Mempool
+	NodeKey      crypto.PrivKey
 
 	Logger log.Logger
 

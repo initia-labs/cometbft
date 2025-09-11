@@ -248,6 +248,32 @@ func (c *baseRPCClient) ABCIQueryWithOptions(
 	return result, nil
 }
 
+func (c *baseRPCClient) ABCIQueryWithAttestation(
+	ctx context.Context,
+	path string,
+	data bytes.HexBytes,
+	opts rpcclient.ABCIQueryOptions,
+) (*ctypes.ResultABCIQueryWithAttestation, error) {
+	result := new(ctypes.ResultABCIQueryWithAttestation)
+	_, err := c.caller.Call(ctx, "abci_query_with_attestation",
+		map[string]interface{}{"path": path, "data": data, "height": opts.Height},
+		result)
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (c *baseRPCClient) AttestorPubKey(ctx context.Context) (*ctypes.ResultAttestorPubKey, error) {
+	result := new(ctypes.ResultAttestorPubKey)
+	_, err := c.caller.Call(ctx, "attestor_pub_key", map[string]interface{}{}, result)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (c *baseRPCClient) BroadcastTxCommit(
 	ctx context.Context,
 	tx types.Tx,

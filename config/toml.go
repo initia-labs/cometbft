@@ -511,6 +511,13 @@ rpc_servers = [
 ]
 
 #######################################################
+###          Attestor Configuration Options         ###
+#######################################################
+[attestor]
+enable = {{ .Attestor.Enable }}
+challenger_address = "{{ .Attestor.ChallengerAddress }}"
+
+#######################################################
 ###         Consensus Configuration Options         ###
 #######################################################
 [consensus]
