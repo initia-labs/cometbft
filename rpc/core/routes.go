@@ -49,7 +49,6 @@ func (env *Environment) GetRoutes() RoutesMap {
 		// abci API
 		"abci_query":                  rpc.NewRPCFunc(env.ABCIQuery, "path,data,height,prove"),
 		"abci_query_with_attestation": rpc.NewRPCFunc(env.ABCIQueryWithAttestation, "path,data,height"),
-		"attestor_pub_key":            rpc.NewRPCFunc(env.AttestorPubKey, ""),
 		"abci_info":                   rpc.NewRPCFunc(env.ABCIInfo, "", rpc.Cacheable()),
 
 		// evidence API
@@ -58,8 +57,11 @@ func (env *Environment) GetRoutes() RoutesMap {
 		// invalid block API
 		"invalid_block": rpc.NewRPCFunc(env.InvalidBlock, ""),
 
-		// block bulk APIa
+		// block bulk API
 		"block_bulk": rpc.NewRPCFunc(env.BlockBulk, "start,end"),
+
+		// attestation API
+		"attestor_pub_key": rpc.NewRPCFunc(env.AttestorPubKey, ""),
 	}
 }
 

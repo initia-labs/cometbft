@@ -56,8 +56,12 @@ require (
 	cosmossdk.io/api v0.7.6
 	github.com/celestiaorg/go-square/v2 v2.0.0
 	github.com/cosmos/cosmos-proto v1.0.0-beta.5
-	github.com/cosmos/ics23/go v0.11.0
 	github.com/initia-labs/OPinit/api v1.0.0
+)
+
+// modules for attestation
+require (
+	github.com/cosmos/ics23/go v0.11.0
 )
 
 require (

@@ -67,15 +67,6 @@ func (env *Environment) ABCIQueryWithAttestation(
 	return &ctypes.ResultABCIQueryWithAttestation{Response: *resQuery, Attestation: signature, PubKey: env.NodeKey.PubKey().Bytes()}, nil
 }
 
-func (env *Environment) AttestorPubKey(
-	_ *rpctypes.Context,
-) (*ctypes.ResultAttestorPubKey, error) {
-	if env.NodeKey == nil {
-		return nil, errors.New("attestation is not supported")
-	}
-	return &ctypes.ResultAttestorPubKey{PubKey: env.NodeKey.PubKey().Bytes()}, nil
-}
-
 // ABCIInfo gets some info about the application.
 // More: https://docs.cometbft.com/v0.38.x/rpc/#/ABCI/abci_info
 func (env *Environment) ABCIInfo(_ *rpctypes.Context) (*ctypes.ResultABCIInfo, error) {
