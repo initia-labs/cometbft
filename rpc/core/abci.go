@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/crypto"
@@ -13,6 +14,8 @@ import (
 	"github.com/cometbft/cometbft/proxy"
 	ctypes "github.com/cometbft/cometbft/rpc/core/types"
 	rpctypes "github.com/cometbft/cometbft/rpc/jsonrpc/types"
+
+	"regexp"
 
 	ics23 "github.com/cosmos/ics23/go"
 )
@@ -47,7 +50,12 @@ func (env *Environment) ABCIQueryWithAttestation(
 ) (*ctypes.ResultABCIQueryWithAttestation, error) {
 	if env.NodeKey == nil {
 		return nil, errors.New("attestation is not supported")
+	} else if slices.ContainsFunc(env.DisabledProofKeys, func(disabledKey *regexp.Regexp) bool {
+		return disabledKey.Match(data.Bytes())
+	}) {
+		return nil, fmt.Errorf("this path is disabled to be proofed, path: %s", string(data.Bytes()))
 	}
+
 	resQuery, err := env.ProxyAppQuery.Query(context.TODO(), &abci.RequestQuery{
 		Path:   path,
 		Data:   data,

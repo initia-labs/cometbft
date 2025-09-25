@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -714,6 +715,14 @@ func (n *Node) ConfigureRPC() (*rpccore.Environment, error) {
 
 	if n.config.Attestor.AttestorEnabled() {
 		rpcCoreEnv.NodeKey = n.nodeKey.PrivKey
+
+		rpcCoreEnv.DisabledProofKeys = n.config.Attestor.DisabledProofKeysRegexps()
+		if len(n.config.Attestor.DisabledProofKeys) != 0 && len(rpcCoreEnv.DisabledProofKeys) == 0 {
+			for _, key := range n.config.Attestor.DisabledProofKeys {
+				// this must be compiled since the config is validated
+				rpcCoreEnv.DisabledProofKeys = append(rpcCoreEnv.DisabledProofKeys, regexp.MustCompile(key))
+			}
+		}
 	}
 	return &rpcCoreEnv, nil
 }

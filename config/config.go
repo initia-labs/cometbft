@@ -1352,14 +1352,22 @@ func (cfg *InstrumentationConfig) IsPrometheusEnabled() bool {
 // AttestorConfig
 
 type AttestorConfig struct {
-	Enable            bool   `mapstructure:"enable"`
+	// Whether the attestor is enabled
+	Enable bool `mapstructure:"enable"`
+	// Address of the challenger
 	ChallengerAddress string `mapstructure:"challenger_address"`
+	// Keys that are disabled to be proofed
+	DisabledProofKeys []string `mapstructure:"disabled_proof_keys"`
+
+	// Compiled regexps for disabled proof keys
+	disabledProofKeysRegexps []*regexp.Regexp
 }
 
 func DefaultAttestorConfig() *AttestorConfig {
 	return &AttestorConfig{
 		Enable:            false,
 		ChallengerAddress: "",
+		DisabledProofKeys: []string{},
 	}
 }
 
@@ -1375,6 +1383,14 @@ func (cfg *AttestorConfig) ValidateBasic() error {
 			return errors.Wrap(errors.New("invalid challenger address"), err.Error())
 		}
 	}
+
+	for _, key := range cfg.DisabledProofKeys {
+		compiledKey, err := regexp.Compile(key)
+		if err != nil {
+			return errors.Wrap(errors.New("invalid disabled proof key"), err.Error())
+		}
+		cfg.disabledProofKeysRegexps = append(cfg.disabledProofKeysRegexps, compiledKey)
+	}
 	return nil
 }
 
@@ -1384,6 +1400,10 @@ func (cfg AttestorConfig) AttestorEnabled() bool {
 
 func (cfg AttestorConfig) ChallengerEnabled() bool {
 	return cfg.ChallengerAddress != ""
+}
+
+func (cfg *AttestorConfig) DisabledProofKeysRegexps() []*regexp.Regexp {
+	return cfg.disabledProofKeysRegexps
 }
 
 //-----------------------------------------------------------------------------

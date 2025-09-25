@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/base64"
 	"fmt"
+	"regexp"
 	"time"
 
 	cfg "github.com/cometbft/cometbft/config"
@@ -84,13 +85,14 @@ type Environment struct {
 	P2PTransport     transport
 
 	// objects
-	PubKey       crypto.PubKey
-	GenDoc       *types.GenesisDoc // cache the genesis structure
-	TxIndexer    txindex.TxIndexer
-	BlockIndexer indexer.BlockIndexer
-	EventBus     *types.EventBus // thread safe
-	Mempool      mempl.Mempool
-	NodeKey      crypto.PrivKey
+	PubKey            crypto.PubKey
+	GenDoc            *types.GenesisDoc // cache the genesis structure
+	TxIndexer         txindex.TxIndexer
+	BlockIndexer      indexer.BlockIndexer
+	EventBus          *types.EventBus // thread safe
+	Mempool           mempl.Mempool
+	NodeKey           crypto.PrivKey
+	DisabledProofKeys []*regexp.Regexp
 
 	Logger log.Logger
 

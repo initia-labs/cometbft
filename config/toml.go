@@ -516,6 +516,10 @@ rpc_servers = [
 [attestor]
 enable = {{ .Attestor.Enable }}
 challenger_address = "{{ .Attestor.ChallengerAddress }}"
+# Paths that are disabled to be proofed. 
+# To prevent the attestor from proofing the channel upgrade, 
+# "channelUpgrades/upgrades/*" is disabled by default.
+disabled_proof_keys = [{{ range .Attestor.DisabledProofKeys }}{{ printf "%q, " . }}{{end}}]
 
 #######################################################
 ###         Consensus Configuration Options         ###
