@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cometbft/cometbft/crypto"
@@ -416,9 +417,12 @@ func SignAndCheckVote(
 ) (bool, error) {
 	v := vote.ToProto()
 	if err := privVal.SignVote(chainID, v); err != nil {
-		// Failing to sign a vote has always been a recoverable error, this
-		// function keeps it that way.
-		return true, err
+		// Failing to sign a vote has always been a recoverable error,
+		// except for the case where the signer is not reachable or met unknown errors.
+		//
+		// "exhausted all attempts" is the error message from privval.NewRetrySignerClient
+		// when the signer is not reachable or met unknown errors.
+		return !strings.Contains(err.Error(), "exhausted all attempts"), err
 	}
 	vote.Signature = v.Signature
 
