@@ -151,7 +151,13 @@ func (memR *Reactor) Receive(e p2p.Envelope) {
 		}
 
 		// send the transactions to the checkTxRoutine
-		memR.ids.GetCheckTxChan(e.Src) <- protoTxs
+		checkTxChan, ok := memR.ids.GetCheckTxChan(e.Src)
+		if !ok {
+			memR.Logger.Debug("dropping txs; peer channel missing", "src", e.Src)
+			return
+		}
+
+		checkTxChan <- protoTxs
 	default:
 		memR.Logger.Error("unknown message type", "src", e.Src, "chId", e.ChannelID, "msg", e.Message)
 		memR.Switch.StopPeerForError(e.Src, fmt.Errorf("mempool cannot handle message of type: %T", e.Message))
@@ -240,7 +246,12 @@ func (memR *Reactor) broadcastTxRoutine(peer p2p.Peer) {
 
 func (memR *Reactor) checkTxRoutine(peer p2p.Peer) {
 	peerID := memR.ids.GetForPeer(peer)
-	checkTxChan := memR.ids.GetCheckTxChan(peer)
+	checkTxChan, ok := memR.ids.GetCheckTxChan(peer)
+	if !ok {
+		memR.Logger.Debug("skipping checkTxRoutine; peer channel missing", "peer", peer.ID())
+		return
+	}
+
 	txInfo := TxInfo{SenderID: peerID, SenderP2PID: peer.ID()}
 
 	for {

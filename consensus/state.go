@@ -1856,6 +1856,12 @@ func (cs *State) finalizeCommit(height int64) {
 	// Block execution is time consuming, so we unlock here.
 	// The state remains protected from concurrent modifications due to the above safety conditions.
 	cs.mtx.Unlock()
+	relocked := false
+	defer func() {
+		if !relocked {
+			cs.mtx.Lock()
+		}
+	}()
 
 	// Execute and commit the block, update and save the state, and update the mempool.
 	// We use apply verified block here because we have verified the block in this function already.
@@ -1876,6 +1882,7 @@ func (cs *State) finalizeCommit(height int64) {
 
 	// Lock the state mutex after applying the block to ensure thread safety.
 	cs.mtx.Lock()
+	relocked = true
 
 	// must be called before we update state
 	cs.recordMetrics(height, block)

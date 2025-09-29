@@ -66,11 +66,17 @@ func (ids *mempoolIDs) GetForPeer(peer p2p.Peer) uint16 {
 }
 
 // GetCheckTxChan returns the channel to receive transactions from the peer.
-func (ids *mempoolIDs) GetCheckTxChan(peer p2p.Peer) chan [][]byte {
+func (ids *mempoolIDs) GetCheckTxChan(peer p2p.Peer) (chan [][]byte, bool) {
 	ids.mtx.RLock()
 	defer ids.mtx.RUnlock()
 
-	return ids.checkTxChan[ids.peerMap[peer.ID()]]
+	peerID, ok := ids.peerMap[peer.ID()]
+	if !ok {
+		return nil, false
+	}
+
+	ch, exists := ids.checkTxChan[peerID]
+	return ch, exists
 }
 
 func newMempoolIDs() *mempoolIDs {
