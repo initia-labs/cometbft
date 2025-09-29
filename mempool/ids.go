@@ -8,10 +8,11 @@ import (
 )
 
 type mempoolIDs struct {
-	mtx       cmtsync.RWMutex
-	peerMap   map[p2p.ID]uint16
-	nextID    uint16              // assumes that a node will never have over 65536 active peers
-	activeIDs map[uint16]struct{} // used to check if a given peerID key is used, the value doesn't matter
+	mtx         cmtsync.RWMutex
+	peerMap     map[p2p.ID]uint16
+	nextID      uint16                   // assumes that a node will never have over 65536 active peers
+	activeIDs   map[uint16]struct{}      // used to check if a given peerID key is used, the value doesn't matter
+	checkTxChan map[uint16]chan [][]byte // checkTxChan is a channel to receive transactions from the peer.
 }
 
 // Reserve searches for the next unused ID and assigns it to the
@@ -23,6 +24,7 @@ func (ids *mempoolIDs) ReserveForPeer(peer p2p.Peer) {
 	curID := ids.nextPeerID()
 	ids.peerMap[peer.ID()] = curID
 	ids.activeIDs[curID] = struct{}{}
+	ids.checkTxChan[curID] = make(chan [][]byte, 100)
 }
 
 // nextPeerID returns the next unused peer ID to use.
@@ -49,6 +51,7 @@ func (ids *mempoolIDs) Reclaim(peer p2p.Peer) {
 
 	removedID, ok := ids.peerMap[peer.ID()]
 	if ok {
+		delete(ids.checkTxChan, removedID)
 		delete(ids.activeIDs, removedID)
 		delete(ids.peerMap, peer.ID())
 	}
@@ -62,10 +65,25 @@ func (ids *mempoolIDs) GetForPeer(peer p2p.Peer) uint16 {
 	return ids.peerMap[peer.ID()]
 }
 
+// GetCheckTxChan returns the channel to receive transactions from the peer.
+func (ids *mempoolIDs) GetCheckTxChan(peer p2p.Peer) (chan [][]byte, bool) {
+	ids.mtx.RLock()
+	defer ids.mtx.RUnlock()
+
+	peerID, ok := ids.peerMap[peer.ID()]
+	if !ok {
+		return nil, false
+	}
+
+	ch, exists := ids.checkTxChan[peerID]
+	return ch, exists
+}
+
 func newMempoolIDs() *mempoolIDs {
 	return &mempoolIDs{
-		peerMap:   make(map[p2p.ID]uint16),
-		activeIDs: map[uint16]struct{}{0: {}},
-		nextID:    1, // reserve unknownPeerID(0) for mempoolReactor.BroadcastTx
+		peerMap:     make(map[p2p.ID]uint16),
+		activeIDs:   map[uint16]struct{}{0: {}},
+		nextID:      1, // reserve unknownPeerID(0) for mempoolReactor.BroadcastTx
+		checkTxChan: make(map[uint16]chan [][]byte),
 	}
 }

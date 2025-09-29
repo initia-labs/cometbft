@@ -1841,6 +1841,28 @@ func (cs *State) finalizeCommit(height int64) {
 	// Create a copy of the state for staging and an event cache for txs.
 	stateCopy := cs.state.Copy()
 
+	// Unlock the state mutex before applying the block to avoid long lock times.
+	//
+	// Safety: tryFinalizeCommit can only be called when both:
+	// 1. We are in the commit step
+	// 2. All block parts have been received and verified
+	//
+	// Multiple calls are prevented by:
+	// - Round/step checks in enterNewRound, enterPrecommit, and enterCommit
+	//   - see handleMsg's VoteMessage => tryAddVote => addVote => enterCommit
+	// - The `added` check in addProposalBlockPart
+	//   - see handleMsg's BlockPartMessage
+	//
+	// Block execution is time consuming, so we unlock here.
+	// The state remains protected from concurrent modifications due to the above safety conditions.
+	cs.mtx.Unlock()
+	relocked := false
+	defer func() {
+		if !relocked {
+			cs.mtx.Lock()
+		}
+	}()
+
 	// Execute and commit the block, update and save the state, and update the mempool.
 	// We use apply verified block here because we have verified the block in this function already.
 	// NOTE The block.AppHash won't reflect these txs until the next block.
@@ -1857,6 +1879,10 @@ func (cs *State) finalizeCommit(height int64) {
 	}
 
 	fail.Fail() // XXX
+
+	// Lock the state mutex after applying the block to ensure thread safety.
+	cs.mtx.Lock()
+	relocked = true
 
 	// must be called before we update state
 	cs.recordMetrics(height, block)
