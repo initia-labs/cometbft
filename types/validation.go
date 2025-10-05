@@ -425,3 +425,41 @@ func verifyBasicValsAndCommit(vals *ValidatorSet, commit *Commit, height int64, 
 
 	return nil
 }
+
+// Voting power weights are only used when an IBC light client verification.
+// The quorum calculation seeks two-thirds of the attestor voting power,
+// so the sequencer's vote must not skew the threshold.
+//
+// With one sequencer and three attestors, this weighting still requires two
+// attestor votes to finalize while keeping the sequencer's vote effectively
+// neutral in the tally.
+const (
+	SequencerVotingPower = 1
+	AttestorVotingPower  = 3
+)
+
+// VerifySequencerCommit verifies that the sequencer (a validator with 0 voting power)
+// has signed the given commit.
+func VerifySequencerCommit(chainID string, vals *ValidatorSet, blockID BlockID,
+	height int64, commit *Commit) error {
+	// run a basic validation of the arguments
+	if err := verifyBasicValsAndCommit(vals, commit, height, blockID); err != nil {
+		return err
+	}
+
+	for idx, sig := range commit.Signatures {
+		val := vals.Validators[idx]
+		if sig.BlockIDFlag != BlockIDFlagCommit || val.VotingPower != SequencerVotingPower {
+			continue
+		}
+
+		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx))
+		if !val.PubKey.VerifySignature(voteSignBytes, sig.Signature) {
+			return fmt.Errorf("wrong signature (#%d): %X", idx, sig.Signature)
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("no sequencer signatures found")
+}

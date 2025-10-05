@@ -14,11 +14,11 @@ import (
 	dbm "github.com/cometbft/cometbft-db"
 
 	abci "github.com/cometbft/cometbft/abci/types"
-	"github.com/cometbft/cometbft/blocksync"
 	cfg "github.com/cometbft/cometbft/config"
 	cs "github.com/cometbft/cometbft/consensus"
 	"github.com/cometbft/cometbft/crypto"
 	"github.com/cometbft/cometbft/evidence"
+	"github.com/cometbft/cometbft/sequencing"
 	"github.com/cometbft/cometbft/statesync"
 
 	cmtjson "github.com/cometbft/cometbft/libs/json"
@@ -29,6 +29,7 @@ import (
 	"github.com/cometbft/cometbft/p2p/pex"
 	"github.com/cometbft/cometbft/privval"
 	"github.com/cometbft/cometbft/proxy"
+	seqengine "github.com/cometbft/cometbft/sequencing/engine"
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/state/indexer"
 	"github.com/cometbft/cometbft/state/indexer/block"
@@ -78,31 +79,24 @@ func DefaultNewNode(config *cfg.Config, logger log.Logger) (*Node, error) {
 	)
 }
 
-// MetricsProvider returns a consensus, p2p and mempool Metrics.
-type MetricsProvider func(chainID string) (*cs.Metrics, *p2p.Metrics, *mempl.Metrics, *sm.Metrics, *proxy.Metrics, *blocksync.Metrics, *statesync.Metrics)
+// MetricsProvider returns instrumentation metrics for the components used by the node.
+type MetricsProvider func(chainID string) (*p2p.Metrics, *mempl.Metrics, *sm.Metrics, *proxy.Metrics, *seqengine.Metrics, *statesync.Metrics)
 
 // DefaultMetricsProvider returns Metrics build using Prometheus client library
 // if Prometheus is enabled. Otherwise, it returns no-op Metrics.
 func DefaultMetricsProvider(config *cfg.InstrumentationConfig) MetricsProvider {
-	return func(chainID string) (*cs.Metrics, *p2p.Metrics, *mempl.Metrics, *sm.Metrics, *proxy.Metrics, *blocksync.Metrics, *statesync.Metrics) {
+	return func(chainID string) (*p2p.Metrics, *mempl.Metrics, *sm.Metrics, *proxy.Metrics, *seqengine.Metrics, *statesync.Metrics) {
 		if config.Prometheus {
-			return cs.PrometheusMetrics(config.Namespace, "chain_id", chainID),
-				p2p.PrometheusMetrics(config.Namespace, "chain_id", chainID),
+			return p2p.PrometheusMetrics(config.Namespace, "chain_id", chainID),
 				mempl.PrometheusMetrics(config.Namespace, "chain_id", chainID),
 				sm.PrometheusMetrics(config.Namespace, "chain_id", chainID),
 				proxy.PrometheusMetrics(config.Namespace, "chain_id", chainID),
-				blocksync.PrometheusMetrics(config.Namespace, "chain_id", chainID),
+				seqengine.PrometheusMetrics(config.Namespace, "chain_id", chainID),
 				statesync.PrometheusMetrics(config.Namespace, "chain_id", chainID)
 		}
-		return cs.NopMetrics(), p2p.NopMetrics(), mempl.NopMetrics(), sm.NopMetrics(), proxy.NopMetrics(), blocksync.NopMetrics(), statesync.NopMetrics()
+		return p2p.NopMetrics(), mempl.NopMetrics(), sm.NopMetrics(), proxy.NopMetrics(), seqengine.NopMetrics(), statesync.NopMetrics()
 	}
 }
-
-type blockSyncReactor interface {
-	SwitchToBlockSync(sm.State) error
-}
-
-//------------------------------------------------------------------------------
 
 func initDBs(config *cfg.Config, dbProvider cfg.DBProvider) (blockStore *store.BlockStore, stateDB dbm.DB, err error) {
 	var blockStoreDB dbm.DB
@@ -281,64 +275,6 @@ func createEvidenceReactor(config *cfg.Config, dbProvider cfg.DBProvider,
 	return evidenceReactor, evidencePool, nil
 }
 
-func createBlocksyncReactor(config *cfg.Config,
-	state sm.State,
-	blockExec *sm.BlockExecutor,
-	blockStore *store.BlockStore,
-	blockSync bool,
-	localAddr crypto.Address,
-	logger log.Logger,
-	metrics *blocksync.Metrics,
-	offlineStateSyncHeight int64,
-) (bcReactor p2p.Reactor, err error) {
-	switch config.BlockSync.Version {
-	case "v0":
-		bcReactor = blocksync.NewReactorWithAddr(state.Copy(), blockExec, blockStore, blockSync, localAddr, metrics, offlineStateSyncHeight)
-	case "v1", "v2":
-		return nil, fmt.Errorf("block sync version %s has been deprecated. Please use v0", config.BlockSync.Version)
-	default:
-		return nil, fmt.Errorf("unknown block sync version %s", config.BlockSync.Version)
-	}
-
-	bcReactor.SetLogger(logger.With("module", "blocksync"))
-	return bcReactor, nil
-}
-
-func createConsensusReactor(config *cfg.Config,
-	state sm.State,
-	blockExec *sm.BlockExecutor,
-	blockStore sm.BlockStore,
-	mempool mempl.Mempool,
-	evidencePool *evidence.Pool,
-	privValidator types.PrivValidator,
-	csMetrics *cs.Metrics,
-	waitSync bool,
-	eventBus *types.EventBus,
-	consensusLogger log.Logger,
-	offlineStateSyncHeight int64,
-) (*cs.Reactor, *cs.State) {
-	consensusState := cs.NewState(
-		config.Consensus,
-		state.Copy(),
-		blockExec,
-		blockStore,
-		mempool,
-		evidencePool,
-		cs.StateMetrics(csMetrics),
-		cs.OfflineStateSyncHeight(offlineStateSyncHeight),
-	)
-	consensusState.SetLogger(consensusLogger)
-	if privValidator != nil {
-		consensusState.SetPrivValidator(privValidator)
-	}
-	consensusReactor := cs.NewReactor(consensusState, waitSync, cs.ReactorMetrics(csMetrics))
-	consensusReactor.SetLogger(consensusLogger)
-	// services which will be publishing and/or subscribing for messages (events)
-	// consensusReactor will set it on consensusState and blockExecutor
-	consensusReactor.SetEventBus(eventBus)
-	return consensusReactor, consensusState
-}
-
 func createTransport(
 	config *cfg.Config,
 	nodeInfo p2p.NodeInfo,
@@ -408,14 +344,42 @@ func createTransport(
 	return transport, peerFilters
 }
 
+func createSequencingReactor(
+	config *cfg.Config,
+	state sm.State,
+	blockExec *sm.BlockExecutor,
+	blockStore *store.BlockStore,
+	mempool mempl.Mempool,
+	privValidator types.PrivValidator,
+	metrics *seqengine.Metrics,
+	logger log.Logger,
+	eventBus types.BlockEventPublisher,
+	deferStart bool,
+) (*sequencing.Reactor, error) {
+	reactor, err := sequencing.NewReactor(sequencing.ReactorConfig{
+		State:      state,
+		BlockExec:  blockExec,
+		BlockStore: blockStore,
+		PrivVal:    privValidator,
+		Mempool:    mempool,
+		Config:     config.Sequencing,
+		Metrics:    metrics,
+		EventBus:   eventBus,
+	}, logger.With("module", "sequencing"))
+	if err != nil {
+		return nil, err
+	}
+	reactor.SetDeferredStart(deferStart)
+	return reactor, nil
+}
+
 func createSwitch(config *cfg.Config,
 	transport p2p.Transport,
 	p2pMetrics *p2p.Metrics,
 	peerFilters []p2p.PeerFilterFunc,
 	mempoolReactor p2p.Reactor,
-	bcReactor p2p.Reactor,
 	stateSyncReactor *statesync.Reactor,
-	consensusReactor *cs.Reactor,
+	sequencingReactor *sequencing.Reactor,
 	evidenceReactor *evidence.Reactor,
 	nodeInfo p2p.NodeInfo,
 	nodeKey *p2p.NodeKey,
@@ -431,10 +395,9 @@ func createSwitch(config *cfg.Config,
 	if config.Mempool.Type != cfg.MempoolTypeNop {
 		sw.AddReactor("MEMPOOL", mempoolReactor)
 	}
-	sw.AddReactor("BLOCKSYNC", bcReactor)
-	sw.AddReactor("CONSENSUS", consensusReactor)
 	sw.AddReactor("EVIDENCE", evidenceReactor)
 	sw.AddReactor("STATESYNC", stateSyncReactor)
+	sw.AddReactor("SEQUENCING", sequencingReactor)
 
 	sw.SetNodeInfo(nodeInfo)
 	sw.SetNodeKey(nodeKey)
@@ -494,12 +457,12 @@ func createPEXReactorAndAddToSwitch(addrBook pex.AddrBook, config *cfg.Config,
 // startStateSync starts an asynchronous state sync process, then switches to block sync mode.
 func startStateSync(
 	ssR *statesync.Reactor,
-	bcR blockSyncReactor,
 	stateProvider statesync.StateProvider,
 	config *cfg.StateSyncConfig,
 	stateStore sm.Store,
 	blockStore *store.BlockStore,
 	state sm.State,
+	onComplete func(sm.State) error,
 ) error {
 	ssR.Logger.Info("Starting state sync")
 
@@ -537,10 +500,10 @@ func startStateSync(
 			return
 		}
 
-		err = bcR.SwitchToBlockSync(state)
-		if err != nil {
-			ssR.Logger.Error("Failed to switch to block sync", "err", err)
-			return
+		if onComplete != nil {
+			if err := onComplete(state); err != nil {
+				ssR.Logger.Error("State sync completion callback failed", "err", err)
+			}
 		}
 	}()
 	return nil

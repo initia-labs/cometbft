@@ -137,9 +137,8 @@ func TestDumpConsensusState(t *testing.T) {
 		nc, ok := c.(client.NetworkClient)
 		require.True(t, ok, "%d", i)
 		cons, err := nc.DumpConsensusState(context.Background())
-		require.Nil(t, err, "%d: %+v", i, err)
-		assert.NotEmpty(t, cons.RoundState)
-		assert.Empty(t, cons.Peers)
+		require.Error(t, err, "%d: expected error", i)
+		assert.Nil(t, cons)
 	}
 }
 
@@ -149,8 +148,8 @@ func TestConsensusState(t *testing.T) {
 		nc, ok := c.(client.NetworkClient)
 		require.True(t, ok, "%d", i)
 		cons, err := nc.ConsensusState(context.Background())
-		require.Nil(t, err, "%d: %+v", i, err)
-		assert.NotEmpty(t, cons.RoundState)
+		require.Error(t, err, "%d: expected error", i)
+		assert.Nil(t, cons)
 	}
 }
 

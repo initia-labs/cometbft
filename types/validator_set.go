@@ -741,6 +741,32 @@ func (vals *ValidatorSet) VerifyCommitLightTrustingAllSignatures(
 	return VerifyCommitLightTrustingAllSignatures(chainID, vals, commit, trustLevel)
 }
 
+// VerifySequencerCommit verifies that the sequencer (a validator with 0 voting power)
+// has signed the given commit.
+func (vals *ValidatorSet) VerifySequencerCommit(chainID string, blockID BlockID,
+	height int64, commit *Commit,
+) error {
+	return VerifySequencerCommit(chainID, vals, blockID, height, commit)
+}
+
+// EnsureSingleSequencer checks that there is exactly one sequencer (a validator with
+// SequencerVotingPower) in the validator set.
+func (vals *ValidatorSet) EnsureSingleSequencer() error {
+	numSequencers := 0
+	for _, val := range vals.Validators {
+		if val.VotingPower == SequencerVotingPower {
+			numSequencers++
+		}
+	}
+	if numSequencers == 0 {
+		return errors.New("no sequencer in the validator set")
+	}
+	if numSequencers > 1 {
+		return fmt.Errorf("more than one (%d) sequencer in the validator set", numSequencers)
+	}
+	return nil
+}
+
 // findPreviousProposer reverses the compare proposer priority function to find the validator
 // with the lowest proposer priority which would have been the previous proposer.
 //

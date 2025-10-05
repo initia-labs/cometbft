@@ -1,6 +1,8 @@
 package core
 
 import (
+	"fmt"
+
 	cm "github.com/cometbft/cometbft/consensus"
 	cmtmath "github.com/cometbft/cometbft/libs/math"
 	ctypes "github.com/cometbft/cometbft/rpc/core/types"
@@ -54,6 +56,9 @@ func (env *Environment) Validators(
 // UNSTABLE
 // More: https://docs.cometbft.com/v0.38.x/rpc/#/Info/dump_consensus_state
 func (env *Environment) DumpConsensusState(*rpctypes.Context) (*ctypes.ResultDumpConsensusState, error) {
+	if env.ConsensusState == nil {
+		return nil, fmt.Errorf("consensus state RPC not available")
+	}
 	// Get Peer consensus states.
 	peers := env.P2PPeers.Peers().List()
 	peerStates := make([]ctypes.PeerStateInfo, len(peers))
@@ -88,6 +93,9 @@ func (env *Environment) DumpConsensusState(*rpctypes.Context) (*ctypes.ResultDum
 // UNSTABLE
 // More: https://docs.cometbft.com/v0.38.x/rpc/#/Info/consensus_state
 func (env *Environment) GetConsensusState(*rpctypes.Context) (*ctypes.ResultConsensusState, error) {
+	if env.ConsensusState == nil {
+		return nil, fmt.Errorf("consensus state RPC not available")
+	}
 	// Get self round state.
 	bz, err := env.ConsensusState.GetRoundStateSimpleJSON()
 	return &ctypes.ResultConsensusState{RoundState: bz}, err

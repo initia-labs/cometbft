@@ -636,6 +636,11 @@ func updateState(
 		lastHeightValsChanged = header.Height + 1 + 1
 	}
 
+	// SEQUENCING: Ensure that there is exactly one proposer.
+	if err := nValSet.EnsureSingleSequencer(); err != nil {
+		return state, fmt.Errorf("ensuring single sequencer: %w", err)
+	}
+
 	// Update validator proposer priority and set state variables.
 	nValSet.IncrementProposerPriority(1)
 

@@ -62,7 +62,15 @@ func (env *Environment) Status(*rpctypes.Context) (*ctypes.ResultStatus, error) 
 			EarliestAppHash:     earliestAppHash,
 			EarliestBlockHeight: earliestBlockHeight,
 			EarliestBlockTime:   time.Unix(0, earliestBlockTimeNano),
-			CatchingUp:          env.ConsensusReactor.WaitSync(),
+			CatchingUp: func() bool {
+				if env.SequencerReactor != nil {
+					return env.SequencerReactor.CatchUp()
+				}
+				if env.ConsensusReactor != nil {
+					return env.ConsensusReactor.WaitSync()
+				}
+				return false
+			}(),
 		},
 		ValidatorInfo: ctypes.ValidatorInfo{
 			Address:     env.PubKey.Address(),

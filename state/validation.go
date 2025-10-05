@@ -88,8 +88,8 @@ func validateBlock(state State, block *types.Block) error {
 			return errors.New("initial block can't have LastCommit signatures")
 		}
 	} else {
-		// LastCommit.Signatures length is checked in VerifyCommit.
-		if err := state.LastValidators.VerifyCommit(
+		// SEQUENCING: use sequencer commit verification
+		if err := state.LastValidators.VerifySequencerCommit(
 			state.ChainID, state.LastBlockID, block.Height-1, block.LastCommit); err != nil {
 			return err
 		}

@@ -60,6 +60,7 @@ type BlockStore struct {
 	seenCommitCache          *lru.Cache[int64, *types.Commit]
 	blockCommitCache         *lru.Cache[int64, *types.Commit]
 	blockExtendedCommitCache *lru.Cache[int64, *types.ExtendedCommit]
+	validatorCache           *lru.Cache[string, *types.ValidatorSet]
 }
 
 // NewBlockStore returns a new BlockStore with the given DB,
@@ -87,6 +88,10 @@ func (bs *BlockStore) addCaches() {
 		panic(err)
 	}
 	bs.seenCommitCache, err = lru.New[int64, *types.Commit](100)
+	if err != nil {
+		panic(err)
+	}
+	bs.validatorCache, err = lru.New[string, *types.ValidatorSet](100)
 	if err != nil {
 		panic(err)
 	}
@@ -382,6 +387,34 @@ func (bs *BlockStore) LoadRawCommit(height int64) ([]byte, error) {
 	return bz, nil
 }
 
+// LoadValidatorSet returns the ValidatorSet for the given validator set hash.
+func (bs *BlockStore) LoadValidatorSet(valSetHash []byte) *types.ValidatorSet {
+	if valSet, ok := bs.validatorCache.Get(string(valSetHash)); ok {
+		return valSet.Copy()
+	}
+
+	bz, err := bs.db.Get(calcValidatorSetKey(valSetHash))
+	if err != nil {
+		panic(err)
+	}
+	if len(bz) == 0 {
+		return nil
+	}
+
+	valSetProto := new(cmtproto.ValidatorSet)
+	if err := proto.Unmarshal(bz, valSetProto); err != nil {
+		panic(fmt.Errorf("decoding validator set: %w", err))
+	}
+
+	valSet, err := types.ValidatorSetFromProto(valSetProto)
+	if err != nil {
+		panic(fmt.Errorf("converting validator set: %w", err))
+	}
+	bs.validatorCache.Add(string(valSetHash), valSet.Copy())
+
+	return valSet
+}
+
 // PruneBlocks removes block up to (but not including) a height. It returns number of blocks pruned and the evidence retain height - the height at which data needed to prove evidence must not be removed.
 func (bs *BlockStore) PruneBlocks(height int64, state sm.State) (uint64, int64, error) {
 	if height <= 0 {
@@ -660,11 +693,74 @@ func (bs *BlockStore) SaveSeenCommit(height int64, seenCommit *types.Commit) err
 	if err != nil {
 		return fmt.Errorf("unable to marshal commit: %w", err)
 	}
+
+	// SEQUENCING: save to cache
+	bs.seenCommitCache.Add(height, seenCommit.Clone())
+
 	return bs.db.Set(calcSeenCommitKey(height), seenCommitBytes)
 }
 
 func (bs *BlockStore) Close() error {
 	return bs.db.Close()
+}
+
+// SaveBlockWithValidatorSet persists the given block, blockParts, seenCommit and validatorSet to the underlying db.
+func (bs *BlockStore) SaveBlockWithValidatorSet(block *types.Block, blockParts *types.PartSet, seenCommit *types.Commit, validatorSet *types.ValidatorSet) {
+	if block == nil {
+		panic("BlockStore can only save a non-nil block")
+	}
+
+	batch := bs.db.NewBatch()
+	defer batch.Close()
+
+	if err := bs.saveBlockToBatch(block, blockParts, seenCommit, batch); err != nil {
+		panic(err)
+	}
+
+	// SEQUENCING: save validator set for late lookups from the attestors
+	if err := bs.saveValidatorSetBatch(validatorSet, batch); err != nil {
+		panic(err)
+	}
+
+	bs.mtx.Lock()
+	defer bs.mtx.Unlock()
+	bs.height = block.Height
+	if bs.base == 0 {
+		bs.base = block.Height
+	}
+
+	// Save new BlockStoreState descriptor. This also flushes the database.
+	err := bs.saveStateAndWriteDB(batch, "failed to save block")
+	if err != nil {
+		panic(err)
+	}
+}
+
+// SaveValidatorSet saves the given validator set in the db, indexed by its hash.
+func (bs *BlockStore) saveValidatorSetBatch(valSet *types.ValidatorSet, batch dbm.Batch) error {
+	if valSet == nil {
+		return errors.New("BlockStore cannot save a nil validator set")
+	}
+
+	valSetHash := valSet.Hash()
+	if existing := bs.LoadValidatorSet(valSetHash); existing != nil {
+		// already stored
+		return nil
+	}
+
+	// Cache it, so that we don't have to read it from the db if requested again.
+	bs.validatorCache.Add(string(valSetHash), valSet.Copy())
+
+	// Save it.
+	valSetProto, err := valSet.ToProto()
+	if err != nil {
+		return fmt.Errorf("unable to make validator set into proto: %w", err)
+	}
+	valSetBytes, err := proto.Marshal(valSetProto)
+	if err != nil {
+		return fmt.Errorf("unable to marshal validator set: %w", err)
+	}
+	return batch.Set(calcValidatorSetKey(valSetHash), valSetBytes)
 }
 
 //-----------------------------------------------------------------------------
@@ -691,6 +787,10 @@ func calcExtCommitKey(height int64) []byte {
 
 func calcBlockHashKey(hash []byte) []byte {
 	return []byte(fmt.Sprintf("BH:%x", hash))
+}
+
+func calcValidatorSetKey(valSetHash []byte) []byte {
+	return []byte(fmt.Sprintf("VS:%x", valSetHash))
 }
 
 //-----------------------------------------------------------------------------
