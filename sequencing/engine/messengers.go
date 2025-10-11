@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"slices"
 	"time"
 
 	"github.com/cometbft/cometbft/p2p"
@@ -157,16 +156,17 @@ func (e *Engine) broadcastAttestorCommit(ac *types.AttestorCommit) {
 		return
 	}
 
-	peerIDs := append(e.reactor.PeerIDs(), e.reactor.SelfID())
+	existing := ac.PeerFilter
+	outgoing := existing.BuildOutgoing(append(e.reactor.PeerIDs(), e.reactor.SelfID()))
 	for _, peer := range e.reactor.Peers() {
-		if slices.Contains(ac.PeerIDs, peer.ID()) {
+		if existing != nil && existing.Contains(peer.ID()) {
 			continue
 		}
 		env := p2p.Envelope{
 			Message: types.MsgToProto(&types.BlockResponse{
 				ProposedBlock:  nil,
 				AttesterCommit: ac,
-				PeerIDs:        peerIDs,
+				PeerFilter:     outgoing,
 			}),
 			ChannelID: types.AttestChannel,
 		}
@@ -189,16 +189,17 @@ func (e *Engine) broadcastProposedBlock(pb *types.ProposedBlock) {
 	}
 
 	peers := e.reactor.Peers()
-	peerIDs := append(e.reactor.PeerIDs(), e.reactor.SelfID())
+	existing := pb.PeerFilter
+	outgoing := existing.BuildOutgoing(append(e.reactor.PeerIDs(), e.reactor.SelfID()))
 	for _, peer := range peers {
-		if slices.Contains(pb.PeerIDs, peer.ID()) {
+		if existing != nil && existing.Contains(peer.ID()) {
 			continue
 		}
 		env := p2p.Envelope{
 			Message: types.MsgToProto(&types.BlockResponse{
 				ProposedBlock:  pb,
 				AttesterCommit: nil,
-				PeerIDs:        peerIDs,
+				PeerFilter:     outgoing,
 			}),
 			ChannelID: types.ProposeChannel,
 		}

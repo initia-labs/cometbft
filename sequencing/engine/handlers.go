@@ -243,9 +243,10 @@ func (e *Engine) attestBlock() {
 	}
 
 	// broadcast it
-	e.broadcastAttestorCommit(&types.AttestorCommit{
+	attestorCommit := &types.AttestorCommit{
 		Commit: commit.WrappedExtendedCommit(),
-	})
+	}
+	e.broadcastAttestorCommit(attestorCommit)
 }
 
 // produce next block if we are a sequencer
@@ -356,17 +357,16 @@ func (e *Engine) proposeBlock() {
 	}
 	commit.Signatures[idx] = vote.CommitSig()
 
-	// add block to bucket as well
-	e.blockBucket.Add(types.SELF_PEER_ID, height, &types.ProposedBlock{
+	proposed := &types.ProposedBlock{
 		Block:  proposedBlock,
 		Commit: commit.WrappedExtendedCommit(),
-	})
+	}
+
+	// add block to bucket as well
+	e.blockBucket.Add(types.SELF_PEER_ID, height, proposed)
 
 	// broadcast the proposed block
-	e.broadcastProposedBlock(&types.ProposedBlock{
-		Block:  proposedBlock,
-		Commit: commit.WrappedExtendedCommit(),
-	})
+	e.broadcastProposedBlock(proposed)
 
 	// keep track of last proposed height to prevent entering this function too often
 	e.stateMu.Lock()

@@ -61,7 +61,7 @@ func (e *Engine) blockProcessor() {
 					e.logger.Info("applied proposed block", "peer", id, "height", height)
 
 					// Only rebroadcast when the message carried provenance (i.e. not a direct reply).
-					if proposedBlock.PeerIDs != nil {
+					if proposedBlock.PeerFilter != nil {
 						e.broadcastProposedBlock(proposedBlock)
 					}
 				}
@@ -101,7 +101,7 @@ func (e *Engine) attesterCommitProcessor() {
 					e.logger.Info("applied attestor commit", "peer", id, "height", height)
 
 					// Only rebroadcast when the message carried provenance (i.e. not a direct reply).
-					if attestorCommit.PeerIDs != nil {
+					if attestorCommit.PeerFilter != nil {
 						e.broadcastAttestorCommit(attestorCommit)
 					}
 				}

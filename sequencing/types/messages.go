@@ -3,7 +3,6 @@ package types
 import (
 	"fmt"
 
-	"github.com/cometbft/cometbft/p2p"
 	seqproto "github.com/cometbft/cometbft/proto/tendermint/sequencing"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/cometbft/cometbft/types"
@@ -15,12 +14,12 @@ type Message interface {
 }
 
 type ProposedBlock struct {
-	Block   *types.Block
-	Commit  *types.ExtendedCommit
-	PeerIDs []p2p.ID
+	Block      *types.Block
+	Commit     *types.ExtendedCommit
+	PeerFilter *PeerRelayFilter
 }
 
-func ProposedBlockFromProto(pb *seqproto.ProposedBlock, peerIDs []p2p.ID) (*ProposedBlock, error) {
+func ProposedBlockFromProto(pb *seqproto.ProposedBlock, filter *PeerRelayFilter) (*ProposedBlock, error) {
 	if pb == nil {
 		return nil, fmt.Errorf("nil ProposedBlock proto")
 	}
@@ -33,18 +32,18 @@ func ProposedBlockFromProto(pb *seqproto.ProposedBlock, peerIDs []p2p.ID) (*Prop
 		return nil, err
 	}
 	return &ProposedBlock{
-		Block:   block,
-		Commit:  extCommit,
-		PeerIDs: peerIDs,
+		Block:      block,
+		Commit:     extCommit,
+		PeerFilter: filter,
 	}, nil
 }
 
 type AttestorCommit struct {
-	Commit  *types.ExtendedCommit
-	PeerIDs []p2p.ID
+	Commit     *types.ExtendedCommit
+	PeerFilter *PeerRelayFilter
 }
 
-func AttestorCommitFromProto(pb *seqproto.AttestorCommit, peerIDs []p2p.ID) (*AttestorCommit, error) {
+func AttestorCommitFromProto(pb *seqproto.AttestorCommit, filter *PeerRelayFilter) (*AttestorCommit, error) {
 	if pb == nil {
 		return nil, fmt.Errorf("nil AttestorCommit proto")
 	}
@@ -52,7 +51,7 @@ func AttestorCommitFromProto(pb *seqproto.AttestorCommit, peerIDs []p2p.ID) (*At
 	if err != nil {
 		return nil, err
 	}
-	return &AttestorCommit{Commit: commit, PeerIDs: peerIDs}, nil
+	return &AttestorCommit{Commit: commit, PeerFilter: filter}, nil
 }
 
 type StatusUpdate struct {
@@ -94,7 +93,7 @@ func BlockRequestFromProto(pb *seqproto.BlockRequest) *BlockRequest {
 type BlockResponse struct {
 	ProposedBlock  *ProposedBlock
 	AttesterCommit *AttestorCommit
-	PeerIDs        []p2p.ID
+	PeerFilter     *PeerRelayFilter
 }
 
 func (m *BlockResponse) ProtoMessage() *seqproto.Message {
@@ -110,12 +109,8 @@ func (m *BlockResponse) ProtoMessage() *seqproto.Message {
 			Commit: m.AttesterCommit.Commit.ToProto(),
 		}
 	}
-	if len(m.PeerIDs) > 0 {
-		peerIDs := make([]string, len(m.PeerIDs))
-		for i, pid := range m.PeerIDs {
-			peerIDs[i] = string(pid)
-		}
-		br.PeerIds = peerIDs
+	if m.PeerFilter != nil {
+		br.PeerBloom = m.PeerFilter.MarshalBinary()
 	}
 	return &seqproto.Message{Sum: &seqproto.Message_BlockResponse{BlockResponse: br}}
 }
@@ -124,29 +119,25 @@ func BlockResponseFromProto(pb *seqproto.BlockResponse) (*BlockResponse, error) 
 	if pb == nil {
 		return nil, fmt.Errorf("nil BlockResponse proto")
 	}
-	var peerIDs []p2p.ID
-	if len(pb.PeerIds) > 0 {
-		peerIDs = make([]p2p.ID, len(pb.PeerIds))
-		for i, pid := range pb.PeerIds {
-			peerIDs[i] = p2p.ID(pid)
-		}
+	filter, err := PeerRelayFilterFromBytes(pb.PeerBloom)
+	if err != nil {
+		return nil, err
 	}
 	var proposedBlock *ProposedBlock
-	var err error
 	if pb.ProposedBlock != nil {
-		proposedBlock, err = ProposedBlockFromProto(pb.ProposedBlock, peerIDs)
+		proposedBlock, err = ProposedBlockFromProto(pb.ProposedBlock, filter.Clone())
 		if err != nil {
 			return nil, err
 		}
 	}
 	var attesterExtCommit *AttestorCommit
 	if pb.AttesterCommit != nil {
-		attesterExtCommit, err = AttestorCommitFromProto(pb.AttesterCommit, peerIDs)
+		attesterExtCommit, err = AttestorCommitFromProto(pb.AttesterCommit, filter.Clone())
 		if err != nil {
 			return nil, err
 		}
 	}
-	return &BlockResponse{ProposedBlock: proposedBlock, AttesterCommit: attesterExtCommit, PeerIDs: peerIDs}, nil
+	return &BlockResponse{ProposedBlock: proposedBlock, AttesterCommit: attesterExtCommit, PeerFilter: filter}, nil
 }
 
 func MsgFromProto(msg *seqproto.Message) (Message, error) {

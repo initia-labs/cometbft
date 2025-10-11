@@ -9,10 +9,10 @@ import (
 func TestBlockBucketPeekAndPopLowestAcrossPeers(t *testing.T) {
 	bucket := NewP2PBucket[*ProposedBlock]()
 
-	peer1First := &ProposedBlock{PeerIDs: []p2p.ID{"peer1"}}
-	peer1Second := &ProposedBlock{PeerIDs: []p2p.ID{"peer1-second"}}
-	peer2Block := &ProposedBlock{PeerIDs: []p2p.ID{"peer2"}}
-	peer3Block := &ProposedBlock{PeerIDs: []p2p.ID{"peer3"}}
+	peer1First := &ProposedBlock{}
+	peer1Second := &ProposedBlock{}
+	peer2Block := &ProposedBlock{}
+	peer3Block := &ProposedBlock{}
 
 	bucket.Add(p2p.ID("peer1"), 10, peer1First)
 	bucket.Add(p2p.ID("peer1"), 6, peer1Second)
@@ -61,7 +61,7 @@ func TestBlockBucketPeekAndPopLowestAcrossPeers(t *testing.T) {
 		t.Fatalf("bucket should not report peers after they are drained")
 	}
 
-	peer1New := &ProposedBlock{PeerIDs: []p2p.ID{"peer1-new"}}
+	peer1New := &ProposedBlock{}
 	bucket.Add(p2p.ID("peer1"), 15, peer1New)
 
 	id, height, value, ok = bucket.PeekLowest()

@@ -37,12 +37,12 @@ message BlockResponse {
   tendermint.sequencing.ProposedBlock proposed_block = 1;
   tendermint.sequencing.AttestorCommit attester_commit = 2;
   
-  // List of peer IDs that have already received/broadcast this block.
-  // Used to prevent redundant block/commit propagation and optimize network efficiency.
+  // Bloom filter encoding of peer IDs that have already relayed this message.
+  // Used to prevent redundant propagation while keeping the payload bounded.
   //
-  // If nil, this indicates a direct reply to a request without provenance.
-  // If non-nil, this indicates the message has been gossiped and carries provenance.
-  repeated string peer_ids = 3; 
+  // If empty, this indicates a direct reply to a request without provenance.
+  // If non-empty, this indicates the message has been gossiped and carries provenance.
+  bytes peer_bloom = 3; 
 }
 
 message Message {

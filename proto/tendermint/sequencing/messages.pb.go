@@ -227,9 +227,8 @@ func (m *BlockRequest) GetHeight() int64 {
 type BlockResponse struct {
 	ProposedBlock  *ProposedBlock  `protobuf:"bytes,1,opt,name=proposed_block,json=proposedBlock,proto3" json:"proposed_block,omitempty"`
 	AttesterCommit *AttestorCommit `protobuf:"bytes,2,opt,name=attester_commit,json=attesterCommit,proto3" json:"attester_commit,omitempty"`
-	// List of peer IDs that have already received/broadcast this block.
-	// Used to prevent redundant block propagation and optimize network efficiency.
-	PeerIds []string `protobuf:"bytes,3,rep,name=peer_ids,json=peerIds,proto3" json:"peer_ids,omitempty"`
+	// Bloom filter encoding of peers that relayed this message.
+	PeerBloom []byte `protobuf:"bytes,3,opt,name=peer_bloom,json=peerBloom,proto3" json:"peer_bloom,omitempty"`
 }
 
 func (m *BlockResponse) Reset()         { *m = BlockResponse{} }
@@ -279,9 +278,9 @@ func (m *BlockResponse) GetAttesterCommit() *AttestorCommit {
 	return nil
 }
 
-func (m *BlockResponse) GetPeerIds() []string {
+func (m *BlockResponse) GetPeerBloom() []byte {
 	if m != nil {
-		return m.PeerIds
+		return m.PeerBloom
 	}
 	return nil
 }
@@ -593,14 +592,12 @@ func (m *BlockResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
-	if len(m.PeerIds) > 0 {
-		for iNdEx := len(m.PeerIds) - 1; iNdEx >= 0; iNdEx-- {
-			i -= len(m.PeerIds[iNdEx])
-			copy(dAtA[i:], m.PeerIds[iNdEx])
-			i = encodeVarintMessages(dAtA, i, uint64(len(m.PeerIds[iNdEx])))
-			i--
-			dAtA[i] = 0x1a
-		}
+	if len(m.PeerBloom) > 0 {
+		i -= len(m.PeerBloom)
+		copy(dAtA[i:], m.PeerBloom)
+		i = encodeVarintMessages(dAtA, i, uint64(len(m.PeerBloom)))
+		i--
+		dAtA[i] = 0x1a
 	}
 	if m.AttesterCommit != nil {
 		{
@@ -806,11 +803,9 @@ func (m *BlockResponse) Size() (n int) {
 		l = m.AttesterCommit.Size()
 		n += 1 + l + sovMessages(uint64(l))
 	}
-	if len(m.PeerIds) > 0 {
-		for _, s := range m.PeerIds {
-			l = len(s)
-			n += 1 + l + sovMessages(uint64(l))
-		}
+	if len(m.PeerBloom) > 0 {
+		l = len(m.PeerBloom)
+		n += 1 + l + sovMessages(uint64(l))
 	}
 	return n
 }
@@ -1338,9 +1333,9 @@ func (m *BlockResponse) Unmarshal(dAtA []byte) error {
 			iNdEx = postIndex
 		case 3:
 			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field PeerIds", wireType)
+				return fmt.Errorf("proto: wrong wireType = %d for field PeerBloom", wireType)
 			}
-			var stringLen uint64
+			var byteLen uint64
 			for shift := uint(0); ; shift += 7 {
 				if shift >= 64 {
 					return ErrIntOverflowMessages
@@ -1350,23 +1345,27 @@ func (m *BlockResponse) Unmarshal(dAtA []byte) error {
 				}
 				b := dAtA[iNdEx]
 				iNdEx++
-				stringLen |= uint64(b&0x7F) << shift
+				byteLen |= uint64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}
 			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
+			intByteLen := int(byteLen)
+			if intByteLen < 0 {
 				return ErrInvalidLengthMessages
 			}
-			postIndex := iNdEx + intStringLen
+			postIndex := iNdEx + intByteLen
 			if postIndex < 0 {
 				return ErrInvalidLengthMessages
 			}
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
-			m.PeerIds = append(m.PeerIds, string(dAtA[iNdEx:postIndex]))
+			if intByteLen == 0 {
+				m.PeerBloom = nil
+			} else {
+				m.PeerBloom = append(m.PeerBloom[:0], dAtA[iNdEx:postIndex]...)
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
