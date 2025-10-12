@@ -741,7 +741,7 @@ func (vals *ValidatorSet) VerifyCommitLightTrustingAllSignatures(
 	return VerifyCommitLightTrustingAllSignatures(chainID, vals, commit, trustLevel)
 }
 
-// VerifySequencerCommit verifies that the sequencer (a validator with 0 voting power)
+// VerifySequencerCommit verifies that the sequencer (a validator with voting power 1)
 // has signed the given commit.
 func (vals *ValidatorSet) VerifySequencerCommit(chainID string, blockID BlockID,
 	height int64, commit *Commit,

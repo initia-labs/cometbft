@@ -438,7 +438,7 @@ const (
 	AttestorVotingPower  = 3
 )
 
-// VerifySequencerCommit verifies that the sequencer (a validator with 0 voting power)
+// VerifySequencerCommit verifies that the sequencer (a validator with voting power 1)
 // has signed the given commit.
 func VerifySequencerCommit(chainID string, vals *ValidatorSet, blockID BlockID,
 	height int64, commit *Commit) error {

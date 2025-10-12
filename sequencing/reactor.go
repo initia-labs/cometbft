@@ -35,8 +35,9 @@ type Reactor struct {
 
 	logger log.Logger
 
-	mempool        mempool.Mempool
-	txsAvailableCh <-chan struct{}
+	mempool          mempool.Mempool
+	txsAvailableCh   <-chan struct{}
+	txsAvailableOnce sync.Once
 
 	deferredStart atomic.Bool
 	startMu       sync.Mutex
@@ -276,10 +277,10 @@ func (r *Reactor) TxsAvailable() <-chan struct{} {
 	if r.mempool == nil {
 		return nil
 	}
-	if r.txsAvailableCh == nil {
+	r.txsAvailableOnce.Do(func() {
 		r.mempool.EnableTxsAvailable()
 		r.txsAvailableCh = r.mempool.TxsAvailable()
-	}
+	})
 	return r.txsAvailableCh
 }
 

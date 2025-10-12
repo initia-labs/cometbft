@@ -87,6 +87,15 @@ func (e *Engine) applyAttestorCommit(ac *types.AttestorCommit) (badPeer bool, ap
 		e.logger.Error("no block found for attestor commit", "height", ac.Commit.Height)
 		return false, false
 	}
+	blockID, err := blockID(block)
+	if err != nil {
+		e.logger.Error("unable to compute block ID", "height", ac.Commit.Height, "err", err)
+		return false, false
+	}
+	if !blockID.Equals(ac.Commit.BlockID) {
+		// block hash mismatch
+		return true, false
+	}
 	vals := e.blockStore.LoadValidatorSet(block.ValidatorsHash)
 	if vals == nil {
 		e.logger.Error("failed to load validator set for attestor commit", "height", ac.Commit.Height)
@@ -188,13 +197,13 @@ func (e *Engine) attestBlock() {
 		}
 	}
 
-	blockParts, err := block.MakePartSet(comettypes.BlockPartSizeBytes)
+	// compute block ID
+	blockID, err := blockID(block)
 	if err != nil {
-		e.logger.Error("unable to create proposal block part set", "error", err)
+		e.logger.Error("unable to compute block ID", "height", height, "err", err)
 		return
 	}
 
-	propBlockID := comettypes.BlockID{Hash: block.Hash(), PartSetHeader: blockParts.Header()}
 	vote := &comettypes.Vote{
 		ValidatorAddress: attesterAddr,
 		ValidatorIndex:   idx,
@@ -202,7 +211,7 @@ func (e *Engine) attestBlock() {
 		Round:            0,
 		Timestamp:        voteTime(block.Time),
 		Type:             cmtproto.PrecommitType,
-		BlockID:          propBlockID,
+		BlockID:          blockID,
 	}
 
 	v := vote.ToProto()
@@ -223,7 +232,7 @@ func (e *Engine) attestBlock() {
 		}
 		commit = &comettypes.Commit{
 			Height:     height,
-			BlockID:    propBlockID,
+			BlockID:    blockID,
 			Signatures: sigs,
 		}
 	} else if len(commit.Signatures) != validators.Size() {
@@ -316,14 +325,13 @@ func (e *Engine) proposeBlock() {
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create proposal block: height %d err %v", height, err))
 	}
-
-	blockParts, err := proposedBlock.MakePartSet(comettypes.BlockPartSizeBytes)
+	proposedBlockID, err := blockID(proposedBlock)
 	if err != nil {
-		e.logger.Error("unable to create proposal block part set", "error", err)
+		e.logger.Error("unable to compute block ID", "height", height, "err", err)
 		return
 	}
 
-	proposedBlockID := comettypes.BlockID{Hash: proposedBlock.Hash(), PartSetHeader: blockParts.Header()}
+	// create self vote
 	vote := &comettypes.Vote{
 		ValidatorAddress: proposerAddr,
 		ValidatorIndex:   idx,
@@ -385,4 +393,16 @@ func voteTime(lastBlockTime time.Time) time.Time {
 	}
 
 	return minVoteTime
+}
+
+// blockID computes the BlockID for a given block.
+func blockID(block *comettypes.Block) (comettypes.BlockID, error) {
+	if block == nil {
+		return comettypes.BlockID{}, fmt.Errorf("nil block")
+	}
+	parts, err := block.MakePartSet(comettypes.BlockPartSizeBytes)
+	if err != nil {
+		return comettypes.BlockID{}, err
+	}
+	return comettypes.BlockID{Hash: block.Hash(), PartSetHeader: parts.Header()}, nil
 }
