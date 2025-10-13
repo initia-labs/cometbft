@@ -97,6 +97,30 @@ the node holds attestor voting power for the latest block height, it:
 3. Signs a precommit vote and inserts it into the correct index.
 4. Saves the updated commit and broadcasts an `AttestorCommit` message.
 
+## IBC Attestor Coordination
+
+IBC light clients require a full two-thirds quorum from the attestor committee,
+but the sequencing engine keeps that requirement off the critical path for block
+execution. `applyProposedBlock` validates only the sequencer's signature via
+`VerifySequencerCommit`, so the block processor can advance as long as the
+sequencer signs. Attestor signatures are merged later by
+`attesterCommitProcessor`, which continually reconciles extended commits from
+the network into the block store, and by the local `attestorProcessor`, which
+re-signs the latest block whenever the node is an attestor. Because these loops
+run independently from block proposal and application, sequencer-driven block
+generation never waits on IBC attestations, while light clients still see an
+eventually-complete commit set for finality proofs.
+
+### Voting Power Weights
+
+Sequencer validators are assigned voting power `1`, while each attestor carries
+voting power `3` (`types/validation.go`). With one sequencer and three attestors
+this yields a total voting power of `10`, so a valid IBC commit (> 2/3 of the
+set) must include the sequencer plus at least two attestors (1 + 3 + 3 = 7).
+The weighting keeps the sequencer's confirmatory signature effectively neutral
+in the quorum math—it cannot finalize a block alone—yet still lets the engine
+execute blocks immediately once the sequencer signs.
+
 ## Request Coordination
 
 Block fetches are coordinated by the trio of structures described in the data
