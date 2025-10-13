@@ -166,14 +166,18 @@ func (e *Engine) ResetState(state sm.State) {
 
 func (p *Engine) AddPeer(peer p2p.Peer) {}
 
-func (p *Engine) RemovePeer(peer p2p.Peer, reason interface{}) {
+func (p *Engine) RemovePeer(peer p2p.Peer, reason any) {
 	p.peerSet.Remove(peer.ID())
 	p.badPeers.Delete(peer.ID())
+	p.blockBucket.RemovePeer(peer.ID())
+	p.commitBucket.RemovePeer(peer.ID())
 }
 
 func (p *Engine) flagBadPeer(pid p2p.ID, reason string) {
 	p.badPeers.Store(pid, time.Now())
 	p.peerSet.Remove(pid)
+	p.blockBucket.RemovePeer(pid)
+	p.commitBucket.RemovePeer(pid)
 	p.logger.Error("flagged bad peer", "peer", pid, "reason", reason)
 }
 
