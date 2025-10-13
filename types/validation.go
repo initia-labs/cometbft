@@ -448,9 +448,19 @@ func VerifySequencerCommit(chainID string, vals *ValidatorSet, blockID BlockID,
 	}
 
 	for idx, sig := range commit.Signatures {
+		if len(vals.Validators) <= idx {
+			continue
+		}
+
 		val := vals.Validators[idx]
 		if sig.BlockIDFlag != BlockIDFlagCommit || val.VotingPower != SequencerVotingPower {
 			continue
+		}
+		if val.PubKey == nil {
+			return fmt.Errorf("validator %v has a nil PubKey at index %d", val, idx)
+		}
+		if sig.ValidateBasic() != nil {
+			return fmt.Errorf("invalid signatures from %v at index %d", val, idx)
 		}
 
 		voteSignBytes := commit.VoteSignBytes(chainID, int32(idx))

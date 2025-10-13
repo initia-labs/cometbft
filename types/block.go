@@ -927,7 +927,6 @@ func (commit *Commit) ValidateBasic() error {
 
 	if commit.Height >= 1 {
 		if commit.BlockID.IsZero() {
-			fmt.Println(commit.BlockID)
 			return errors.New("commit cannot be for nil block")
 		}
 
@@ -1234,7 +1233,6 @@ func (ec *ExtendedCommit) ValidateBasic() error {
 
 	if ec.Height >= 1 {
 		if ec.BlockID.IsZero() {
-			fmt.Println(ec, ec.BlockID)
 			return errors.New("extended commit cannot be for nil block")
 		}
 

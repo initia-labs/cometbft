@@ -1029,7 +1029,7 @@ func TestSequencingConfig() *SequencingConfig {
 // ValidateBasic performs basic validation.
 func (cfg *SequencingConfig) ValidateBasic() error {
 	if cfg.BlockInterval <= 0 {
-		return errors.New("timeout_propose must be greater than 0")
+		return errors.New("block_interval must be greater than 0")
 	}
 	if !cfg.CreateEmptyBlocks && cfg.CreateEmptyBlocksInterval <= 0 {
 		return errors.New("create_empty_blocks_interval must be greater than 0")
