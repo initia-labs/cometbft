@@ -496,12 +496,11 @@ rpc_servers = [
 #######################################################
 [sequencing]
 
-# The timeout duration to wait before proposing a new block.
-# During this time, the proposer collects transactions from the mempool
-# to include in the block. A shorter timeout results in faster block times
-# but may include fewer transactions per block. A longer timeout allows
-# more transactions to accumulate but increases block latency.
-timeout_propose = "{{ .Sequencing.TimeoutPropose }}"
+# Minimum interval between block proposals while this node acts as the sequencer.
+# The proposer waits at least this long after publishing the previous block before
+# assembling the next one. Lower values reduce latency but may yield smaller batches;
+# higher values allow more transactions to accumulate at the cost of higher latency.
+block_interval = "{{ .Sequencing.BlockInterval }}"
 
 # The flag to enable or disable the creation of empty blocks
 create_empty_blocks = {{ .Sequencing.CreateEmptyBlocks }}

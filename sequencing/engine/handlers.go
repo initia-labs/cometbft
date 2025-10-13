@@ -272,7 +272,7 @@ func (e *Engine) proposeBlock() {
 		return
 	}
 	timePassed := cmttime.Now().Sub(e.lastProposedBlockTime)
-	if timePassed < e.cfg.TimeoutPropose {
+	if timePassed < e.cfg.BlockInterval {
 		e.stateMu.Unlock()
 		return
 	}

@@ -36,10 +36,10 @@ func TestConfigValidateBasic(t *testing.T) {
 	cfg := config.DefaultConfig()
 	assert.NoError(t, cfg.ValidateBasic())
 
-	// tamper with timeout_propose
-	cfg.Sequencing.TimeoutPropose = -10 * time.Second
+	// tamper with block_interval
+	cfg.Sequencing.BlockInterval = -10 * time.Second
 	assert.Error(t, cfg.ValidateBasic())
-	cfg.Sequencing.TimeoutPropose = 3 * time.Second
+	cfg.Sequencing.BlockInterval = 3 * time.Second
 
 	cfg.Sequencing.CreateEmptyBlocks = false
 	cfg.Sequencing.CreateEmptyBlocksInterval = -10 * time.Second

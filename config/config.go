@@ -1000,7 +1000,7 @@ func (cfg *BlockSyncConfig) ValidateBasic() error {
 
 // SequencingConfig defines the configuration for the rollup sequencing service
 type SequencingConfig struct {
-	TimeoutPropose time.Duration `mapstructure:"timeout_propose"`
+	BlockInterval time.Duration `mapstructure:"block_interval"`
 
 	CreateEmptyBlocks         bool          `mapstructure:"create_empty_blocks"`
 	CreateEmptyBlocksInterval time.Duration `mapstructure:"create_empty_blocks_interval"`
@@ -1009,7 +1009,7 @@ type SequencingConfig struct {
 // DefaultSequencingConfig returns a default configuration for the rollup sequencing service
 func DefaultSequencingConfig() *SequencingConfig {
 	return &SequencingConfig{
-		TimeoutPropose: 300 * time.Millisecond,
+		BlockInterval: 300 * time.Millisecond,
 
 		CreateEmptyBlocks:         false,
 		CreateEmptyBlocksInterval: 1 * time.Minute,
@@ -1019,7 +1019,7 @@ func DefaultSequencingConfig() *SequencingConfig {
 // TestSequencingConfig returns a default configuration for the rollup sequencing.
 func TestSequencingConfig() *SequencingConfig {
 	return &SequencingConfig{
-		TimeoutPropose: 300 * time.Millisecond,
+		BlockInterval: 300 * time.Millisecond,
 
 		CreateEmptyBlocks:         true,
 		CreateEmptyBlocksInterval: 0,
@@ -1028,7 +1028,7 @@ func TestSequencingConfig() *SequencingConfig {
 
 // ValidateBasic performs basic validation.
 func (cfg *SequencingConfig) ValidateBasic() error {
-	if cfg.TimeoutPropose <= 0 {
+	if cfg.BlockInterval <= 0 {
 		return errors.New("timeout_propose must be greater than 0")
 	}
 	if !cfg.CreateEmptyBlocks && cfg.CreateEmptyBlocksInterval <= 0 {

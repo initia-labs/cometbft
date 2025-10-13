@@ -841,7 +841,7 @@ func defaultSequencingConfig() config.SequencingConfig {
 	cfg := *config.TestSequencingConfig()
 	cfg.CreateEmptyBlocks = true
 	cfg.CreateEmptyBlocksInterval = 100 * time.Millisecond
-	cfg.TimeoutPropose = 50 * time.Millisecond
+	cfg.BlockInterval = 50 * time.Millisecond
 	return cfg
 }
 

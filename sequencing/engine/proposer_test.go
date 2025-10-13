@@ -195,7 +195,7 @@ func newProposerTestEngine(t *testing.T, interval time.Duration) (*Engine, *stub
 	cfg := *config.TestSequencingConfig()
 	cfg.CreateEmptyBlocks = false
 	cfg.CreateEmptyBlocksInterval = interval
-	cfg.TimeoutPropose = 10 * time.Millisecond
+	cfg.BlockInterval = 10 * time.Millisecond
 
 	eng := NewEngine(log.NewNopLogger(), reactor, cfg, statePtr, pv, blockExec, blockStore, nil)
 
@@ -228,7 +228,7 @@ func TestProposeBlockRespectsCreateEmptyInterval(t *testing.T) {
 	reactor.setMempoolSize(0)
 
 	eng.stateMu.Lock()
-	eng.lastProposedBlockTime = cmttime.Now().Add(-eng.cfg.TimeoutPropose).Add(-time.Millisecond)
+	eng.lastProposedBlockTime = cmttime.Now().Add(-eng.cfg.BlockInterval).Add(-time.Millisecond)
 	eng.lastProposedBlockNumTxs = 0
 	eng.stateMu.Unlock()
 
@@ -255,7 +255,7 @@ func TestProposerProcessorCreatesBlockOnTxsAvailable(t *testing.T) {
 	reactor.setMempoolSize(1)
 
 	eng.stateMu.Lock()
-	eng.lastProposedBlockTime = cmttime.Now().Add(-eng.cfg.TimeoutPropose).Add(-time.Millisecond)
+	eng.lastProposedBlockTime = cmttime.Now().Add(-eng.cfg.BlockInterval).Add(-time.Millisecond)
 	eng.stateMu.Unlock()
 
 	done := make(chan struct{})
