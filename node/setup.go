@@ -80,21 +80,22 @@ func DefaultNewNode(config *cfg.Config, logger log.Logger) (*Node, error) {
 }
 
 // MetricsProvider returns instrumentation metrics for the components used by the node.
-type MetricsProvider func(chainID string) (*p2p.Metrics, *mempl.Metrics, *sm.Metrics, *proxy.Metrics, *seqengine.Metrics, *statesync.Metrics)
+type MetricsProvider func(chainID string) (*seqengine.Metrics, *p2p.Metrics, *mempl.Metrics, *sm.Metrics, *proxy.Metrics, any, *statesync.Metrics)
 
 // DefaultMetricsProvider returns Metrics build using Prometheus client library
 // if Prometheus is enabled. Otherwise, it returns no-op Metrics.
 func DefaultMetricsProvider(config *cfg.InstrumentationConfig) MetricsProvider {
-	return func(chainID string) (*p2p.Metrics, *mempl.Metrics, *sm.Metrics, *proxy.Metrics, *seqengine.Metrics, *statesync.Metrics) {
+	return func(chainID string) (*seqengine.Metrics, *p2p.Metrics, *mempl.Metrics, *sm.Metrics, *proxy.Metrics, any, *statesync.Metrics) {
 		if config.Prometheus {
-			return p2p.PrometheusMetrics(config.Namespace, "chain_id", chainID),
+			return seqengine.PrometheusMetrics(config.Namespace, "chain_id", chainID),
+				p2p.PrometheusMetrics(config.Namespace, "chain_id", chainID),
 				mempl.PrometheusMetrics(config.Namespace, "chain_id", chainID),
 				sm.PrometheusMetrics(config.Namespace, "chain_id", chainID),
 				proxy.PrometheusMetrics(config.Namespace, "chain_id", chainID),
-				seqengine.PrometheusMetrics(config.Namespace, "chain_id", chainID),
+				nil, // placeholder to keep the signature
 				statesync.PrometheusMetrics(config.Namespace, "chain_id", chainID)
 		}
-		return p2p.NopMetrics(), mempl.NopMetrics(), sm.NopMetrics(), proxy.NopMetrics(), seqengine.NopMetrics(), statesync.NopMetrics()
+		return seqengine.NopMetrics(), p2p.NopMetrics(), mempl.NopMetrics(), sm.NopMetrics(), proxy.NopMetrics(), nil, statesync.NopMetrics()
 	}
 }
 
