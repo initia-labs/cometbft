@@ -405,7 +405,7 @@ func NewNodeWithContext(ctx context.Context,
 		}
 	}
 
-	sequencingReactor, err := createSequencingReactor(config, state, blockExec, blockStore, mempool, privValidator, seqMetrics, logger, eventBus, stateSync)
+	sequencingReactor, err := createSequencingReactor(config, state, blockExec, blockStore, evidencePool, mempool, privValidator, seqMetrics, logger, eventBus, stateSync)
 	if err != nil {
 		return nil, fmt.Errorf("could not create sequencing reactor: %w", err)
 	}

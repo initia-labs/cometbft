@@ -177,6 +177,9 @@ func (r *testReactor) addPeer(peer *networkPeer) {
 	r.mu.Unlock()
 }
 
+func (r *testReactor) ReportConflictingVotes(height int64, blockID cmttypes.BlockID, valAddr cmttypes.Address, valIdx int32, sig1, sig2 cmttypes.ExtendedCommitSig) {
+}
+
 func newNetworkPeer(node *testNode, peerID p2p.ID) *networkPeer {
 	p := &networkPeer{
 		id:   peerID,

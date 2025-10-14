@@ -10,7 +10,7 @@ import (
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/cometbft/cometbft/sequencing/types"
 	cmtstate "github.com/cometbft/cometbft/state"
-	comettypes "github.com/cometbft/cometbft/types"
+	cmttypes "github.com/cometbft/cometbft/types"
 	cmttime "github.com/cometbft/cometbft/types/time"
 )
 
@@ -29,23 +29,21 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer bool, appl
 	}
 
 	// validate the block
-	blockParts, err := pb.Block.MakePartSet(comettypes.BlockPartSizeBytes)
+	blockParts, err := pb.Block.MakePartSet(cmttypes.BlockPartSizeBytes)
 	if err != nil {
 		e.logger.Error("failed to make block parts", "height", pb.Block.Height, "err", err)
 
 		return true, false
 	}
 
-	blockID := comettypes.BlockID{Hash: pb.Block.Hash(), PartSetHeader: blockParts.Header()}
+	blockID := cmttypes.BlockID{Hash: pb.Block.Hash(), PartSetHeader: blockParts.Header()}
 	if err := state.Validators.VerifySequencerCommit(state.ChainID, blockID, pb.Block.Height, pb.Commit.ToCommit()); err != nil {
 		e.logger.Error("failed to validate commit", "height", pb.Block.Height, "err", err)
 
 		return true, false
 	}
 	if err := e.blockExec.ValidateBlock(state, pb.Block); err != nil {
-		e.logger.Error("failed to validate proposed block", "height", pb.Block.Height, "err", err, "block", pb.Block.String())
-
-		return true, false
+		panic(fmt.Sprintf("CONSENSUS FAILURE!!! Proposed block failed validation: block (%d:%X): %v", pb.Block.Height, pb.Block.Hash(), err))
 	}
 
 	// store the block with the validator set
@@ -102,29 +100,34 @@ func (e *Engine) applyAttestorCommit(ac *types.AttestorCommit) (badPeer bool, ap
 		return false, false
 	}
 
-	var updated *comettypes.ExtendedCommit
+	var updated *cmttypes.ExtendedCommit
 	incoming := ac.Commit
 	commit := e.blockStore.LoadSeenCommit(ac.Commit.Height)
 	if commit != nil {
 		updated = commit.WrappedExtendedCommit()
 	} else {
 		updated = ac.Commit.Clone()
-		updated.ExtendedSignatures = make([]comettypes.ExtendedCommitSig, len(vals.Validators))
+		updated.ExtendedSignatures = make([]cmttypes.ExtendedCommitSig, len(vals.Validators))
 		for i := range updated.ExtendedSignatures {
-			updated.ExtendedSignatures[i] = comettypes.NewExtendedCommitSigAbsent()
+			updated.ExtendedSignatures[i] = cmttypes.NewExtendedCommitSigAbsent()
 		}
 	}
 
 	for idx, sig := range incoming.ExtendedSignatures {
 		current := updated.ExtendedSignatures[idx]
 
+		// if there's a conflicting vote, report it
+		if current.BlockIDFlag != cmttypes.BlockIDFlagAbsent && sig.BlockIDFlag != cmttypes.BlockIDFlagAbsent && current.BlockIDFlag != sig.BlockIDFlag {
+			e.reactor.ReportConflictingVotes(ac.Commit.Height, ac.Commit.BlockID, sig.ValidatorAddress, int32(idx), current, sig)
+		}
+
 		// skip it if we already have a commit signature
-		if current.BlockIDFlag != comettypes.BlockIDFlagAbsent {
+		if current.BlockIDFlag != cmttypes.BlockIDFlagAbsent {
 			continue
 		}
 
 		// skip absent signatures
-		if sig.BlockIDFlag == comettypes.BlockIDFlagAbsent {
+		if sig.BlockIDFlag == cmttypes.BlockIDFlagAbsent {
 			continue
 		}
 
@@ -183,14 +186,14 @@ func (e *Engine) attestBlock() {
 
 	attesterAddr := e.privValidatorPubKey.Address()
 	idx, attestor := validators.GetByAddress(attesterAddr)
-	if idx == -1 || attestor.VotingPower != comettypes.AttestorVotingPower {
+	if idx == -1 || attestor.VotingPower != cmttypes.AttestorVotingPower {
 		return
 	}
 
 	commit := e.blockStore.LoadSeenCommit(height)
 	if commit != nil {
 		for _, sig := range commit.Signatures {
-			if bytes.Equal(sig.ValidatorAddress, attesterAddr) && sig.BlockIDFlag != comettypes.BlockIDFlagAbsent {
+			if bytes.Equal(sig.ValidatorAddress, attesterAddr) && sig.BlockIDFlag != cmttypes.BlockIDFlagAbsent {
 				// already signed
 				return
 			}
@@ -204,7 +207,7 @@ func (e *Engine) attestBlock() {
 		return
 	}
 
-	vote := &comettypes.Vote{
+	vote := &cmttypes.Vote{
 		ValidatorAddress: attesterAddr,
 		ValidatorIndex:   idx,
 		Height:           height,
@@ -226,19 +229,19 @@ func (e *Engine) attestBlock() {
 
 	vote.Signature = v.Signature
 	if commit == nil {
-		sigs := make([]comettypes.CommitSig, validators.Size())
+		sigs := make([]cmttypes.CommitSig, validators.Size())
 		for i := range sigs {
-			sigs[i] = comettypes.NewCommitSigAbsent()
+			sigs[i] = cmttypes.NewCommitSigAbsent()
 		}
-		commit = &comettypes.Commit{
+		commit = &cmttypes.Commit{
 			Height:     height,
 			BlockID:    blockID,
 			Signatures: sigs,
 		}
 	} else if len(commit.Signatures) != validators.Size() {
-		sigs := make([]comettypes.CommitSig, validators.Size())
+		sigs := make([]cmttypes.CommitSig, validators.Size())
 		for i := range sigs {
-			sigs[i] = comettypes.NewCommitSigAbsent()
+			sigs[i] = cmttypes.NewCommitSigAbsent()
 		}
 		copy(sigs, commit.Signatures)
 		commit.Signatures = sigs
@@ -291,7 +294,7 @@ func (e *Engine) proposeBlock() {
 
 	proposerAddr := e.privValidatorPubKey.Address()
 	idx, validator := state.Validators.GetByAddress(proposerAddr)
-	if idx == -1 || validator.VotingPower != comettypes.SequencerVotingPower {
+	if idx == -1 || validator.VotingPower != cmttypes.SequencerVotingPower {
 		return
 	}
 
@@ -299,11 +302,11 @@ func (e *Engine) proposeBlock() {
 		height = state.InitialHeight
 	}
 
-	var lastExtCommit *comettypes.ExtendedCommit
+	var lastExtCommit *cmttypes.ExtendedCommit
 	if height == state.InitialHeight {
 		// We're creating a proposal for the first block.
 		// The commit is empty, but not nil.
-		lastExtCommit = &comettypes.ExtendedCommit{}
+		lastExtCommit = &cmttypes.ExtendedCommit{}
 	} else {
 		// Make the commit from LastCommit.
 		lastCommit := e.blockStore.LoadSeenCommit(height - 1)
@@ -332,7 +335,7 @@ func (e *Engine) proposeBlock() {
 	}
 
 	// create self vote
-	vote := &comettypes.Vote{
+	vote := &cmttypes.Vote{
 		ValidatorAddress: proposerAddr,
 		ValidatorIndex:   idx,
 		Height:           height,
@@ -356,11 +359,11 @@ func (e *Engine) proposeBlock() {
 	}
 
 	vote.Signature = v.Signature
-	signatures := make([]comettypes.CommitSig, state.Validators.Size())
+	signatures := make([]cmttypes.CommitSig, state.Validators.Size())
 	for i := range signatures {
-		signatures[i] = comettypes.NewCommitSigAbsent()
+		signatures[i] = cmttypes.NewCommitSigAbsent()
 	}
-	commit := &comettypes.Commit{
+	commit := &cmttypes.Commit{
 		Height:     height,
 		BlockID:    proposedBlockID,
 		Signatures: signatures,
@@ -398,15 +401,15 @@ func voteTime(lastBlockTime time.Time) time.Time {
 }
 
 // blockID computes the BlockID for a given block.
-func blockID(block *comettypes.Block) (comettypes.BlockID, error) {
+func blockID(block *cmttypes.Block) (cmttypes.BlockID, error) {
 	if block == nil {
-		return comettypes.BlockID{}, fmt.Errorf("nil block")
+		return cmttypes.BlockID{}, fmt.Errorf("nil block")
 	}
-	parts, err := block.MakePartSet(comettypes.BlockPartSizeBytes)
+	parts, err := block.MakePartSet(cmttypes.BlockPartSizeBytes)
 	if err != nil {
-		return comettypes.BlockID{}, err
+		return cmttypes.BlockID{}, err
 	}
-	return comettypes.BlockID{Hash: block.Hash(), PartSetHeader: parts.Header()}, nil
+	return cmttypes.BlockID{Hash: block.Hash(), PartSetHeader: parts.Header()}, nil
 }
 
 // ignoreSignErr returns true if the error is safe to ignore.

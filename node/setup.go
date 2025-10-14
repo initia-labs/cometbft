@@ -350,6 +350,7 @@ func createSequencingReactor(
 	state sm.State,
 	blockExec *sm.BlockExecutor,
 	blockStore *store.BlockStore,
+	evidencePool *evidence.Pool,
 	mempool mempl.Mempool,
 	privValidator types.PrivValidator,
 	metrics *seqengine.Metrics,
@@ -358,14 +359,15 @@ func createSequencingReactor(
 	deferStart bool,
 ) (*sequencing.Reactor, error) {
 	reactor, err := sequencing.NewReactor(sequencing.ReactorConfig{
-		State:      state,
-		BlockExec:  blockExec,
-		BlockStore: blockStore,
-		PrivVal:    privValidator,
-		Mempool:    mempool,
-		Config:     config.Sequencing,
-		Metrics:    metrics,
-		EventBus:   eventBus,
+		State:        state,
+		BlockExec:    blockExec,
+		BlockStore:   blockStore,
+		EvidencePool: evidencePool,
+		PrivVal:      privValidator,
+		Mempool:      mempool,
+		Config:       config.Sequencing,
+		Metrics:      metrics,
+		EventBus:     eventBus,
 	}, logger.With("module", "sequencing"))
 	if err != nil {
 		return nil, err

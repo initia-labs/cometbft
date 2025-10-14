@@ -17,20 +17,28 @@ import (
 	"github.com/cometbft/cometbft/types"
 )
 
+// interface to the evidence pool
+type evidencePool interface {
+	// reports conflicting votes to the evidence pool to be processed into evidence
+	ReportConflictingVotes(voteA, voteB *types.Vote)
+}
+
 type ReactorConfig struct {
-	State      sm.State
-	BlockExec  *sm.BlockExecutor
-	BlockStore *store.BlockStore
-	PrivVal    types.PrivValidator
-	Mempool    mempool.Mempool
-	Config     *config.SequencingConfig
-	Metrics    *seqengine.Metrics
-	EventBus   types.BlockEventPublisher
+	State        sm.State
+	BlockExec    *sm.BlockExecutor
+	BlockStore   *store.BlockStore
+	PrivVal      types.PrivValidator
+	Mempool      mempool.Mempool
+	Config       *config.SequencingConfig
+	Metrics      *seqengine.Metrics
+	EventBus     types.BlockEventPublisher
+	EvidencePool evidencePool
 }
 
 type Reactor struct {
 	p2p.BaseReactor
 
+	ep     evidencePool
 	engine *seqengine.Engine
 
 	logger log.Logger
@@ -70,6 +78,7 @@ func NewReactor(cfg ReactorConfig, logger log.Logger) (*Reactor, error) {
 	r := &Reactor{
 		logger:  logger,
 		mempool: cfg.Mempool,
+		ep:      cfg.EvidencePool,
 	}
 	if r.logger == nil {
 		r.logger = log.NewNopLogger()
@@ -297,4 +306,29 @@ func (r *Reactor) CatchUp() bool {
 	}
 
 	return r.engine.CatchUp()
+}
+
+// ReportConflictingVotes reports conflicting votes to the evidence pool to be processed into evidence
+func (r *Reactor) ReportConflictingVotes(height int64, blockID types.BlockID, valAddr types.Address, valIdx int32, sig1, sig2 types.ExtendedCommitSig) {
+	if r.ep != nil {
+		r.ep.ReportConflictingVotes(&types.Vote{
+			Height:             height,
+			BlockID:            blockID,
+			ValidatorAddress:   valAddr,
+			ValidatorIndex:     valIdx,
+			Timestamp:          sig1.Timestamp,
+			Signature:          sig1.Signature,
+			Extension:          sig1.Extension,
+			ExtensionSignature: sig1.ExtensionSignature,
+		}, &types.Vote{
+			Height:             height,
+			BlockID:            blockID,
+			ValidatorAddress:   valAddr,
+			ValidatorIndex:     valIdx,
+			Timestamp:          sig2.Timestamp,
+			Signature:          sig2.Signature,
+			Extension:          sig2.Extension,
+			ExtensionSignature: sig2.ExtensionSignature,
+		})
+	}
 }

@@ -73,6 +73,9 @@ func (r *fakeReactor) addPeer(peer p2p.Peer) {
 	r.mu.Unlock()
 }
 
+func (r *fakeReactor) ReportConflictingVotes(height int64, blockID comettypes.BlockID, valAddr comettypes.Address, valIdx int32, sig1, sig2 comettypes.ExtendedCommitSig) {
+}
+
 type recordingPeer struct {
 	*p2pmock.Peer
 	mu      sync.Mutex

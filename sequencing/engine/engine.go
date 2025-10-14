@@ -12,8 +12,13 @@ import (
 	"github.com/cometbft/cometbft/sequencing/types"
 	sm "github.com/cometbft/cometbft/state"
 	"github.com/cometbft/cometbft/store"
-	comettypes "github.com/cometbft/cometbft/types"
+	cmttypes "github.com/cometbft/cometbft/types"
 )
+
+type p2pMsg struct {
+	msg      types.Message
+	envelope p2p.Envelope
+}
 
 type Engine struct {
 	logger  log.Logger
@@ -21,7 +26,7 @@ type Engine struct {
 	cfg     config.SequencingConfig
 
 	privValidatorPubKey crypto.PubKey
-	privValidator       comettypes.PrivValidator // for signing votes
+	privValidator       cmttypes.PrivValidator // for signing votes
 
 	state   *sm.State
 	stateMu *sync.Mutex
@@ -31,13 +36,15 @@ type Engine struct {
 
 	blockExec  *sm.BlockExecutor
 	blockStore *store.BlockStore
-	eventBus   comettypes.BlockEventPublisher
+	eventBus   cmttypes.BlockEventPublisher
 
 	chainID                 string
 	lastProposedBlockHeight int64
 	lastProposedBlockTime   time.Time
 	lastProposedBlockNumTxs int
-	appliedCh               chan struct{}
+
+	appliedCh chan struct{}
+	receiveCh chan p2pMsg
 
 	// peer management
 	peerSet  *types.PeerSet
@@ -61,10 +68,10 @@ func NewEngine(
 	reactor types.Reactor,
 	cfg config.SequencingConfig,
 	state *sm.State,
-	privValidator comettypes.PrivValidator,
+	privValidator cmttypes.PrivValidator,
 	blockExec *sm.BlockExecutor,
 	blockStore *store.BlockStore,
-	eventBus comettypes.BlockEventPublisher,
+	eventBus cmttypes.BlockEventPublisher,
 ) *Engine {
 	pubkey, err := privValidator.GetPubKey()
 	if err != nil {
@@ -85,6 +92,7 @@ func NewEngine(
 		stopOnce:  &sync.Once{},
 		stopCh:    make(chan struct{}),
 		appliedCh: make(chan struct{}, 1),
+		receiveCh: make(chan p2pMsg, 100),
 
 		blockExec:  blockExec,
 		blockStore: blockStore,
@@ -143,6 +151,7 @@ func (b *Engine) Start() error {
 	go b.proposerProcessor()
 	go b.attestorProcessor()
 	go b.badPeerCleanup()
+	go b.receiveRoutine()
 
 	return nil
 }
@@ -181,20 +190,37 @@ func (p *Engine) flagBadPeer(pid p2p.ID, reason string) {
 	p.logger.Error("flagged bad peer", "peer", pid, "reason", reason)
 }
 
-func (p *Engine) Receive(msg types.Message, envelope p2p.Envelope) {
-	if _, ok := p.badPeers.Load(envelope.Src.ID()); ok {
-		return
-	}
+func (p *Engine) receiveRoutine() {
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case p2pMsg := <-p.receiveCh:
+			msg := p2pMsg.msg
+			envelope := p2pMsg.envelope
 
-	switch m := msg.(type) {
-	case *types.StatusUpdate:
-		p.handleStatusUpdate(envelope.Src, m)
-	case *types.BlockRequest:
-		p.handleBlockRequest(envelope.Src, m)
-	case *types.BlockResponse:
-		p.handleBlockResponse(envelope.Src, m)
-	default:
-		p.logger.Debug("pool received unhandled message: %T", msg)
+			// skip it if the peer is bad
+			if _, ok := p.badPeers.Load(envelope.Src.ID()); ok {
+				continue
+			}
+
+			switch m := msg.(type) {
+			case *types.StatusUpdate:
+				p.handleStatusUpdate(envelope.Src, m)
+			case *types.BlockRequest:
+				p.handleBlockRequest(envelope.Src, m)
+			case *types.BlockResponse:
+				p.handleBlockResponse(envelope.Src, m)
+			default:
+				p.logger.Debug("pool received unhandled message: %T", msg)
+			}
+		}
+	}
+}
+
+func (p *Engine) Receive(msg types.Message, envelope p2p.Envelope) {
+	if p.receiveCh != nil {
+		p.receiveCh <- p2pMsg{msg: msg, envelope: envelope}
 	}
 }
 
@@ -222,10 +248,10 @@ func (e *Engine) switchRole() {
 	defer e.stateMu.Unlock()
 
 	_, val := e.state.Validators.GetByAddress(e.privValidatorPubKey.Address())
-	if val != nil && val.VotingPower == comettypes.SequencerVotingPower {
+	if val != nil && val.VotingPower == cmttypes.SequencerVotingPower {
 		e.isSequencer.Store(true)
 		e.isAttestor.Store(false)
-	} else if val != nil && val.VotingPower == comettypes.AttestorVotingPower {
+	} else if val != nil && val.VotingPower == cmttypes.AttestorVotingPower {
 		e.isAttestor.Store(true)
 		e.isSequencer.Store(false)
 	} else {

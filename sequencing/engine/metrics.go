@@ -3,7 +3,7 @@ package engine
 import (
 	"github.com/go-kit/kit/metrics"
 
-	comettypes "github.com/cometbft/cometbft/types"
+	cmttypes "github.com/cometbft/cometbft/types"
 )
 
 const (
@@ -34,7 +34,7 @@ type Metrics struct {
 	LatestBlockHeight metrics.Gauge
 }
 
-func (m *Metrics) recordBlockMetrics(block *comettypes.Block) {
+func (m *Metrics) recordBlockMetrics(block *cmttypes.Block) {
 	if m == nil || block == nil {
 		return
 	}
