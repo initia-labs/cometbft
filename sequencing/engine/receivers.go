@@ -29,13 +29,18 @@ func (p *Engine) handleBlockRequest(peer p2p.Peer, req *types.BlockRequest) {
 	if block == nil {
 		return
 	}
+	// BlockStore persists block h plus last commit (h-1) and seen commit h, so we
+	// must load the seen commit at the requested height to return the block's
+	// current commit.
 	commit := p.blockStore.LoadSeenCommit(req.Height)
 	if commit == nil {
 		return
 	}
 
-	// Skip adding the requester to the provenance list so downstream nodes
-	// recognize this as a direct reply instead of fresh gossip.
+	// The extended commit already encloses attestor signatures, so there is no
+	// separate attestor payload to attach here. Skip adding the requester to the
+	// provenance list so downstream nodes treat this as a direct reply rather
+	// than fresh gossip.
 	res := &types.BlockResponse{
 		ProposedBlock: &types.ProposedBlock{
 			Block:  block,
