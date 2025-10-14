@@ -347,8 +347,10 @@ func (e *Engine) proposeBlock() {
 		if strings.Contains(err.Error(), "exhausted all attempts") {
 			panic(fmt.Sprintf("Failed to sign proposal vote: %v", err))
 		}
-		if !strings.Contains(err.Error(), "regression") {
+		if !ignoreSignErr(err) {
 			e.logger.Error("unable to sign proposal vote", "height", height, "err", err)
+		} else {
+			e.logger.Debug("ignoring error signing proposal vote", "height", height, "err", err)
 		}
 		return
 	}
@@ -405,4 +407,23 @@ func blockID(block *comettypes.Block) (comettypes.BlockID, error) {
 		return comettypes.BlockID{}, err
 	}
 	return comettypes.BlockID{Hash: block.Hash(), PartSetHeader: parts.Header()}, nil
+}
+
+// ignoreSignErr returns true if the error is safe to ignore.
+func ignoreSignErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	// already signed by other instance
+	ignoreErrors := []string{
+		"regression",
+		"double signing",   // tmkms
+		"conflicting data", // cometkms
+	}
+	for _, substr := range ignoreErrors {
+		if strings.Contains(err.Error(), substr) {
+			return true
+		}
+	}
+	return false
 }
