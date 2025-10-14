@@ -7,8 +7,9 @@ order: 2
 
 This document captures the contractual behaviour of the sequencing engine data
 structures that coordinate cross-peer block flow: the peer bucket, peer set,
-and request tracker. These types live under `sequencing/types` and are shared
-across processors inside the sequencing engine.
+request tracker, and peer relay filter. These types live under
+`sequencing/types` and are shared across processors inside the sequencing
+engine.
 
 ## Common Expectations
 
@@ -153,6 +154,53 @@ to peers while avoiding duplicate work and overloading any single peer:
 3. When responses arrive, the engine updates the peer grade with
    `RecordResponse`, removes the associated bucket entry, and releases the height
    in the request tracker.
+4. When relaying follow-up messages, processors call `PeerRelayFilter.BuildOutgoing`
+   to mark both the current recipients and any peers that have already seen the
+   payload, limiting redundant gossip without growing the payload size.
 
 These guarantees ensure deterministic ordering, graceful handling of slow or
 unresponsive peers, and bounded concurrency across the sequencing pipeline.
+
+## `PeerRelayFilter`
+
+`PeerRelayFilter` attaches to relayed sequencing messages and encodes the set of
+peers that already received the payload. It uses a fixed-size bloom filter to
+bound wire size while permitting a small false-positive rate.
+
+### Invariants
+
+- The filter is exactly 2048 bits (`256` bytes) and hashes each `p2p.ID` into
+  six bit positions derived from a SHA-256 digest using double hashing.
+- A single-byte version header precedes the bitset on the wire. Version `1`
+  matches the current layout; unsupported versions are rejected.
+- False positives are acceptable, but false negatives are not: once an ID is
+  inserted, the same ID will never report `Contains == false`.
+
+### Operations
+
+- `Add(id)` sets the six hash-derived bits. Invocations on a `nil` receiver are
+  no-ops so callers can treat a missing filter as "no tracking".
+- `Contains(id)` returns `false` when any bit is unset, guaranteeing that a
+  peer is never excluded from forwarding unless it was already recorded.
+- `Merge(other)` bitwise-ORs another filter. Either operand can be `nil` without
+  resetting state.
+- `BuildOutgoing(ids)` clones the receiver (or creates a new filter when `nil`),
+  adds the provided peer IDs, and returns the filter to attach to the outgoing
+  message. This keeps filters immutable from the caller's perspective.
+
+### Serialization
+
+- `MarshalBinary()` returns `nil` when the receiver is `nil`; otherwise it emits
+  the version header followed by the 256-byte bit payload in network order.
+- `PeerRelayFilterFromBytes(data)` accepts either an empty slice (signalling no
+  filter) or a payload with the version byte plus 256-byte body. Invalid sizes
+  or versions return an error without mutating the filter.
+
+### Nil Semantics
+
+- Callers may treat a `nil` filter as "no tracking": `Add`/`Merge` ignore it and
+  `Contains` reports `false`.
+- `PeerRelayFilterFromBytes(nil)` returns `(nil, nil)` so direct replies can
+  omit the bloom entirely without allocating.
+- Cloning a `nil` filter yields `nil`, which preserves the sentinel semantics
+  while allowing the same helper code paths as populated filters.
