@@ -247,6 +247,11 @@ func (e *Engine) switchRole() {
 	e.stateMu.Lock()
 	defer e.stateMu.Unlock()
 
+	e.switchRoleLocked()
+}
+
+// switchRoleLocked checks the validator set and updates whether we are a sequencer or attestor
+func (e *Engine) switchRoleLocked() {
 	_, val := e.state.Validators.GetByAddress(e.privValidatorPubKey.Address())
 	if val != nil && val.VotingPower == cmttypes.SequencerVotingPower {
 		e.isSequencer.Store(true)

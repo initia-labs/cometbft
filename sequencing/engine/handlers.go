@@ -60,10 +60,10 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer bool, appl
 	e.lastProposedBlockHeight = pb.Block.Height
 	e.lastProposedBlockTime = cmtstate.MedianTime(pb.Commit.ToCommit(), state.LastValidators)
 	e.lastProposedBlockNumTxs = len(pb.Block.Data.Txs)
-	e.stateMu.Unlock()
 
 	// try to update our role in case validator set changed
-	e.switchRole()
+	e.switchRoleLocked()
+	e.stateMu.Unlock()
 
 	e.metrics.recordBlockMetrics(pb.Block)
 
@@ -263,12 +263,11 @@ func (e *Engine) attestBlock() {
 
 // produce next block if we are a sequencer
 func (e *Engine) proposeBlock() {
+	e.stateMu.Lock()
 	if !e.isSequencer.Load() {
+		e.stateMu.Unlock()
 		return
 	}
-
-	e.stateMu.Lock()
-
 	height := e.state.LastBlockHeight + 1
 	if height <= e.lastProposedBlockHeight {
 		e.stateMu.Unlock()
