@@ -21,7 +21,7 @@ LOOP:
 			if blockInfo.Block != nil {
 				block := blockInfo.Block
 
-				if block.Height <= rs.state.LastBlockHeight {
+				if block.Height < rs.state.LastBlockHeight {
 					if block.Height == 1 {
 						rs.logger.Info("ignore genesis block")
 						continue
@@ -29,7 +29,7 @@ LOOP:
 
 					// end rollup syncer
 					return fmt.Errorf("need to rollback to height %d", block.Height-1)
-				} else if rs.state.LastBlockHeight+1 < block.Height {
+				} else if rs.state.LastBlockHeight+1 < block.Height || rs.state.LastBlockHeight == block.Height {
 					// rs.logger.Info("block height mismatch", "expected", rs.state.LastBlockHeight+1, "got", block.Height)
 					// ignore invalid block
 					continue
