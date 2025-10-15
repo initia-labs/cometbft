@@ -47,7 +47,7 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer bool, appl
 	}
 
 	// store the block with the validator set
-	e.blockStore.SaveBlockWithValidatorSet(pb.Block, blockParts, pb.Commit.ToCommit(), state.NextValidators)
+	e.blockStore.SaveBlockWithValidatorSet(pb.Block, blockParts, pb.Commit.ToCommit(), state.Validators)
 
 	// apply the block
 	state, err = e.blockExec.ApplyVerifiedBlock(state, blockID, pb.Block)
