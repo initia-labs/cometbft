@@ -220,7 +220,7 @@ func (cs *State) IsValidator(state sm.State) bool {
 
 // SetLogger implements Service.
 func (cs *State) SetLogger(l log.Logger) {
-	cs.BaseService.Logger = l
+	cs.Logger = l
 	cs.timeoutTicker.SetLogger(l)
 }
 
@@ -259,7 +259,7 @@ func (cs *State) GetState() sm.State {
 func (cs *State) GetLastHeight() int64 {
 	cs.mtx.RLock()
 	defer cs.mtx.RUnlock()
-	return cs.RoundState.Height - 1
+	return cs.Height - 1
 }
 
 // GetRoundState returns a shallow copy of the internal consensus state.
@@ -281,7 +281,7 @@ func (cs *State) GetRoundStateJSON() ([]byte, error) {
 func (cs *State) GetRoundStateSimpleJSON() ([]byte, error) {
 	cs.mtx.RLock()
 	defer cs.mtx.RUnlock()
-	return cmtjson.Marshal(cs.RoundState.RoundStateSimple())
+	return cmtjson.Marshal(cs.RoundStateSimple())
 }
 
 // GetValidators returns a copy of the current validators.
@@ -1060,6 +1060,7 @@ func (cs *State) handleTimeout(ti timeoutInfo, rs cstypes.RoundState) {
 			cs.Logger.Error("failed publishing timeout wait", "err", err)
 		}
 
+		cs.emitPrecommitTimeoutMetrics(ti.Round)
 		cs.enterPrecommit(ti.Height, ti.Round)
 		cs.enterNewRound(ti.Height, ti.Round+1)
 
@@ -1788,6 +1789,8 @@ func (cs *State) finalizeCommit(height int64) {
 		panic(err)
 	}
 
+	cs.calculatePrecommitMessageDelayMetrics()
+
 	logger.Info(
 		"finalizing commit of block",
 		"hash", log.NewLazyBlockHash(block),
@@ -1989,8 +1992,8 @@ func (cs *State) recordMetrics(height int64, block *types.Block) {
 		}
 	}
 
-	cs.metrics.NumTxs.Set(float64(len(block.Data.Txs)))
-	cs.metrics.TotalTxs.Add(float64(len(block.Data.Txs)))
+	cs.metrics.NumTxs.Set(float64(len(block.Txs)))
+	cs.metrics.TotalTxs.Add(float64(len(block.Txs)))
 	cs.metrics.BlockSizeBytes.Set(float64(block.Size()))
 	cs.metrics.ChainSizeBytes.Add(float64(block.Size()))
 	cs.metrics.CommittedHeight.Set(float64(block.Height))
@@ -2609,6 +2612,61 @@ func (cs *State) checkDoubleSigningRisk(height int64) error {
 	}
 
 	return nil
+}
+
+// emitPrecommitTimeoutMetrics calculates and emits metrics for votes collected
+// during the TimeoutCommit period.
+func (cs *State) emitPrecommitTimeoutMetrics(round int32) {
+	// Count votes and accumulate voting power from LastCommit
+	// (these are the votes collected during TimeoutCommit for the previous height)
+	totalVotesCollected := 0
+	totalVotingPowerCollected := int64(0)
+
+	for _, vote := range cs.Votes.Precommits(round).List() {
+		totalVotesCollected++
+		_, val := cs.Validators.GetByAddress(vote.ValidatorAddress)
+		if val != nil {
+			totalVotingPowerCollected += val.VotingPower
+		}
+	}
+
+	// Calculate stake percentage of votes collected during TimeoutCommit
+	totalPossibleVotingPower := cs.Validators.TotalVotingPower()
+	var stakePercentage float64
+	if totalPossibleVotingPower > 0 {
+		stakePercentage = float64(totalVotingPowerCollected) / float64(totalPossibleVotingPower)
+	}
+
+	// Emit metrics showing what was collected during TimeoutCommit
+	cs.metrics.PrecommitsCounted.Set(float64(totalVotesCollected))
+	cs.metrics.PrecommitsStakingPercentage.Set(stakePercentage)
+
+	cs.Logger.Debug("emitted post-quorum precommit metrics",
+		"votes_collected", totalVotesCollected,
+		"stake_percentage", stakePercentage)
+}
+
+func (cs *State) calculatePrecommitMessageDelayMetrics() {
+	if cs.Proposal == nil {
+		return
+	}
+
+	ps := cs.Votes.Precommits(cs.Round)
+	pl := ps.List()
+
+	sort.Slice(pl, func(i, j int) bool {
+		return pl[i].Timestamp.Before(pl[j].Timestamp)
+	})
+
+	var votingPowerSeen int64
+	for _, v := range pl {
+		_, val := cs.Validators.GetByAddress(v.ValidatorAddress)
+		votingPowerSeen += val.VotingPower
+		if votingPowerSeen >= cs.Validators.TotalVotingPower()*2/3+1 {
+			cs.metrics.QuorumPrecommitDelay.With("proposer_address", cs.Validators.GetProposer().Address.String()).Set(v.Timestamp.Sub(cs.Proposal.Timestamp).Seconds())
+			break
+		}
+	}
 }
 
 func (cs *State) calculatePrevoteMessageDelayMetrics() {
