@@ -268,7 +268,6 @@ func (e *Engine) proposeBlock() {
 	}
 
 	e.stateMu.Lock()
-
 	// check one more time after holding the lock
 	if !e.isSequencer.Load() {
 		e.stateMu.Unlock()
