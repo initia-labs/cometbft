@@ -102,12 +102,13 @@ func (e *Engine) requestBlock(h int64) bool {
 			continue
 		}
 
-		peer.Send(p2p.Envelope{
+		if peer.Send(p2p.Envelope{
 			Message:   types.MsgToProto(&types.BlockRequest{Height: h}),
 			ChannelID: types.SyncChannel,
-		})
-		e.peerSet.RecordRequest(pid, h, now, blockRequestTimeout)
-		sent = true
+		}) {
+			e.peerSet.RecordRequest(pid, h, now, blockRequestTimeout)
+			sent = true
+		}
 	}
 
 	return sent
