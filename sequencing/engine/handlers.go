@@ -263,7 +263,13 @@ func (e *Engine) attestBlock() {
 
 // produce next block if we are a sequencer
 func (e *Engine) proposeBlock() {
+	if !e.isSequencer.Load() {
+		return
+	}
+
 	e.stateMu.Lock()
+
+	// check one more time after holding the lock
 	if !e.isSequencer.Load() {
 		e.stateMu.Unlock()
 		return
