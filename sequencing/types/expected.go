@@ -14,5 +14,5 @@ type Reactor interface {
 	TxsAvailable() <-chan struct{}
 
 	// reports conflicting votes to the evidence pool to be processed into evidence
-	ReportConflictingVotes(height int64, blockID types.BlockID, valAddr types.Address, valIdx int32, sig1, sig2 types.ExtendedCommitSig)
+	ReportConflictingVotes(vote1, vote2 *types.Vote)
 }

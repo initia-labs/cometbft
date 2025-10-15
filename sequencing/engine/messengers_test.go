@@ -12,7 +12,7 @@ import (
 	p2pmock "github.com/cometbft/cometbft/p2p/mock"
 	seqproto "github.com/cometbft/cometbft/proto/tendermint/sequencing"
 	"github.com/cometbft/cometbft/sequencing/types"
-	comettypes "github.com/cometbft/cometbft/types"
+	cmttypes "github.com/cometbft/cometbft/types"
 )
 
 type fakeReactor struct {
@@ -73,8 +73,7 @@ func (r *fakeReactor) addPeer(peer p2p.Peer) {
 	r.mu.Unlock()
 }
 
-func (r *fakeReactor) ReportConflictingVotes(height int64, blockID comettypes.BlockID, valAddr comettypes.Address, valIdx int32, sig1, sig2 comettypes.ExtendedCommitSig) {
-}
+func (r *fakeReactor) ReportConflictingVotes(vote1, vote2 *cmttypes.Vote) {}
 
 type recordingPeer struct {
 	*p2pmock.Peer
@@ -228,12 +227,12 @@ func TestBroadcastAttestorCommitSkipsFilteredPeers(t *testing.T) {
 	hash := tmhash.New()
 	hash.Write([]byte("non-empty-hash"))
 	attestorCommit := &types.AttestorCommit{
-		Commit: &comettypes.ExtendedCommit{
+		Commit: &cmttypes.ExtendedCommit{
 			Height: 7,
-			ExtendedSignatures: []comettypes.ExtendedCommitSig{
-				comettypes.NewExtendedCommitSigAbsent(),
+			ExtendedSignatures: []cmttypes.ExtendedCommitSig{
+				cmttypes.NewExtendedCommitSigAbsent(),
 			},
-			BlockID: comettypes.BlockID{Hash: hash.Sum(nil)},
+			BlockID: cmttypes.BlockID{Hash: hash.Sum(nil)},
 		},
 		PeerFilter: filter,
 	}
@@ -311,24 +310,24 @@ func TestBroadcastProposedBlockSkipsFilteredPeers(t *testing.T) {
 
 	hash := tmhash.New()
 	hash.Write([]byte("non-empty-hash"))
-	lastCommit := &comettypes.Commit{
+	lastCommit := &cmttypes.Commit{
 		Height:  1,
 		Round:   0,
-		BlockID: comettypes.BlockID{Hash: hash.Sum(nil)},
-		Signatures: []comettypes.CommitSig{
-			comettypes.NewCommitSigAbsent(),
+		BlockID: cmttypes.BlockID{Hash: hash.Sum(nil)},
+		Signatures: []cmttypes.CommitSig{
+			cmttypes.NewCommitSigAbsent(),
 		},
 	}
-	block := comettypes.MakeBlock(2, nil, lastCommit, nil)
+	block := cmttypes.MakeBlock(2, nil, lastCommit, nil)
 	block.Header.ProposerAddress = make([]byte, 20)
 
 	proposedBlock := &types.ProposedBlock{
 		Block: block,
-		Commit: &comettypes.ExtendedCommit{
+		Commit: &cmttypes.ExtendedCommit{
 			Height:  2,
-			BlockID: comettypes.BlockID{Hash: hash.Sum(nil)},
-			ExtendedSignatures: []comettypes.ExtendedCommitSig{
-				comettypes.NewExtendedCommitSigAbsent(),
+			BlockID: cmttypes.BlockID{Hash: hash.Sum(nil)},
+			ExtendedSignatures: []cmttypes.ExtendedCommitSig{
+				cmttypes.NewExtendedCommitSigAbsent(),
 			},
 		},
 		PeerFilter: filter,

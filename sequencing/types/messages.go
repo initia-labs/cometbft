@@ -38,6 +38,23 @@ func ProposedBlockFromProto(pb *seqproto.ProposedBlock, filter *PeerRelayFilter)
 	}, nil
 }
 
+// ValidateBasic performs basic validation.
+func (m *ProposedBlock) ValidateBasic() error {
+	if m.Block == nil {
+		return fmt.Errorf("nil block")
+	}
+	if err := m.Block.ValidateBasic(); err != nil {
+		return fmt.Errorf("invalid block: %w", err)
+	}
+	if m.Commit == nil {
+		return fmt.Errorf("nil commit")
+	}
+	if err := m.Commit.ValidateBasic(); err != nil {
+		return fmt.Errorf("invalid commit: %w", err)
+	}
+	return nil
+}
+
 type AttestorCommit struct {
 	Commit     *types.ExtendedCommit
 	PeerFilter *PeerRelayFilter
@@ -52,6 +69,16 @@ func AttestorCommitFromProto(pb *seqproto.AttestorCommit, filter *PeerRelayFilte
 		return nil, err
 	}
 	return &AttestorCommit{Commit: commit, PeerFilter: filter}, nil
+}
+
+func (m *AttestorCommit) ValidateBasic() error {
+	if m.Commit == nil {
+		return fmt.Errorf("nil commit")
+	}
+	if err := m.Commit.ValidateBasic(); err != nil {
+		return fmt.Errorf("invalid commit: %w", err)
+	}
+	return nil
 }
 
 type StatusUpdate struct {
@@ -129,11 +156,17 @@ func BlockResponseFromProto(pb *seqproto.BlockResponse) (*BlockResponse, error) 
 		if err != nil {
 			return nil, err
 		}
+		if err := proposedBlock.ValidateBasic(); err != nil {
+			return nil, err
+		}
 	}
 	var attesterExtCommit *AttestorCommit
 	if pb.AttesterCommit != nil {
 		attesterExtCommit, err = AttestorCommitFromProto(pb.AttesterCommit, filter.Clone())
 		if err != nil {
+			return nil, err
+		}
+		if err := attesterExtCommit.ValidateBasic(); err != nil {
 			return nil, err
 		}
 	}

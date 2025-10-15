@@ -24,7 +24,7 @@ func (e *Engine) blockProcessor() {
 				// try to keep a buffer of future blocks
 				e.requestFutureBlocks(stateHeight)
 
-				id, height, proposedBlock, ok := e.blockBucket.PopLowest()
+				pid, height, proposedBlock, ok := e.blockBucket.PopLowest()
 				if !ok {
 					break
 				}
@@ -35,7 +35,7 @@ func (e *Engine) blockProcessor() {
 					continue
 				} else if height > stateHeight+1 {
 					// future block, put it back and wait for the next tick
-					e.blockBucket.Add(id, height, proposedBlock)
+					e.blockBucket.Add(pid, height, proposedBlock)
 					e.requestWindow.Release(height)
 
 					// need to request the missing blocks
@@ -50,20 +50,23 @@ func (e *Engine) blockProcessor() {
 				// or the next height (in case we missed the previous block)
 				// otherwise put it back and wait for the next tick
 
-				e.logger.Debug("block processor popped block", "peer", id, "height", height)
+				e.logger.Debug("block processor popped block", "peer", pid, "height", height)
 
 				// try to register event bus after we receive block
 				e.tryRegisterEventBus()
 
 				if badPeer, applied := e.applyProposedBlock(proposedBlock); badPeer {
-					e.flagBadPeer(id, "sent invalid proposed block")
+					e.flagBadPeer(pid, "sent invalid proposed block")
 				} else if applied {
-					e.logger.Info("applied proposed block", "peer", id, "height", height)
+					e.logger.Info("applied proposed block", "peer", pid, "height", height)
 
 					// Only rebroadcast when the message carried provenance (i.e. not a direct reply).
 					if proposedBlock.PeerFilter != nil {
 						e.broadcastProposedBlock(proposedBlock)
 					}
+				} else if !applied && proposedBlock != nil && proposedBlock.Commit != nil {
+					// If the block was not applied, it may be because we are on a different fork.
+					e.enqueueConflictingCommit(pid, proposedBlock.Commit.ToCommit())
 				}
 
 				e.requestWindow.Release(height)
@@ -155,6 +158,19 @@ func (e *Engine) attestorProcessor() {
 		case <-e.stopCh:
 			ticker.Stop()
 			return
+		}
+	}
+}
+
+func (e *Engine) conflictingVoteProcessor() {
+	for {
+		select {
+		case <-e.stopCh:
+			return
+		case item := <-e.conflictingVotesCh:
+			if item.commit != nil {
+				e.checkConflictingVotes(item.peerID, item.commit)
+			}
 		}
 	}
 }

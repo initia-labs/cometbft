@@ -160,8 +160,7 @@ func (r *stubReactor) notifyTxsAvailable() {
 	}
 }
 
-func (r *stubReactor) ReportConflictingVotes(height int64, blockID cmttypes.BlockID, valAddr cmttypes.Address, valIdx int32, sig1, sig2 cmttypes.ExtendedCommitSig) {
-}
+func (r *stubReactor) ReportConflictingVotes(vote1, vote2 *cmttypes.Vote) {}
 
 func newProposerTestEngine(t *testing.T, interval time.Duration) (*Engine, *stubReactor, *stubMempool) {
 	t.Helper()

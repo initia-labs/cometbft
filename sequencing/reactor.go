@@ -309,26 +309,8 @@ func (r *Reactor) CatchUp() bool {
 }
 
 // ReportConflictingVotes reports conflicting votes to the evidence pool to be processed into evidence
-func (r *Reactor) ReportConflictingVotes(height int64, blockID types.BlockID, valAddr types.Address, valIdx int32, sig1, sig2 types.ExtendedCommitSig) {
+func (r *Reactor) ReportConflictingVotes(vote1, vote2 *types.Vote) {
 	if r.ep != nil {
-		r.ep.ReportConflictingVotes(&types.Vote{
-			Height:             height,
-			BlockID:            blockID,
-			ValidatorAddress:   valAddr,
-			ValidatorIndex:     valIdx,
-			Timestamp:          sig1.Timestamp,
-			Signature:          sig1.Signature,
-			Extension:          sig1.Extension,
-			ExtensionSignature: sig1.ExtensionSignature,
-		}, &types.Vote{
-			Height:             height,
-			BlockID:            blockID,
-			ValidatorAddress:   valAddr,
-			ValidatorIndex:     valIdx,
-			Timestamp:          sig2.Timestamp,
-			Signature:          sig2.Signature,
-			Extension:          sig2.Extension,
-			ExtensionSignature: sig2.ExtensionSignature,
-		})
+		r.ep.ReportConflictingVotes(vote1, vote2)
 	}
 }

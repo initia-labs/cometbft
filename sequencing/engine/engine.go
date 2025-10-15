@@ -20,6 +20,11 @@ type p2pMsg struct {
 	envelope p2p.Envelope
 }
 
+type conflictingCommit struct {
+	peerID p2p.ID
+	commit *cmttypes.Commit
+}
+
 type Engine struct {
 	logger  log.Logger
 	reactor types.Reactor
@@ -43,8 +48,9 @@ type Engine struct {
 	lastProposedBlockTime   time.Time
 	lastProposedBlockNumTxs int
 
-	appliedCh chan struct{}
-	receiveCh chan p2pMsg
+	appliedCh          chan struct{}
+	receiveCh          chan p2pMsg
+	conflictingVotesCh chan conflictingCommit
 
 	// peer management
 	peerSet  *types.PeerSet
@@ -89,10 +95,11 @@ func NewEngine(
 		privValidator:       privValidator,
 		privValidatorPubKey: pubkey,
 
-		stopOnce:  &sync.Once{},
-		stopCh:    make(chan struct{}),
-		appliedCh: make(chan struct{}, 1),
-		receiveCh: make(chan p2pMsg, 100),
+		stopOnce:           &sync.Once{},
+		stopCh:             make(chan struct{}),
+		appliedCh:          make(chan struct{}, 1),
+		receiveCh:          make(chan p2pMsg, 100),
+		conflictingVotesCh: make(chan conflictingCommit, 4),
 
 		blockExec:  blockExec,
 		blockStore: blockStore,
@@ -135,6 +142,17 @@ func (e *Engine) signalBlockApplied() {
 	}
 }
 
+func (e *Engine) enqueueConflictingCommit(pid p2p.ID, commit *cmttypes.Commit) {
+	if commit == nil {
+		return
+	}
+	select {
+	case e.conflictingVotesCh <- conflictingCommit{peerID: pid, commit: commit}:
+	default:
+		e.logger.Debug("conflicting vote queue full; dropping commit", "peer", pid, "height", commit.Height)
+	}
+}
+
 // SetMetrics overrides the Engine metrics. Passing nil resets metrics to no-ops.
 func (b *Engine) SetMetrics(m *Metrics) {
 	if m == nil {
@@ -152,6 +170,7 @@ func (b *Engine) Start() error {
 	go b.attestorProcessor()
 	go b.badPeerCleanup()
 	go b.receiveRoutine()
+	go b.conflictingVoteProcessor()
 
 	return nil
 }

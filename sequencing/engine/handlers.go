@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cometbft/cometbft/p2p"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/cometbft/cometbft/sequencing/types"
 	cmtstate "github.com/cometbft/cometbft/state"
@@ -116,11 +117,6 @@ func (e *Engine) applyAttestorCommit(ac *types.AttestorCommit) (badPeer bool, ap
 	for idx, sig := range incoming.ExtendedSignatures {
 		current := updated.ExtendedSignatures[idx]
 
-		// if there's a conflicting vote, report it
-		if current.BlockIDFlag != cmttypes.BlockIDFlagAbsent && sig.BlockIDFlag != cmttypes.BlockIDFlagAbsent && current.BlockIDFlag != sig.BlockIDFlag {
-			e.reactor.ReportConflictingVotes(ac.Commit.Height, ac.Commit.BlockID, sig.ValidatorAddress, int32(idx), current, sig)
-		}
-
 		// skip it if we already have a commit signature
 		if current.BlockIDFlag != cmttypes.BlockIDFlagAbsent {
 			continue
@@ -227,7 +223,9 @@ func (e *Engine) attestBlock() {
 		return
 	}
 
+	vote.Timestamp = v.Timestamp
 	vote.Signature = v.Signature
+	vote.ExtensionSignature = v.ExtensionSignature
 	if commit == nil {
 		sigs := make([]cmttypes.CommitSig, validators.Size())
 		for i := range sigs {
@@ -362,7 +360,9 @@ func (e *Engine) proposeBlock() {
 		return
 	}
 
+	vote.Timestamp = v.Timestamp
 	vote.Signature = v.Signature
+	vote.ExtensionSignature = v.ExtensionSignature
 	signatures := make([]cmttypes.CommitSig, state.Validators.Size())
 	for i := range signatures {
 		signatures[i] = cmttypes.NewCommitSigAbsent()
@@ -433,4 +433,69 @@ func ignoreSignErr(err error) bool {
 		}
 	}
 	return false
+}
+
+// checkConflictingVotes checks whether the given commit has any conflicting votes
+// compared to the already stored commit for the same height. If so, it reports
+// them to the reactor.
+func (e *Engine) checkConflictingVotes(pid p2p.ID, commit *cmttypes.Commit) {
+	if commit == nil {
+		return
+	}
+	// load the commit for this height
+	currentCommit := e.blockStore.LoadSeenCommit(commit.Height)
+	if currentCommit == nil {
+		return
+	}
+	// check if the block IDs differ
+	if currentCommit.BlockID.Equals(commit.BlockID) {
+		return
+	}
+
+	// if it is different, check each votes
+	block := e.blockStore.LoadBlock(commit.Height)
+	if block == nil {
+		return
+	}
+	vals := e.blockStore.LoadValidatorSet(block.ValidatorsHash)
+	if vals == nil {
+		return
+	}
+
+	found := false
+	for i, sig := range commit.Signatures {
+		vote := commit.GetVote(int32(i))
+		if vote == nil {
+			continue
+		}
+
+		valIdx, val := vals.GetByAddress(sig.ValidatorAddress)
+		if valIdx == -1 || val == nil || val.PubKey == nil {
+			continue
+		}
+		currentVote := currentCommit.GetVote(valIdx)
+		if currentVote == nil {
+			continue
+		}
+
+		// if one of them is not a commit, it is not conflicting
+		if currentVote.CommitSig().BlockIDFlag != cmttypes.BlockIDFlagCommit || vote.CommitSig().BlockIDFlag != cmttypes.BlockIDFlagCommit {
+			continue
+		}
+
+		// if it is conflicting, then verify the signature
+		if err := vote.Verify(e.chainID, val.PubKey); err != nil {
+			e.logger.Debug("conflicting vote failed verification", "height", commit.Height, "val_index", valIdx, "err", err)
+			continue
+		}
+
+		// report conflicting vote
+		e.logger.Info("detected conflicting vote", "height", commit.Height, "val_index", valIdx, "val_addr", sig.ValidatorAddress, "current_block_id", currentCommit.BlockID, "commit_block_id", commit.BlockID)
+		e.reactor.ReportConflictingVotes(currentVote, vote)
+		found = true
+	}
+
+	if found {
+		e.flagBadPeer(pid, "sent commit with conflicting votes")
+	}
 }
