@@ -990,6 +990,17 @@ type RollupSyncConfig struct {
 	TxsPerPage                 int64                 `mapstructure:"txs_per_page"`
 	BatchChainQueryHeightRange int64                 `mapstructure:"batch_chain_query_height_range"`
 	RPCServers                 []RollupSyncRPCConfig `mapstructure:"rpc_servers"`
+
+	// The start height of the batch chain to search batch data.
+	// It's automatically configured and only used for debugging.
+	// When set to 0, this option is ignored.
+	BatchChainQueryHeightStart int64 `mapstructure:"batch_chain_query_height_start"`
+	// The index of the batch info to search batch data.
+	BatchInfoIndex int64 `mapstructure:"batch_info_index"`
+	// The target height to sync to.
+	// It's automatically configured and only used for debugging.
+	// When set to 0, this option is ignored.
+	TargetHeight uint64 `mapstructure:"target_height"`
 }
 
 type RollupSyncRPCConfig struct {

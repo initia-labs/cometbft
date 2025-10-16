@@ -90,6 +90,10 @@ func AddNodeFlags(cmd *cobra.Command) {
 		"db_dir",
 		config.DBPath,
 		"database directory")
+
+	cmd.Flags().Int64("rollupsync.batch_chain_query_height_start", 0, "the start height of the batch chain to search batch data")
+	cmd.Flags().Int64("rollupsync.batch_info_index", 0, "the index of the batch info to search batch data")
+	cmd.Flags().Uint64("rollupsync.target_height", 0, "the target L2 block height to sync to")
 }
 
 // NewRunNodeCmd returns the command that allows the CLI to start a node.

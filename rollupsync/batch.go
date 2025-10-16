@@ -139,10 +139,16 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 			case rstypes.BatchDataTypeHeader:
 				dataHeader, err := rstypes.UnmarshalBatchDataHeader(batchInfo.Batch)
 				if err != nil {
-					rs.logger.Info("failed to unmarshal batch data header", "error", err.Error())
+					rs.logger.Error("failed to unmarshal batch data header", "error", err.Error())
 					// ignore invalid header
 					continue
 				}
+				if batchDataHeader != nil {
+					rs.logger.Error("previous batch header is not consumed, skip the previous one",
+						"range", fmt.Sprintf("%d ~ %d", batchDataHeader.Start, batchDataHeader.End),
+					)
+				}
+
 				batchDataHeader = &dataHeader
 				rs.logger.Info(
 					"received a batch header",
@@ -161,7 +167,7 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 
 				dataWithHeader, err := rstypes.UnmarshalBatchDataChunk(batchInfo.Batch)
 				if err != nil {
-					rs.logger.Debug("failed to unmarshal batch data chunk", "error", err.Error())
+					rs.logger.Error("failed to unmarshal batch data chunk", "error", err.Error())
 					// ignore invalid chunk
 					continue
 				}
@@ -176,10 +182,10 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 
 				if uint64(len(batchDataHeader.Checksums)) <= dataWithHeader.Index {
 					// ignore invalid chunk
-					rs.logger.Info("invalid chunk index", "checksums", len(batchDataHeader.Checksums), "index", dataWithHeader.Index)
+					rs.logger.Error("invalid chunk index", "checksums", len(batchDataHeader.Checksums), "index", dataWithHeader.Index)
 				} else if !bytes.Equal(checksum[:], batchDataHeader.Checksums[dataWithHeader.Index]) {
 					// ignore invalid chunk
-					rs.logger.Info("invalid chunk checksum", "header", batchDataHeader.Checksums[dataWithHeader.Index], "chunk", checksum)
+					rs.logger.Error("invalid chunk checksum", "header", batchDataHeader.Checksums[dataWithHeader.Index], "chunk", checksum)
 				} else {
 					chunks[dataWithHeader.Index] = chunk
 					chunkSize += len(chunk)
@@ -205,7 +211,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 	for index := range chunkLength {
 		chunk, ok := chunks[uint64(index)]
 		if !ok {
-			rs.logger.Info("missing chunks", "index", index, "length", chunkLength)
+			rs.logger.Error("missing chunks", "index", index, "length", chunkLength)
 			return nil
 		}
 		batchBytes = append(batchBytes, chunk...)
@@ -213,7 +219,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 
 	rawData, err := decompressBatch(batchBytes)
 	if err != nil {
-		rs.logger.Info("failed to decompress batch", "error", err.Error())
+		rs.logger.Error("failed to decompress batch", "error", err.Error())
 		return nil
 	}
 
@@ -230,7 +236,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 		}
 		block, err := unmarshalBlock(blockBytes)
 		if err != nil {
-			rs.logger.Info("failed to unmarshal block", "index", i, "length", len(rawBlocks), "error", err.Error())
+			rs.logger.Error("failed to unmarshal block", "index", i, "length", len(rawBlocks), "error", err.Error())
 			// ignore invalid block
 			continue
 		}
@@ -251,7 +257,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 		if validationErr != nil && strings.Contains(validationErr.Error(), "wrong Header.DataHash") {
 			// to clear the cached data hash
 			block.Data = initialBlockData
-			rs.logger.Info("wrong Header.DataHash, try to fill data with lowest priority proposer", "height", block.Height)
+			rs.logger.Error("wrong Header.DataHash, try to fill data with lowest priority proposer", "height", block.Height)
 			err := rs.fillData(ctx, block, true)
 			if err != nil {
 				rs.logger.Error("failed to fill data to block", "error", err)
@@ -278,7 +284,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 
 	commit, err := unmarshalCommit(rawCommit)
 	if err != nil {
-		rs.logger.Info("failed to unmarshal commit", "error", err.Error())
+		rs.logger.Error("failed to unmarshal commit", "error", err.Error())
 	} else if lastBlock != nil && lastBlock.Height != commit.Height {
 		rs.logger.Info("invalid commit height", "error", fmt.Sprintf("last block height: %d, commit height: %d", lastBlock.Height, commit.Height))
 	} else {

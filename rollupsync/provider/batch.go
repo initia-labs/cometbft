@@ -132,7 +132,7 @@ func (bp *BatchProvider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.
 		return true, nil
 	}
 
-	txsPerPage := int(bp.cfg.TxsPerPage)
+	txsPerPage := min(maxTxsPerPage, int(bp.cfg.TxsPerPage))
 	queryStr := fmt.Sprintf("tx.height >= %d AND tx.height < %d AND %s", height, nextHeight, rstypes.QueryEventTypeWithSubmitterFromChainType(bp.chainType, bp.submitter))
 	res, err := bp.client.TxSearch(ctx, queryStr, false, &page, &txsPerPage, "asc")
 	if err != nil {

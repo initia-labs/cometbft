@@ -15,6 +15,8 @@ import (
 	"github.com/celestiaorg/go-square/v2/tx"
 )
 
+const maxTxsPerPage = 100
+
 // newRpcClient sets up a new RPC client
 func newRpcClient(server string) (*rpchttp.HTTP, error) {
 	if !strings.Contains(server, "://") {

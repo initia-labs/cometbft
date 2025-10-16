@@ -13,26 +13,46 @@ import (
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	cmtypes "github.com/cometbft/cometbft/types"
 	"github.com/cosmos/gogoproto/proto"
+	"github.com/pkg/errors"
 )
 
 func getLength(b []byte) int {
 	return int(binary.LittleEndian.Uint64(b))
 }
 
-func decompressBatch(b []byte) ([][]byte, error) {
-	br := bytes.NewReader(b)
-	r, err := gzip.NewReader(br)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
+func decompressBatch(b []byte) (blocksBytes [][]byte, err error) {
+	var res []byte
+	for {
+		br := bytes.NewReader(b)
+		r, err := gzip.NewReader(br)
+		if err != nil {
+			return nil, err
+		}
 
-	res, err := io.ReadAll(r)
-	if err != nil {
-		return nil, err
+		res, err = io.ReadAll(r)
+		if err != nil {
+			r.Close()
+
+			// try to recover incomplete batch data
+			if len(b) > 3 {
+				if idx := bytes.Index(b[3:], []byte{0x1f, 0x8b, 0x08}); idx != -1 {
+					recoveredBlocksBytes, err := recoverIncompleteBatch(b[:idx+3])
+					if err != nil {
+						return nil, err
+					}
+					blocksBytes = append(blocksBytes, recoveredBlocksBytes...)
+					b = b[idx+3:]
+					continue
+				}
+			}
+
+			return nil, err
+		}
+
+		defer r.Close()
+		break
 	}
 
-	blocksBytes := make([][]byte, 0)
 	for offset := 0; offset < len(res); {
 		bytesLength := getLength(res[offset : offset+8])
 		offset += 8
@@ -40,6 +60,49 @@ func decompressBatch(b []byte) ([][]byte, error) {
 		offset += bytesLength
 	}
 	return blocksBytes, nil
+}
+
+func recoverIncompleteBatch(batchData []byte) ([][]byte, error) {
+	blocks := make([][]byte, 0)
+	br := bytes.NewBuffer(batchData)
+	reader, err := gzip.NewReader(br)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create gzip reader")
+	}
+
+	defer reader.Close()
+
+	buf := new(bytes.Buffer)
+	_, readErr := buf.ReadFrom(reader)
+
+	data := buf.Bytes()
+
+	partial := false
+	for offset := 0; offset < len(data); {
+		if len(data)-offset < 8 {
+			partial = true
+			break
+		}
+		length := binary.LittleEndian.Uint64(data[offset : offset+8])
+		offset += 8
+
+		if int(length) > len(data)-offset {
+			partial = true
+			break
+		}
+
+		block := make([]byte, int(length))
+		copy(block, data[offset:offset+int(length)])
+		blocks = append(blocks, block)
+		offset += int(length)
+	}
+	if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+		return nil, errors.Wrap(readErr, "failed to recover batch data")
+	}
+	if partial && errors.Is(readErr, io.ErrUnexpectedEOF) {
+		return nil, errors.New("partial batch data detected")
+	}
+	return blocks, nil
 }
 
 // unmarshal block without validation.

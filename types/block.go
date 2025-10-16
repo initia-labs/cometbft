@@ -84,8 +84,8 @@ func (b *Block) ValidateBasic() error {
 	if !bytes.Equal(b.DataHash, b.Data.Hash()) {
 		return fmt.Errorf(
 			"wrong Header.DataHash. Expected %v, got %v",
-			b.Data.Hash(),
 			b.DataHash,
+			b.Data.Hash(),
 		)
 	}
 
