@@ -222,6 +222,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 	rawCommit := rawData[dataLength-1]
 
 	var lastBlock *comettypes.Block
+	var recoveredHeights []int64
 	for i, blockBytes := range rawBlocks {
 		select {
 		case <-ctx.Done():
@@ -268,6 +269,8 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 			continue
 		}
 
+		recoveredHeights = append(recoveredHeights, block.Height)
+
 		select {
 		case <-rs.blockChClosed:
 		case rs.blockCh <- rstypes.BlockChanInfo{
@@ -275,6 +278,8 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 		}:
 		}
 	}
+
+	rs.logger.Info("recovered blocks", "heights", recoveredHeights)
 
 	commit, err := unmarshalCommit(rawCommit)
 	if err != nil {
