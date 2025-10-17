@@ -75,7 +75,7 @@ func NewRollupSyncer(
 
 func (rs *RollupSyncer) Start(baseCtx context.Context) (state.State, error) {
 	if rs.cfg.BatchChainQueryHeightStart != 0 {
-		err := rs.blockExec.Store().SetRollupSyncBatchChainHeight(rs.cfg.BatchInfoIndex, rs.cfg.BatchChainQueryHeightStart)
+		err := rs.blockExec.Store().SetRollupSyncBatchChainHeight(rs.cfg.BatchInfoIndex, rs.cfg.BatchChainQueryHeightStart-1)
 		if err != nil {
 			return rs.state, err
 		}

@@ -143,6 +143,12 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 					// ignore invalid header
 					continue
 				}
+				if batchDataHeader != nil {
+					rs.logger.Error("previous batch header is not consumed, skip the previous one",
+						"range", fmt.Sprintf("%d ~ %d", batchDataHeader.Start, batchDataHeader.End),
+					)
+				}
+
 				batchDataHeader = &dataHeader
 				rs.logger.Info(
 					"received a batch header",
@@ -176,10 +182,10 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 
 				if uint64(len(batchDataHeader.Checksums)) <= dataWithHeader.Index {
 					// ignore invalid chunk
-					rs.logger.Info("invalid chunk index", "checksums", len(batchDataHeader.Checksums), "index", dataWithHeader.Index)
+					rs.logger.Error("invalid chunk index", "checksums", len(batchDataHeader.Checksums), "index", dataWithHeader.Index)
 				} else if !bytes.Equal(checksum[:], batchDataHeader.Checksums[dataWithHeader.Index]) {
 					// ignore invalid chunk
-					rs.logger.Info("invalid chunk checksum", "header", batchDataHeader.Checksums[dataWithHeader.Index], "chunk", checksum)
+					rs.logger.Error("invalid chunk checksum", "header", batchDataHeader.Checksums[dataWithHeader.Index], "chunk", checksum)
 				} else {
 					chunks[dataWithHeader.Index] = chunk
 					chunkSize += len(chunk)
@@ -230,7 +236,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 		}
 		block, err := unmarshalBlock(blockBytes)
 		if err != nil {
-			rs.logger.Info("failed to unmarshal block", "index", i, "length", len(rawBlocks), "error", err.Error())
+			rs.logger.Error("failed to unmarshal block", "index", i, "length", len(rawBlocks), "error", err.Error())
 			// ignore invalid block
 			continue
 		}
