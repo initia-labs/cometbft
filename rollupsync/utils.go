@@ -32,6 +32,9 @@ func decompressBatch(b []byte) (blocksBytes [][]byte, err error) {
 		res, err = io.ReadAll(r)
 		if err != nil {
 			r.Close()
+			if len(b) <= 3 {
+				return nil, err
+			}
 
 			if idx := bytes.Index(b[3:], []byte{0x1f, 0x8b, 0x08}); idx != -1 {
 				recoveredBlocksBytes, err := recoverIncompleteBatch(b[:idx+3])
