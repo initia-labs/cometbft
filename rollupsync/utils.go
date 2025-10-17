@@ -32,18 +32,18 @@ func decompressBatch(b []byte) (blocksBytes [][]byte, err error) {
 		res, err = io.ReadAll(r)
 		if err != nil {
 			r.Close()
-			if len(b) <= 3 {
-				return nil, err
-			}
 
-			if idx := bytes.Index(b[3:], []byte{0x1f, 0x8b, 0x08}); idx != -1 {
-				recoveredBlocksBytes, err := recoverIncompleteBatch(b[:idx+3])
-				if err != nil {
-					return nil, err
+			// try to recover incomplete batch data
+			if len(b) > 3 {
+				if idx := bytes.Index(b[3:], []byte{0x1f, 0x8b, 0x08}); idx != -1 {
+					recoveredBlocksBytes, err := recoverIncompleteBatch(b[:idx+3])
+					if err != nil {
+						return nil, err
+					}
+					blocksBytes = append(blocksBytes, recoveredBlocksBytes...)
+					b = b[idx+3:]
+					continue
 				}
-				blocksBytes = append(blocksBytes, recoveredBlocksBytes...)
-				b = b[idx+3:]
-				continue
 			}
 
 			return nil, err
