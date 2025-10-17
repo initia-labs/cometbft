@@ -42,7 +42,7 @@ LOOP:
 
 				blockParts, err := block.MakePartSet(types.BlockPartSizeBytes)
 				if err != nil {
-					rs.logger.Info("failed to make block parts",
+					rs.logger.Error("failed to make block parts",
 						"height", block.Height,
 						"err", err.Error())
 					continue

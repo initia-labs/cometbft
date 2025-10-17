@@ -74,6 +74,13 @@ func NewRollupSyncer(
 }
 
 func (rs *RollupSyncer) Start(baseCtx context.Context) (state.State, error) {
+	if rs.cfg.BatchChainQueryHeightStart != 0 {
+		err := rs.blockExec.Store().SetRollupSyncBatchChainHeight(rs.cfg.BatchInfoIndex, rs.cfg.BatchChainQueryHeightStart)
+		if err != nil {
+			return rs.state, err
+		}
+	}
+
 	errGrp, ctx := errgroup.WithContext(baseCtx)
 	// fetch last finalized block height
 	rs.logger.Info("rollup sync mode", "mode", rs.syncMode.String())
@@ -82,6 +89,9 @@ func (rs *RollupSyncer) Start(baseCtx context.Context) (state.State, error) {
 		targetL2BlockHeight, err := rs.l1Provider.GetLastFinalizedBlock(ctx)
 		if err != nil {
 			return rs.state, err
+		}
+		if rs.cfg.TargetHeight != 0 {
+			targetL2BlockHeight = rs.cfg.TargetHeight
 		}
 		rs.targetBlockHeight = targetL2BlockHeight
 		// if the target block height is already reached, return the current state

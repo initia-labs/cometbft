@@ -139,7 +139,7 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 			case rstypes.BatchDataTypeHeader:
 				dataHeader, err := rstypes.UnmarshalBatchDataHeader(batchInfo.Batch)
 				if err != nil {
-					rs.logger.Info("failed to unmarshal batch data header", "error", err.Error())
+					rs.logger.Error("failed to unmarshal batch data header", "error", err.Error())
 					// ignore invalid header
 					continue
 				}
@@ -161,7 +161,7 @@ func (rs *RollupSyncer) batchProcessor(ctx context.Context) error {
 
 				dataWithHeader, err := rstypes.UnmarshalBatchDataChunk(batchInfo.Batch)
 				if err != nil {
-					rs.logger.Debug("failed to unmarshal batch data chunk", "error", err.Error())
+					rs.logger.Error("failed to unmarshal batch data chunk", "error", err.Error())
 					// ignore invalid chunk
 					continue
 				}
@@ -205,7 +205,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 	for index := range chunkLength {
 		chunk, ok := chunks[uint64(index)]
 		if !ok {
-			rs.logger.Info("missing chunks", "index", index, "length", chunkLength)
+			rs.logger.Error("missing chunks", "index", index, "length", chunkLength)
 			return nil
 		}
 		batchBytes = append(batchBytes, chunk...)
@@ -213,7 +213,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 
 	rawData, err := decompressBatch(batchBytes)
 	if err != nil {
-		rs.logger.Info("failed to decompress batch", "error", err.Error())
+		rs.logger.Error("failed to decompress batch", "error", err.Error())
 		return nil
 	}
 
@@ -222,7 +222,6 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 	rawCommit := rawData[dataLength-1]
 
 	var lastBlock *comettypes.Block
-	var recoveredHeights []int64
 	for i, blockBytes := range rawBlocks {
 		select {
 		case <-ctx.Done():
@@ -269,8 +268,6 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 			continue
 		}
 
-		recoveredHeights = append(recoveredHeights, block.Height)
-
 		select {
 		case <-rs.blockChClosed:
 		case rs.blockCh <- rstypes.BlockChanInfo{
@@ -279,11 +276,9 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 		}
 	}
 
-	rs.logger.Info("recovered blocks", "heights", recoveredHeights)
-
 	commit, err := unmarshalCommit(rawCommit)
 	if err != nil {
-		rs.logger.Info("failed to unmarshal commit", "error", err.Error())
+		rs.logger.Error("failed to unmarshal commit", "error", err.Error())
 	} else if lastBlock != nil && lastBlock.Height != commit.Height {
 		rs.logger.Info("invalid commit height", "error", fmt.Sprintf("last block height: %d, commit height: %d", lastBlock.Height, commit.Height))
 	} else {
