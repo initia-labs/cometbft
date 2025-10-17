@@ -252,7 +252,7 @@ func (rs *RollupSyncer) handleCompleteChunks(ctx context.Context, chunkLength in
 		if validationErr != nil && strings.Contains(validationErr.Error(), "wrong Header.DataHash") {
 			// to clear the cached data hash
 			block.Data = initialBlockData
-			rs.logger.Info("wrong Header.DataHash, try to fill data with lowest priority proposer", "height", block.Height)
+			rs.logger.Error("wrong Header.DataHash, try to fill data with lowest priority proposer", "height", block.Height)
 			err := rs.fillData(ctx, block, true)
 			if err != nil {
 				rs.logger.Error("failed to fill data to block", "error", err)

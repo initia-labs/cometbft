@@ -14,6 +14,7 @@ import (
 	"github.com/cometbft/cometbft/types"
 	"github.com/cosmos/cosmos-proto/anyutil"
 	opchildv1 "github.com/initia-labs/OPinit/api/opinit/opchild/v1"
+
 	"google.golang.org/protobuf/proto"
 )
 
@@ -108,7 +109,7 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block, propos
 				}
 
 				// fill ValidatorSet
-				if tmHeader.ValidatorSet.Size() == 0 || proposerWithLowestPriority {
+				if len(tmHeader.ValidatorSet.Validators) == 0 || proposerWithLowestPriority {
 					tmHeader.ValidatorSet = new(cmtproto.ValidatorSet)
 
 					height := tmHeader.SignedHeader.Commit.Height
@@ -134,7 +135,7 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block, propos
 				}
 
 				// fill TrustedValidators
-				if tmHeader.TrustedValidators.Size() == 0 || proposerWithLowestPriority {
+				if len(tmHeader.TrustedValidators.Validators) == 0 || proposerWithLowestPriority {
 					tmHeader.TrustedValidators = new(cmtproto.ValidatorSet)
 
 					height := int64(tmHeader.TrustedHeight.RevisionHeight + 1)
