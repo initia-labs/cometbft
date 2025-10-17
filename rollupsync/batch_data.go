@@ -110,6 +110,7 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block, propos
 
 				// fill ValidatorSet
 				if len(tmHeader.ValidatorSet.Validators) == 0 || proposerWithLowestPriority {
+					totalVotingPower := tmHeader.ValidatorSet.TotalVotingPower
 					tmHeader.ValidatorSet = new(cmtproto.ValidatorSet)
 
 					height := tmHeader.SignedHeader.Commit.Height
@@ -132,10 +133,12 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block, propos
 							}
 						}
 					}
+					tmHeader.ValidatorSet.TotalVotingPower = totalVotingPower
 				}
 
 				// fill TrustedValidators
 				if len(tmHeader.TrustedValidators.Validators) == 0 || proposerWithLowestPriority {
+					totalVotingPower := tmHeader.TrustedValidators.TotalVotingPower
 					tmHeader.TrustedValidators = new(cmtproto.ValidatorSet)
 
 					height := int64(tmHeader.TrustedHeight.RevisionHeight + 1)
@@ -173,6 +176,7 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block, propos
 							}
 						}
 					}
+					tmHeader.TrustedValidators.TotalVotingPower = totalVotingPower
 				}
 
 				// fill commit signatures
