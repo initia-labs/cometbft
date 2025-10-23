@@ -215,10 +215,6 @@ func (e *Engine) attestBlock() {
 
 	v := vote.ToProto()
 	if err = e.privValidator.SignVote(chainID, v); err != nil {
-		if strings.Contains(err.Error(), "exhausted all attempts") {
-			panic(fmt.Sprintf("Failed to sign attestor vote: %v", err))
-		}
-
 		e.logger.Error("unable to sign attestor vote", "height", height, "err", err)
 		return
 	}
@@ -349,9 +345,6 @@ func (e *Engine) proposeBlock() {
 
 	v := vote.ToProto()
 	if err = e.privValidator.SignVote(state.ChainID, v); err != nil {
-		if strings.Contains(err.Error(), "exhausted all attempts") {
-			panic(fmt.Sprintf("Failed to sign proposal vote: %v", err))
-		}
 		if !ignoreSignErr(err) {
 			e.logger.Error("unable to sign proposal vote", "height", height, "err", err)
 		} else {
