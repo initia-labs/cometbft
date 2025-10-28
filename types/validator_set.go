@@ -143,13 +143,12 @@ func (vals *ValidatorSet) IncrementProposerPriority(times int32) {
 	vals.RescalePriorities(diffMax)
 	vals.shiftByAvgProposerPriority()
 
-	var proposer *Validator
 	// Call IncrementProposerPriority(1) times times.
 	for i := int32(0); i < times; i++ {
-		proposer = vals.incrementProposerPriority()
+		vals.incrementProposerPriority()
 	}
 
-	vals.Proposer = proposer
+	vals.Proposer = vals.findProposer()
 }
 
 // RescalePriorities rescales the priorities such that the distance between the
@@ -342,20 +341,16 @@ func (vals *ValidatorSet) GetProposer() (proposer *Validator) {
 	if len(vals.Validators) == 0 {
 		return nil
 	}
-	if vals.Proposer == nil {
-		vals.Proposer = vals.findProposer()
-	}
-	return vals.Proposer.Copy()
+	return vals.findProposer()
 }
 
 func (vals *ValidatorSet) findProposer() *Validator {
-	var proposer *Validator
 	for _, val := range vals.Validators {
-		if proposer == nil || !bytes.Equal(val.Address, proposer.Address) {
-			proposer = proposer.CompareProposerPriority(val)
+		if val.VotingPower == SequencerVotingPower {
+			return val.Copy()
 		}
 	}
-	return proposer
+	return nil
 }
 
 // Hash returns the Merkle root hash build using validators (as leaves) in the
@@ -985,7 +980,7 @@ func ValidatorSetFromExistingValidators(valz []*Validator) (*ValidatorSet, error
 		Validators: valz,
 	}
 	vals.checkAllKeysHaveSameType()
-	vals.Proposer = vals.findPreviousProposer()
+	vals.Proposer = vals.findProposer()
 	vals.updateTotalVotingPower()
 	sort.Sort(ValidatorsByVotingPower(vals.Validators))
 	return vals, nil
