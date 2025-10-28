@@ -762,24 +762,6 @@ func (vals *ValidatorSet) EnsureSingleSequencer() error {
 	return nil
 }
 
-// findPreviousProposer reverses the compare proposer priority function to find the validator
-// with the lowest proposer priority which would have been the previous proposer.
-//
-// Is used when recreating a validator set from an existing array of validators.
-func (vals *ValidatorSet) findPreviousProposer() *Validator {
-	var previousProposer *Validator
-	for _, val := range vals.Validators {
-		if previousProposer == nil {
-			previousProposer = val
-			continue
-		}
-		if previousProposer == previousProposer.CompareProposerPriority(val) {
-			previousProposer = val
-		}
-	}
-	return previousProposer
-}
-
 func (vals *ValidatorSet) checkAllKeysHaveSameType() {
 	if vals.Size() == 0 {
 		vals.allKeysHaveSameType = true
