@@ -114,6 +114,11 @@ func (e *Engine) applyAttestorCommit(ac *types.AttestorCommit) (badPeer bool, ap
 		}
 	}
 
+	// check and merge signatures
+	if len(updated.ExtendedSignatures) != len(incoming.ExtendedSignatures) {
+		return true, false
+	}
+
 	for idx, sig := range incoming.ExtendedSignatures {
 		current := updated.ExtendedSignatures[idx]
 
