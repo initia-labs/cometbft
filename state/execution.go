@@ -293,7 +293,10 @@ func (blockExec *BlockExecutor) applyBlock(state State, blockID types.BlockID, b
 		state.NextValidators.IncrementProposerPriority(1)
 
 		// save the new validator set
-		blockExec.store.SaveValidators(state.LastBlockHeight+1, state.LastHeightValidatorsChanged, state.Validators)
+		err = blockExec.store.SaveValidators(state.LastBlockHeight+1, state.LastHeightValidatorsChanged, state.Validators)
+		if err != nil {
+			return state, fmt.Errorf("failed to save validators: %w", err)
+		}
 	}
 
 	// Lock mempool, commit app state, update mempoool.
@@ -642,7 +645,7 @@ func updateState(
 	}
 
 	// Update validator proposer priority and set state variables.
-	// nValSet.IncrementProposerPriority(1)
+	nValSet.IncrementProposerPriority(1)
 
 	// Update the params with the latest abciResponse.
 	nextParams := state.ConsensusParams
