@@ -13,12 +13,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 
-	bc "github.com/cometbft/cometbft/blocksync"
 	cfg "github.com/cometbft/cometbft/config"
-	cs "github.com/cometbft/cometbft/consensus"
 	"github.com/cometbft/cometbft/evidence"
 	"github.com/cometbft/cometbft/light"
 	"github.com/cometbft/cometbft/rollupsync"
+	"github.com/cometbft/cometbft/sequencing"
+	seqtypes "github.com/cometbft/cometbft/sequencing/types"
 
 	"github.com/cometbft/cometbft/libs/log"
 	cmtpubsub "github.com/cometbft/cometbft/libs/pubsub"
@@ -65,15 +65,13 @@ type Node struct {
 	eventBus          *types.EventBus // pub/sub for services
 	stateStore        sm.Store
 	blockStore        *store.BlockStore // store the blockchain to disk
-	bcReactor         p2p.Reactor       // for block-syncing
 	mempoolReactor    p2p.Reactor       // for gossipping transactions
 	mempool           mempl.Mempool
+	sequencingReactor *sequencing.Reactor
 	stateSync         bool                    // whether the node should state sync on startup
 	stateSyncReactor  *statesync.Reactor      // for hosting and restoring state sync snapshots
 	stateSyncProvider statesync.StateProvider // provides state data for bootstrapping a node
 	stateSyncGenesis  sm.State                // provides the genesis state for state sync
-	consensusState    *cs.State               // latest consensus state
-	consensusReactor  *cs.Reactor             // for participating in the consensus
 	pexReactor        *pex.Reactor            // for exchanging peer addresses
 	evidencePool      *evidence.Pool          // tracking evidence
 	proxyApp          proxy.AppConns          // connection to the application
@@ -95,8 +93,7 @@ type Option func(*Node)
 // result in replacing it with the custom one.
 //
 //   - MEMPOOL
-//   - BLOCKSYNC
-//   - CONSENSUS
+//   - SEQUENCING
 //   - EVIDENCE
 //   - PEX
 //   - STATESYNC
@@ -308,7 +305,7 @@ func NewNodeWithContext(ctx context.Context,
 		return nil, err
 	}
 
-	csMetrics, p2pMetrics, memplMetrics, smMetrics, abciMetrics, bsMetrics, ssMetrics := metricsProvider(genDoc.ChainID)
+	seqMetrics, p2pMetrics, memplMetrics, smMetrics, abciMetrics, _, ssMetrics := metricsProvider(genDoc.ChainID)
 
 	// Create the proxyApp and establish connections to the ABCI app (consensus, mempool, query).
 	proxyApp, err := createAndStartProxyAppConns(clientCreator, logger, abciMetrics)
@@ -359,9 +356,9 @@ func NewNodeWithContext(ctx context.Context,
 
 	// Create the handshaker, which calls RequestInfo, sets the AppVersion on the state,
 	// and replays any blocks as necessary to sync CometBFT with the app.
-	consensusLogger := logger.With("module", "consensus")
+	sequencingLogger := logger.With("module", "sequencing")
 	if !stateSync {
-		if err := doHandshake(ctx, stateStore, state, blockStore, genDoc, eventBus, proxyApp, consensusLogger); err != nil {
+		if err := doHandshake(ctx, stateStore, state, blockStore, genDoc, eventBus, proxyApp, sequencingLogger); err != nil {
 			return nil, err
 		}
 
@@ -374,12 +371,7 @@ func NewNodeWithContext(ctx context.Context,
 		}
 	}
 
-	// Determine whether we should do block sync. This must happen after the handshake, since the
-	// app may modify the validator set, specifying ourself as the only validator.
-	// don't start blocksync also if rollup sync is enabled
-	blockSync := !onlyValidatorIsUs(state, localAddr) && !rollupSync
-
-	logNodeStartupInfo(state, pubKey, logger, consensusLogger)
+	logNodeStartupInfo(state, pubKey, logger, sequencingLogger)
 
 	mempool, mempoolReactor := createMempoolAndMempoolReactor(config, proxyApp, state, memplMetrics, logger)
 
@@ -399,14 +391,6 @@ func NewNodeWithContext(ctx context.Context,
 		sm.BlockExecutorWithMetrics(smMetrics),
 	)
 
-	offlineStateSyncHeight := int64(0)
-	if blockStore.Height() == 0 {
-		offlineStateSyncHeight, err = blockExec.Store().GetOfflineStateSyncHeight()
-		if err != nil && err.Error() != "value empty" {
-			panic(fmt.Sprintf("failed to retrieve statesynced height from store %s; expected state store height to be %v", err, state.LastBlockHeight))
-		}
-	}
-
 	// start rollup sync first during offline
 	// rollup sync doesn't need p2p
 	if rollupSync {
@@ -421,21 +405,11 @@ func NewNodeWithContext(ctx context.Context,
 		}
 	}
 
-	// Don't start block sync if we're doing a state sync first.
-	bcReactor, err := createBlocksyncReactor(config, state, blockExec, blockStore, blockSync && !stateSync, localAddr, logger, bsMetrics, offlineStateSyncHeight)
+	sequencingReactor, err := createSequencingReactor(config, state, blockExec, blockStore, evidencePool, mempool, privValidator, seqMetrics, logger, eventBus, stateSync)
 	if err != nil {
-		return nil, fmt.Errorf("could not create blocksync reactor: %w", err)
+		return nil, fmt.Errorf("could not create sequencing reactor: %w", err)
 	}
 
-	consensusReactor, consensusState := createConsensusReactor(
-		config, state, blockExec, blockStore, mempool, evidencePool,
-		privValidator, csMetrics, stateSync || blockSync, eventBus, consensusLogger, offlineStateSyncHeight,
-	)
-
-	err = stateStore.SetOfflineStateSyncHeight(0)
-	if err != nil {
-		panic(fmt.Sprintf("failed to reset the offline state sync height %s", err))
-	}
 	// Set up state sync reactor, and schedule a sync if requested.
 	// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
 	// we should clean this whole thing up. See:
@@ -457,8 +431,8 @@ func NewNodeWithContext(ctx context.Context,
 
 	p2pLogger := logger.With("module", "p2p")
 	sw := createSwitch(
-		config, transport, p2pMetrics, peerFilters, mempoolReactor, bcReactor,
-		stateSyncReactor, consensusReactor, evidenceReactor, nodeInfo, nodeKey, p2pLogger,
+		config, transport, p2pMetrics, peerFilters, mempoolReactor,
+		stateSyncReactor, sequencingReactor, evidenceReactor, nodeInfo, nodeKey, p2pLogger,
 	)
 
 	err = sw.AddPersistentPeers(splitAndTrimEmpty(config.P2P.PersistentPeers, ",", " "))
@@ -507,23 +481,21 @@ func NewNodeWithContext(ctx context.Context,
 		nodeInfo:  nodeInfo,
 		nodeKey:   nodeKey,
 
-		stateStore:       stateStore,
-		blockStore:       blockStore,
-		bcReactor:        bcReactor,
-		mempoolReactor:   mempoolReactor,
-		mempool:          mempool,
-		consensusState:   consensusState,
-		consensusReactor: consensusReactor,
-		stateSyncReactor: stateSyncReactor,
-		stateSync:        stateSync,
-		stateSyncGenesis: state, // Shouldn't be necessary, but need a way to pass the genesis state
-		pexReactor:       pexReactor,
-		evidencePool:     evidencePool,
-		proxyApp:         proxyApp,
-		txIndexer:        txIndexer,
-		indexerService:   indexerService,
-		blockIndexer:     blockIndexer,
-		eventBus:         eventBus,
+		stateStore:        stateStore,
+		blockStore:        blockStore,
+		mempoolReactor:    mempoolReactor,
+		mempool:           mempool,
+		sequencingReactor: sequencingReactor,
+		stateSyncReactor:  stateSyncReactor,
+		stateSync:         stateSync,
+		stateSyncGenesis:  state, // Shouldn't be necessary, but need a way to pass the genesis state
+		pexReactor:        pexReactor,
+		evidencePool:      evidencePool,
+		proxyApp:          proxyApp,
+		txIndexer:         txIndexer,
+		indexerService:    indexerService,
+		blockIndexer:      blockIndexer,
+		eventBus:          eventBus,
 	}
 	node.BaseService = *service.NewBaseService(logger, "Node", node)
 
@@ -588,12 +560,21 @@ func (n *Node) OnStart() error {
 
 	// Run state sync
 	if n.stateSync {
-		bcR, ok := n.bcReactor.(blockSyncReactor)
-		if !ok {
-			return fmt.Errorf("this blocksync reactor does not support switching from state sync")
-		}
-		err := startStateSync(n.stateSyncReactor, bcR, n.stateSyncProvider,
-			n.config.StateSync, n.stateStore, n.blockStore, n.stateSyncGenesis)
+		err := startStateSync(
+			n.stateSyncReactor,
+			n.stateSyncProvider,
+			n.config.StateSync,
+			n.stateStore,
+			n.blockStore,
+			n.stateSyncGenesis,
+			func(syncedState sm.State) error {
+				n.sequencingReactor.UpdateState(syncedState)
+				if err := n.sequencingReactor.Enable(); err != nil {
+					return err
+				}
+				return nil
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("failed to start state sync: %w", err)
 		}
@@ -686,7 +667,7 @@ func (n *Node) ConfigureRPC() (*rpccore.Environment, error) {
 		StateStore:     n.stateStore,
 		BlockStore:     n.blockStore,
 		EvidencePool:   n.evidencePool,
-		ConsensusState: n.consensusState,
+		ConsensusState: nil,
 		P2PPeers:       n.sw,
 		P2PTransport:   n,
 		PubKey:         pubKey,
@@ -694,7 +675,7 @@ func (n *Node) ConfigureRPC() (*rpccore.Environment, error) {
 		GenDoc:           n.genesisDoc,
 		TxIndexer:        n.txIndexer,
 		BlockIndexer:     n.blockIndexer,
-		ConsensusReactor: n.consensusReactor,
+		SequencerReactor: n.sequencingReactor,
 		EventBus:         n.eventBus,
 		Mempool:          n.mempool,
 
@@ -877,9 +858,9 @@ func (n *Node) BlockStore() *store.BlockStore {
 	return n.blockStore
 }
 
-// ConsensusReactor returns the Node's ConsensusReactor.
-func (n *Node) ConsensusReactor() *cs.Reactor {
-	return n.consensusReactor
+// SequencingReactor returns the Node's sequencing reactor.
+func (n *Node) SequencingReactor() *sequencing.Reactor {
+	return n.sequencingReactor
 }
 
 // MempoolReactor returns the Node's mempool reactor.
@@ -967,8 +948,9 @@ func makeNodeInfo(
 		Network:       genDoc.ChainID,
 		Version:       version.TMCoreSemVer,
 		Channels: []byte{
-			bc.BlocksyncChannel,
-			cs.StateChannel, cs.DataChannel, cs.VoteChannel, cs.VoteSetBitsChannel,
+			seqtypes.ProposeChannel,
+			seqtypes.AttestChannel,
+			seqtypes.SyncChannel,
 			mempl.MempoolChannel,
 			evidence.EvidenceChannel,
 			statesync.SnapshotChannel, statesync.ChunkChannel,

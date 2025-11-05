@@ -61,6 +61,10 @@ type consensusReactor interface {
 	WaitSync() bool
 }
 
+type sequencerReactor interface {
+	CatchUp() bool
+}
+
 // ----------------------------------------------
 // Environment contains objects and interfaces used by the RPC. It is expected
 // to be setup once during startup.
@@ -75,6 +79,7 @@ type Environment struct {
 	EvidencePool     sm.EvidencePool
 	ConsensusState   Consensus
 	ConsensusReactor consensusReactor
+	SequencerReactor sequencerReactor
 	P2PPeers         peers
 	P2PTransport     transport
 
@@ -191,8 +196,7 @@ func (env *Environment) getHeight(latestHeight int64, heightPtr *int64) (int64, 
 }
 
 func (env *Environment) latestUncommittedHeight() int64 {
-	nodeIsSyncing := env.ConsensusReactor.WaitSync()
-	if nodeIsSyncing {
+	if env.ConsensusReactor != nil && env.ConsensusReactor.WaitSync() {
 		return env.BlockStore.Height()
 	}
 	return env.BlockStore.Height() + 1

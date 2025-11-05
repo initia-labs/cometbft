@@ -457,19 +457,6 @@ chunk_request_timeout = "{{ .StateSync.ChunkRequestTimeout }}"
 chunk_fetchers = "{{ .StateSync.ChunkFetchers }}"
 
 #######################################################
-###       Block Sync Configuration Options          ###
-#######################################################
-[blocksync]
-
-# Block Sync version to use:
-#
-# In v0.37, v1 and v2 of the block sync protocols were deprecated.
-# Please use v0 instead.
-#
-#   1) "v0" - the default block sync implementation
-version = "{{ .BlockSync.Version }}"
-
-#######################################################
 ###         Rollup Sync Configuration Options       ###
 #######################################################
 [rollupsync]
@@ -505,45 +492,22 @@ rpc_servers = [
 ]
 
 #######################################################
-###         Consensus Configuration Options         ###
+###         Sequencing Configuration Options        ###
 #######################################################
-[consensus]
+[sequencing]
 
-wal_file = "{{ js .Consensus.WalPath }}"
+# Minimum interval between block proposals while this node acts as the sequencer.
+# The proposer waits at least this long after publishing the previous block before
+# assembling the next one. Lower values reduce latency but may yield smaller batches;
+# higher values allow more transactions to accumulate at the cost of higher latency.
+block_interval = "{{ .Sequencing.BlockInterval }}"
 
-# How long we wait for a proposal block before prevoting nil
-timeout_propose = "{{ .Consensus.TimeoutPropose }}"
-# How much timeout_propose increases with each round
-timeout_propose_delta = "{{ .Consensus.TimeoutProposeDelta }}"
-# How long we wait after receiving +2/3 prevotes for “anything” (ie. not a single block or nil)
-timeout_prevote = "{{ .Consensus.TimeoutPrevote }}"
-# How much the timeout_prevote increases with each round
-timeout_prevote_delta = "{{ .Consensus.TimeoutPrevoteDelta }}"
-# How long we wait after receiving +2/3 precommits for “anything” (ie. not a single block or nil)
-timeout_precommit = "{{ .Consensus.TimeoutPrecommit }}"
-# How much the timeout_precommit increases with each round
-timeout_precommit_delta = "{{ .Consensus.TimeoutPrecommitDelta }}"
-# How long we wait after committing a block, before starting on the new
-# height (this gives us a chance to receive some more precommits, even
-# though we already have +2/3).
-timeout_commit = "{{ .Consensus.TimeoutCommit }}"
+# The flag to enable or disable the creation of empty blocks
+create_empty_blocks = {{ .Sequencing.CreateEmptyBlocks }}
 
-# How many blocks to look back to check existence of the node's consensus votes before joining consensus
-# When non-zero, the node will panic upon restart
-# if the same consensus key was used to sign {double_sign_check_height} last blocks.
-# So, validators should stop the state machine, wait for some blocks, and then restart the state machine to avoid panic.
-double_sign_check_height = {{ .Consensus.DoubleSignCheckHeight }}
-
-# Make progress as soon as we have all the precommits (as if TimeoutCommit = 0)
-skip_timeout_commit = {{ .Consensus.SkipTimeoutCommit }}
-
-# EmptyBlocks mode and possible interval between empty blocks
-create_empty_blocks = {{ .Consensus.CreateEmptyBlocks }}
-create_empty_blocks_interval = "{{ .Consensus.CreateEmptyBlocksInterval }}"
-
-# Reactor sleep duration parameters
-peer_gossip_sleep_duration = "{{ .Consensus.PeerGossipSleepDuration }}"
-peer_query_maj23_sleep_duration = "{{ .Consensus.PeerQueryMaj23SleepDuration }}"
+# The interval at which empty blocks are created if there are no transactions
+# in the mempool. Only used if create_empty_blocks=true.
+create_empty_blocks_interval = "{{ .Sequencing.CreateEmptyBlocksInterval }}"
 
 #######################################################
 ###         Storage Configuration Options           ###

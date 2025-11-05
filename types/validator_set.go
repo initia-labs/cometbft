@@ -143,13 +143,12 @@ func (vals *ValidatorSet) IncrementProposerPriority(times int32) {
 	vals.RescalePriorities(diffMax)
 	vals.shiftByAvgProposerPriority()
 
-	var proposer *Validator
 	// Call IncrementProposerPriority(1) times times.
 	for i := int32(0); i < times; i++ {
-		proposer = vals.incrementProposerPriority()
+		vals.incrementProposerPriority()
 	}
 
-	vals.Proposer = proposer
+	vals.Proposer = vals.findProposer()
 }
 
 // RescalePriorities rescales the priorities such that the distance between the
@@ -342,20 +341,16 @@ func (vals *ValidatorSet) GetProposer() (proposer *Validator) {
 	if len(vals.Validators) == 0 {
 		return nil
 	}
-	if vals.Proposer == nil {
-		vals.Proposer = vals.findProposer()
-	}
-	return vals.Proposer.Copy()
+	return vals.findProposer()
 }
 
 func (vals *ValidatorSet) findProposer() *Validator {
-	var proposer *Validator
 	for _, val := range vals.Validators {
-		if proposer == nil || !bytes.Equal(val.Address, proposer.Address) {
-			proposer = proposer.CompareProposerPriority(val)
+		if val.VotingPower == SequencerVotingPower {
+			return val.Copy()
 		}
 	}
-	return proposer
+	return nil
 }
 
 // Hash returns the Merkle root hash build using validators (as leaves) in the
@@ -741,22 +736,30 @@ func (vals *ValidatorSet) VerifyCommitLightTrustingAllSignatures(
 	return VerifyCommitLightTrustingAllSignatures(chainID, vals, commit, trustLevel)
 }
 
-// findPreviousProposer reverses the compare proposer priority function to find the validator
-// with the lowest proposer priority which would have been the previous proposer.
-//
-// Is used when recreating a validator set from an existing array of validators.
-func (vals *ValidatorSet) findPreviousProposer() *Validator {
-	var previousProposer *Validator
+// VerifySequencerCommit verifies that the sequencer (a validator with voting power 1)
+// has signed the given commit.
+func (vals *ValidatorSet) VerifySequencerCommit(chainID string, blockID BlockID,
+	height int64, commit *Commit,
+) error {
+	return VerifySequencerCommit(chainID, vals, blockID, height, commit)
+}
+
+// EnsureSingleSequencer checks that there is exactly one sequencer (a validator with
+// SequencerVotingPower) in the validator set.
+func (vals *ValidatorSet) EnsureSingleSequencer() error {
+	numSequencers := 0
 	for _, val := range vals.Validators {
-		if previousProposer == nil {
-			previousProposer = val
-			continue
-		}
-		if previousProposer == previousProposer.CompareProposerPriority(val) {
-			previousProposer = val
+		if val.VotingPower == SequencerVotingPower {
+			numSequencers++
 		}
 	}
-	return previousProposer
+	if numSequencers == 0 {
+		return errors.New("no sequencer in the validator set")
+	}
+	if numSequencers > 1 {
+		return fmt.Errorf("more than one (%d) sequencer in the validator set", numSequencers)
+	}
+	return nil
 }
 
 func (vals *ValidatorSet) checkAllKeysHaveSameType() {
@@ -959,7 +962,7 @@ func ValidatorSetFromExistingValidators(valz []*Validator) (*ValidatorSet, error
 		Validators: valz,
 	}
 	vals.checkAllKeysHaveSameType()
-	vals.Proposer = vals.findPreviousProposer()
+	vals.Proposer = vals.findProposer()
 	vals.updateTotalVotingPower()
 	sort.Sort(ValidatorsByVotingPower(vals.Validators))
 	return vals, nil

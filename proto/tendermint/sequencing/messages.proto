@@ -1,0 +1,54 @@
+syntax = "proto3";
+package tendermint.sequencing;
+
+option go_package = "github.com/cometbft/cometbft/proto/tendermint/sequencing";
+
+import "tendermint/types/block.proto";
+import "tendermint/types/types.proto";
+
+// ProposedBlock carries a sequencer-produced block together with the
+// extended commit for the previous height so downstream nodes can verify and
+// advance state.
+message ProposedBlock {
+  tendermint.types.Block block = 1;
+  tendermint.types.ExtendedCommit commit = 2;
+}
+
+// AttestorCommit propagates an attestor-signed commit for a previously seen
+// block. Followers store these commits for light-client/IBC replies.
+message AttestorCommit {
+  tendermint.types.ExtendedCommit commit = 1;
+}
+
+// StatusUpdate advertises the latest height (and optionally block hash)
+// observed by a peer.
+message StatusUpdate {
+  int64 base_height = 1;
+  int64 last_height = 2;
+}
+
+// BlockRequest asks a peer for a specific block height.
+message BlockRequest {
+  int64 height = 1;
+}
+
+// BlockResponse carries a single block alongside optional commit material.
+message BlockResponse {
+  tendermint.sequencing.ProposedBlock proposed_block = 1;
+  tendermint.sequencing.AttestorCommit attester_commit = 2;
+  
+  // Bloom filter encoding of peer IDs that have already relayed this message.
+  // Used to prevent redundant propagation while keeping the payload bounded.
+  //
+  // If empty, this indicates a direct reply to a request without provenance.
+  // If non-empty, this indicates the message has been gossiped and carries provenance.
+  bytes peer_bloom = 3; 
+}
+
+message Message {
+  oneof sum {
+    StatusUpdate status_update = 1;
+    BlockRequest block_request = 2;
+    BlockResponse block_response = 3;
+  }
+}

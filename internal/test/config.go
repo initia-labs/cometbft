@@ -73,7 +73,7 @@ var testGenesisFmt = `{
         "type": "tendermint/PubKeyEd25519",
         "value":"AT/+aaL1eB0477Mud9JMm8Sh8BIvOYlPGC9KkIUmFaE="
       },
-      "power": "10",
+      "power": "1",
       "name": ""
     }
   ],

@@ -79,12 +79,15 @@ type Config struct {
 	P2P             *P2PConfig             `mapstructure:"p2p"`
 	Mempool         *MempoolConfig         `mapstructure:"mempool"`
 	StateSync       *StateSyncConfig       `mapstructure:"statesync"`
-	BlockSync       *BlockSyncConfig       `mapstructure:"blocksync"`
 	RollupSync      *RollupSyncConfig      `mapstructure:"rollupsync"`
-	Consensus       *ConsensusConfig       `mapstructure:"consensus"`
+	Sequencing      *SequencingConfig      `mapstructure:"sequencing"`
 	Storage         *StorageConfig         `mapstructure:"storage"`
 	TxIndex         *TxIndexConfig         `mapstructure:"tx_index"`
 	Instrumentation *InstrumentationConfig `mapstructure:"instrumentation"`
+
+	// unused
+	BlockSync *BlockSyncConfig `mapstructure:"blocksync"`
+	Consensus *ConsensusConfig `mapstructure:"consensus"`
 }
 
 // DefaultConfig returns a default configuration for a CometBFT node
@@ -95,12 +98,15 @@ func DefaultConfig() *Config {
 		P2P:             DefaultP2PConfig(),
 		Mempool:         DefaultMempoolConfig(),
 		StateSync:       DefaultStateSyncConfig(),
-		BlockSync:       DefaultBlockSyncConfig(),
 		RollupSync:      DefaultRollupSyncConfig(),
-		Consensus:       DefaultConsensusConfig(),
+		Sequencing:      DefaultSequencingConfig(),
 		Storage:         DefaultStorageConfig(),
 		TxIndex:         DefaultTxIndexConfig(),
 		Instrumentation: DefaultInstrumentationConfig(),
+
+		// unused
+		BlockSync: DefaultBlockSyncConfig(),
+		Consensus: DefaultConsensusConfig(),
 	}
 }
 
@@ -112,11 +118,15 @@ func TestConfig() *Config {
 		P2P:             TestP2PConfig(),
 		Mempool:         TestMempoolConfig(),
 		StateSync:       TestStateSyncConfig(),
-		BlockSync:       TestBlockSyncConfig(),
-		Consensus:       TestConsensusConfig(),
+		RollupSync:      TestRollupSyncConfig(),
+		Sequencing:      TestSequencingConfig(),
 		Storage:         TestStorageConfig(),
 		TxIndex:         TestTxIndexConfig(),
 		Instrumentation: TestInstrumentationConfig(),
+
+		// unused
+		BlockSync: TestBlockSyncConfig(),
+		Consensus: TestConsensusConfig(),
 	}
 }
 
@@ -148,14 +158,11 @@ func (cfg *Config) ValidateBasic() error {
 	if err := cfg.StateSync.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [statesync] section: %w", err)
 	}
-	if err := cfg.BlockSync.ValidateBasic(); err != nil {
-		return fmt.Errorf("error in [blocksync] section: %w", err)
+	if err := cfg.Sequencing.ValidateBasic(); err != nil {
+		return fmt.Errorf("error in [sequencing] section: %w", err)
 	}
 	if err := cfg.RollupSync.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [rollupsync] section: %w", err)
-	}
-	if err := cfg.Consensus.ValidateBasic(); err != nil {
-		return fmt.Errorf("error in [consensus] section: %w", err)
 	}
 	if err := cfg.Instrumentation.ValidateBasic(); err != nil {
 		return fmt.Errorf("error in [instrumentation] section: %w", err)
@@ -163,6 +170,15 @@ func (cfg *Config) ValidateBasic() error {
 	if !cfg.Consensus.CreateEmptyBlocks && cfg.Mempool.Type == MempoolTypeNop {
 		return fmt.Errorf("`nop` mempool does not support create_empty_blocks = false")
 	}
+
+	// unused
+	//
+	// if err := cfg.BlockSync.ValidateBasic(); err != nil {
+	// 	return fmt.Errorf("error in [blocksync] section: %w", err)
+	// }
+	// if err := cfg.Consensus.ValidateBasic(); err != nil {
+	// 	return fmt.Errorf("error in [consensus] section: %w", err)
+	// }
 	return nil
 }
 
@@ -977,6 +993,48 @@ func (cfg *BlockSyncConfig) ValidateBasic() error {
 	default:
 		return fmt.Errorf("unknown blocksync version %s", cfg.Version)
 	}
+}
+
+//-----------------------------------------------------------------------------
+// SequencingConfig
+
+// SequencingConfig defines the configuration for the rollup sequencing service
+type SequencingConfig struct {
+	BlockInterval time.Duration `mapstructure:"block_interval"`
+
+	CreateEmptyBlocks         bool          `mapstructure:"create_empty_blocks"`
+	CreateEmptyBlocksInterval time.Duration `mapstructure:"create_empty_blocks_interval"`
+}
+
+// DefaultSequencingConfig returns a default configuration for the rollup sequencing service
+func DefaultSequencingConfig() *SequencingConfig {
+	return &SequencingConfig{
+		BlockInterval: 300 * time.Millisecond,
+
+		CreateEmptyBlocks:         false,
+		CreateEmptyBlocksInterval: 1 * time.Minute,
+	}
+}
+
+// TestSequencingConfig returns a default configuration for the rollup sequencing.
+func TestSequencingConfig() *SequencingConfig {
+	return &SequencingConfig{
+		BlockInterval: 300 * time.Millisecond,
+
+		CreateEmptyBlocks:         true,
+		CreateEmptyBlocksInterval: 0,
+	}
+}
+
+// ValidateBasic performs basic validation.
+func (cfg *SequencingConfig) ValidateBasic() error {
+	if cfg.BlockInterval <= 0 {
+		return errors.New("block_interval must be greater than 0")
+	}
+	if !cfg.CreateEmptyBlocks && cfg.CreateEmptyBlocksInterval <= 0 {
+		return errors.New("create_empty_blocks_interval must be greater than 0")
+	}
+	return nil
 }
 
 //-----------------------------------------------------------------------------

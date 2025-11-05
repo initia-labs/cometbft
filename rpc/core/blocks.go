@@ -162,15 +162,8 @@ func (env *Environment) Commit(_ *rpctypes.Context, heightPtr *int64) (*ctypes.R
 	}
 	header := blockMeta.Header
 
-	// If the next block has not been committed yet,
-	// use a non-canonical commit
-	if height == env.BlockStore.Height() {
-		commit := env.BlockStore.LoadSeenCommit(height)
-		return ctypes.NewResultCommit(&header, commit, false), nil
-	}
-
-	// Return the canonical commit (comes from the block at height+1)
-	commit := env.BlockStore.LoadBlockCommit(height)
+	// SEQUENCING MODE: in sequencing mode, we always return the full commit
+	commit := env.BlockStore.LoadSeenCommit(height)
 	return ctypes.NewResultCommit(&header, commit, true), nil
 }
 

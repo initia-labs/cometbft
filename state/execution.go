@@ -293,7 +293,10 @@ func (blockExec *BlockExecutor) applyBlock(state State, blockID types.BlockID, b
 		state.NextValidators.IncrementProposerPriority(1)
 
 		// save the new validator set
-		blockExec.store.SaveValidators(state.LastBlockHeight+1, state.LastHeightValidatorsChanged, state.Validators)
+		err = blockExec.store.SaveValidators(state.LastBlockHeight+1, state.LastHeightValidatorsChanged, state.Validators)
+		if err != nil {
+			return state, fmt.Errorf("failed to save validators: %w", err)
+		}
 	}
 
 	// Lock mempool, commit app state, update mempoool.
@@ -634,6 +637,11 @@ func updateState(
 		}
 		// Change results from this height but only applies to the next next height.
 		lastHeightValsChanged = header.Height + 1 + 1
+	}
+
+	// SEQUENCING: Ensure that there is exactly one proposer.
+	if err := nValSet.EnsureSingleSequencer(); err != nil {
+		return state, fmt.Errorf("ensuring single sequencer: %w", err)
 	}
 
 	// Update validator proposer priority and set state variables.
