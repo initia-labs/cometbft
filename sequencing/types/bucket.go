@@ -115,10 +115,16 @@ func (b *P2PBucket[T]) Add(id p2p.ID, height int64, value T) {
 		queue = nil
 	}
 
-	entry := bucketEntry[T]{height: height, value: value}
+	// Reject duplicates for a given peer/height combination to avoid
+	// unbounded memory usage from repeated proposals.
 	idx := sort.Search(len(queue), func(i int) bool {
-		return entry.height < queue[i].height
+		return queue[i].height >= height
 	})
+	if idx < len(queue) && queue[idx].height == height {
+		return
+	}
+
+	entry := bucketEntry[T]{height: height, value: value}
 	frontChanged := idx == 0
 	if idx == len(queue) {
 		queue = append(queue, entry)
