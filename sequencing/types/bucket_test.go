@@ -146,3 +146,26 @@ func TestBlockBucketHasHeightAndRemove(t *testing.T) {
 		t.Fatalf("removal of unknown height should fail")
 	}
 }
+
+func TestBlockBucketDeduplicatesPerPeerHeight(t *testing.T) {
+	bucket := NewP2PBucket[*ProposedBlock]()
+
+	block := &ProposedBlock{}
+	bucket.Add(p2p.ID("peer1"), 10, block)
+	bucket.Add(p2p.ID("peer1"), 10, &ProposedBlock{}) // duplicate height from same peer
+
+	if bucket.Len() != 1 {
+		t.Fatalf("expected duplicates to be dropped, length is %d", bucket.Len())
+	}
+	if bucket.PeerLen(p2p.ID("peer1")) != 1 {
+		t.Fatalf("expected peer queue length 1, got %d", bucket.PeerLen(p2p.ID("peer1")))
+	}
+
+	id, height, value, ok := bucket.PopLowest()
+	if !ok || id != p2p.ID("peer1") || height != 10 || value != block {
+		t.Fatalf("unexpected pop result: ok=%t id=%s height=%d value=%v", ok, id, height, value)
+	}
+	if !bucket.IsEmpty() {
+		t.Fatalf("bucket should be empty after popping the single entry")
+	}
+}
