@@ -6,7 +6,7 @@ import (
 
 const (
 	syncInterval    = 10 * time.Millisecond
-	proposeInterval = 100 * time.Millisecond
+	proposeInterval = 50 * time.Millisecond
 	attestInterval  = 100 * time.Millisecond
 	statusInterval  = 2 * time.Second
 )
