@@ -353,18 +353,6 @@ func (vals *ValidatorSet) findProposer() *Validator {
 	return nil
 }
 
-// findProposerForLightClient returns the proposer for light client verification
-// of counterparty chains that don't use the sequencer architecture (e.g., L1).
-func (vals *ValidatorSet) findProposerForLightClient() *Validator {
-	var proposer *Validator
-	for _, val := range vals.Validators {
-		if proposer == nil || !bytes.Equal(val.Address, proposer.Address) {
-			proposer = proposer.CompareProposerPriority(val)
-		}
-	}
-	return proposer
-}
-
 // Hash returns the Merkle root hash build using validators (as leaves) in the
 // set.
 //
@@ -956,10 +944,9 @@ func ValidatorSetFromProto(vp *cmtproto.ValidatorSet) (*ValidatorSet, error) {
 }
 
 // ValidatorSetFromExistingValidators takes an existing array of validators and
-// rebuilds the exact same validator set that corresponds to it without
-// changing the proposer priority or power if any of the validators fail
-// validate basic then an empty set is returned.
-func ValidatorSetFromExistingValidators(valz []*Validator) (*ValidatorSet, error) {
+// the proposer address, and rebuilds the validator set with the correct proposer.
+// Returns an error if any of the validators fail validate basic.
+func ValidatorSetFromExistingValidators(valz []*Validator, proposerAddress Address) (*ValidatorSet, error) {
 	if len(valz) == 0 {
 		return nil, errors.New("validator set is empty")
 	}
@@ -974,7 +961,18 @@ func ValidatorSetFromExistingValidators(valz []*Validator) (*ValidatorSet, error
 		Validators: valz,
 	}
 	vals.checkAllKeysHaveSameType()
-	vals.Proposer = vals.findProposerForLightClient()
+
+	for _, val := range valz {
+		if bytes.Equal(val.Address, proposerAddress) {
+			vals.Proposer = val
+			break
+		}
+	}
+
+	if vals.Proposer == nil {
+		return nil, fmt.Errorf("proposer with address %X not found in validator set", proposerAddress)
+	}
+
 	vals.updateTotalVotingPower()
 	sort.Sort(ValidatorsByVotingPower(vals.Validators))
 	return vals, nil
