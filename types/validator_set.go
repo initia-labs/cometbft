@@ -353,6 +353,18 @@ func (vals *ValidatorSet) findProposer() *Validator {
 	return nil
 }
 
+// findProposerForLightClient returns the proposer for light client verification
+// of counterparty chains that don't use the sequencer architecture (e.g., L1).
+func (vals *ValidatorSet) findProposerForLightClient() *Validator {
+	var proposer *Validator
+	for _, val := range vals.Validators {
+		if proposer == nil || !bytes.Equal(val.Address, proposer.Address) {
+			proposer = proposer.CompareProposerPriority(val)
+		}
+	}
+	return proposer
+}
+
 // Hash returns the Merkle root hash build using validators (as leaves) in the
 // set.
 //
@@ -962,7 +974,7 @@ func ValidatorSetFromExistingValidators(valz []*Validator) (*ValidatorSet, error
 		Validators: valz,
 	}
 	vals.checkAllKeysHaveSameType()
-	vals.Proposer = vals.findProposer()
+	vals.Proposer = vals.findProposerForLightClient()
 	vals.updateTotalVotingPower()
 	sort.Sort(ValidatorsByVotingPower(vals.Validators))
 	return vals, nil
