@@ -341,6 +341,9 @@ func (vals *ValidatorSet) GetProposer() (proposer *Validator) {
 	if len(vals.Validators) == 0 {
 		return nil
 	}
+	if vals.Proposer != nil {
+		return vals.Proposer.Copy()
+	}
 	return vals.findProposer()
 }
 
