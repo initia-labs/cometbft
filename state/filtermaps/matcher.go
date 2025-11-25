@@ -179,6 +179,10 @@ type potentialResult struct {
 
 // runStreamingMatcher runs a single matcher and streams results to a channel
 func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error {
+	if len(matchers) == 0 {
+		return nil
+	}
+
 	matcherResults := make([]singleMatcherResult, len(matchers))
 
 	eg, _ := errgroup.WithContext(m.ctx)
@@ -213,15 +217,15 @@ func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error
 		return err
 	}
 
-	// if no matches found for any matcher, return early
-	if len(matcherResults) == 0 {
-		return nil
-	}
-
 	// sort by number of matches
 	sort.Slice(matcherResults, func(i, j int) bool {
 		return len(matcherResults[i].matches) < len(matcherResults[j].matches)
 	})
+
+	// check for zero matches
+	if len(matcherResults) == 0 || len(matcherResults[0].matches) == 0 {
+		return nil
+	}
 
 	potentialResults, err := m.getPotentialResults(&matcherResults[0])
 	if err != nil {
