@@ -223,7 +223,7 @@ func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error
 	})
 
 	// check for zero matches
-	if len(matcherResults[0].matches) == 0 {
+	if len(matcherResults[len(matcherResults)-1].matches) == 0 {
 		return nil
 	}
 
