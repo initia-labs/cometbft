@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"sort"
 	"sync/atomic"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/mclock"
@@ -38,7 +37,6 @@ const doRuntimeStats = true
 // Handling this case in filtermaps would require an extra special case and
 // would actually be slower than reverting to legacy filter.
 var ErrMatchAll = errors.New("match all patterns not supported")
-var ErrZeroMatches = errors.New("no matches found")
 
 // MatcherBackend defines the functions required for searching in the log index
 // data structure. It is currently implemented by FilterMapsMatcherBackend but
@@ -142,10 +140,7 @@ func (m *matcherEnv) processStreaming() error {
 		}
 
 		for i := 0; i < len(mapIndices); i += batchSize {
-			end := i + batchSize
-			if end > len(mapIndices) {
-				end = len(mapIndices)
-			}
+			end := min(i+batchSize, len(mapIndices))
 
 			batch := mapIndices[i:end]
 
@@ -206,9 +201,6 @@ func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error
 			if err != nil {
 				return err
 			}
-			if len(results) == 0 {
-				return ErrZeroMatches
-			}
 			matcherResults[i] = singleMatcherResult{
 				index:   i,
 				matches: results,
@@ -217,8 +209,13 @@ func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error
 		})
 	}
 
-	if err := eg.Wait(); err != nil && !errors.Is(err, ErrZeroMatches) {
+	if err := eg.Wait(); err != nil {
 		return err
+	}
+
+	// if no matches found for any matcher, return early
+	if len(matcherResults) == 0 {
+		return nil
 	}
 
 	// sort by number of matches
@@ -238,8 +235,7 @@ func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error
 		}
 	}
 
-	result := potentialResults.Front()
-	for result != nil {
+	for result := potentialResults.Front(); result != nil; result = result.Next() {
 		select {
 		case <-m.ctx.Done():
 			return m.ctx.Err()
@@ -247,7 +243,6 @@ func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error
 			BlockNumber: int64(result.Value.(potentialResult).lvIndexRange.blockNumber + 1),
 			TxIndex:     int(result.Value.(potentialResult).txIndex),
 		}:
-			result = result.Next()
 		}
 	}
 	return nil
@@ -511,8 +506,6 @@ const (
 	stCount
 )
 
-var stNames = []string{"", "fetchFirst", "fetchMore", "process", "getLog", "other"}
-
 // set sets the processing state to one of the pre-defined constants.
 // Processing time spent in each state is measured separately.
 func (ts *runtimeStats) setState(state *int, newState int) {
@@ -528,13 +521,6 @@ func (ts *runtimeStats) setState(state *int, newState int) {
 
 func (ts *runtimeStats) addAmount(state int, amount int64) {
 	atomic.AddInt64(&ts.amount[state], amount)
-}
-
-// print prints the collected statistics.
-func (ts *runtimeStats) print(logger log.Logger) {
-	for i := 1; i < stCount; i++ {
-		logger.Info("Matcher stats", "name", stNames[i], "dt", time.Duration(ts.dt[i]), "count", ts.cnt[i], "amount", ts.amount[i])
-	}
 }
 
 // multiEventMatcher processes multiple singleMatcher instances and

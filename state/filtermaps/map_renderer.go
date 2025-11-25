@@ -238,13 +238,15 @@ func (f *FilterMaps) loadHeadSnapshot() error {
 	if err != nil {
 		return fmt.Errorf("failed to retrieve last block of head snapshot map %d: %v", f.indexedRange.maps.Last(), err)
 	}
-	var firstBlock uint64
+	firstBlock := f.indexedRange.blocks.First()
 	if f.indexedRange.maps.AfterLast() > 1 {
 		prevLastBlock, err := f.getLastBlockOfMap(f.indexedRange.maps.Last() - 1)
 		if err != nil {
 			return fmt.Errorf("failed to retrieve last block of map %d before head snapshot: %v", f.indexedRange.maps.Last()-1, err)
 		}
-		firstBlock = prevLastBlock + 1
+		if block := prevLastBlock + 1; block > firstBlock {
+			firstBlock = block
+		}
 	}
 	lvPtrs := make([]uint64, lastBlock+1-firstBlock)
 	for i := range lvPtrs {
