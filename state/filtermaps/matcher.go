@@ -38,6 +38,9 @@ const doRuntimeStats = true
 // would actually be slower than reverting to legacy filter.
 var ErrMatchAll = errors.New("match all patterns not supported")
 
+// ErrZeroMatches is returned when no matching logs are found for the given filter.
+var ErrZeroMatches = errors.New("no matching logs found")
+
 // MatcherBackend defines the functions required for searching in the log index
 // data structure. It is currently implemented by FilterMapsMatcherBackend but
 // once EIP-7745 is implemented and active, these functions can also be trustlessly
@@ -177,7 +180,12 @@ type potentialResult struct {
 	txIndex      uint64
 }
 
-// runStreamingMatcher runs a single matcher and streams results to a channel
+// runMatcher runs the given matchers on the specified batch of map indices
+// and sends the resulting TxEvents to the result channel.
+//
+// Each matcher is corresponding to a single event to match, and the overall result
+// is the intersection of all matchers' results. If any matcher returns zero results,
+// ErrZeroMatches is returned to stop other matchers.
 func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error {
 	if len(matchers) == 0 {
 		return nil
@@ -205,6 +213,11 @@ func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error
 			if err != nil {
 				return err
 			}
+			// Zero hits mean the intersection will stay empty for this batch; stop early.
+			if len(results) == 0 {
+				return ErrZeroMatches
+			}
+
 			matcherResults[i] = singleMatcherResult{
 				index:   i,
 				matches: results,
@@ -214,6 +227,11 @@ func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error
 	}
 
 	if err := eg.Wait(); err != nil {
+		// zero-match is benign (it empties the intersection); other errors bubble up
+		if errors.Is(err, ErrZeroMatches) {
+			return nil
+		}
+
 		return err
 	}
 
