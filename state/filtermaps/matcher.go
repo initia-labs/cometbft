@@ -240,11 +240,6 @@ func (m *matcherEnv) runMatcher(matchers []*singleMatcher, batch []uint32) error
 		return len(matcherResults[i].matches) < len(matcherResults[j].matches)
 	})
 
-	// check for zero matches
-	if len(matcherResults[len(matcherResults)-1].matches) == 0 {
-		return nil
-	}
-
 	potentialResults, err := m.getPotentialResults(&matcherResults[0])
 	if err != nil {
 		return err
