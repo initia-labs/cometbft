@@ -156,7 +156,6 @@ func (env *Environment) TxSearchV2(
 	pagePtr, perPagePtr *int,
 	orderBy string,
 ) (*ctypes.ResultTxSearch, error) {
-
 	if len(query) > maxQueryLength {
 		return nil, errors.New("maximum query length exceeded")
 	}
