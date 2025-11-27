@@ -1034,7 +1034,7 @@ func (cfg *SequencingConfig) ValidateBasic() error {
 	if !cfg.CreateEmptyBlocks && cfg.CreateEmptyBlocksInterval <= 0 {
 		return errors.New("create_empty_blocks_interval must be greater than 0")
 	}
-	if cfg.CreateEmptyBlocksInterval < cfg.BlockInterval {
+	if !cfg.CreateEmptyBlocks && cfg.CreateEmptyBlocksInterval < cfg.BlockInterval {
 		return errors.New("create_empty_blocks_interval must be greater than block_interval")
 	}
 	return nil
