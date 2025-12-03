@@ -58,7 +58,7 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, 
 	if err != nil {
 		// when an upgrade is needed, we do not panic, just log and stop the engine
 		if upgradeNeededRegexp.MatchString(err.Error()) {
-			e.logger.Info("node upgrade required", "height", pb.Block.Height, "err", err)
+			e.logger.Error("node upgrade required", "height", pb.Block.Height, "err", err)
 			e.Stop()
 			return false, false, true
 		}
