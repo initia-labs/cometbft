@@ -213,9 +213,10 @@ func produceAndApplyBlock(t *testing.T, eng *Engine) *seqtypes.ProposedBlock {
 	require.True(t, ok)
 	require.Equal(t, proposed.Block.Height, height)
 
-	bad, applied := eng.applyProposedBlock(proposed)
+	bad, applied, upgrade := eng.applyProposedBlock(proposed)
 	require.False(t, bad)
 	require.True(t, applied)
+	require.False(t, upgrade)
 
 	require.NoError(t, eng.blockStore.SaveSeenCommit(height, proposed.Commit.ToCommit()))
 

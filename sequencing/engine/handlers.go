@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,10 +16,12 @@ import (
 	cmttime "github.com/cometbft/cometbft/types/time"
 )
 
+var upgradeNeededRegexp = regexp.MustCompile(`.*UPGRADE .* NEEDED.*`)
+
 // applyProposedBlock applies a proposed block message from a peer.
-func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer bool, applied bool) {
+func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, upgrade bool) {
 	if pb == nil || pb.Block == nil || pb.Commit == nil {
-		return false, false
+		return false, false, false
 	}
 
 	e.stateMu.Lock()
@@ -26,7 +29,7 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer bool, appl
 	e.stateMu.Unlock()
 
 	if pb.Block.Height <= state.LastBlockHeight {
-		return false, false
+		return false, false, false
 	}
 
 	// validate the block
@@ -34,14 +37,14 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer bool, appl
 	if err != nil {
 		e.logger.Error("failed to make block parts", "height", pb.Block.Height, "err", err)
 
-		return true, false
+		return true, false, false
 	}
 
 	blockID := cmttypes.BlockID{Hash: pb.Block.Hash(), PartSetHeader: blockParts.Header()}
 	if err := state.Validators.VerifySequencerCommit(state.ChainID, blockID, pb.Block.Height, pb.Commit.ToCommit()); err != nil {
 		e.logger.Error("failed to validate commit", "height", pb.Block.Height, "err", err)
 
-		return true, false
+		return true, false, false
 	}
 	if err := e.blockExec.ValidateBlock(state, pb.Block); err != nil {
 		panic(fmt.Sprintf("CONSENSUS FAILURE!!! Proposed block failed validation: block (%d:%X): %v", pb.Block.Height, pb.Block.Hash(), err))
@@ -53,6 +56,13 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer bool, appl
 	// apply the block
 	state, err = e.blockExec.ApplyVerifiedBlock(state, blockID, pb.Block)
 	if err != nil {
+		// when an upgrade is needed, we do not panic, just log and stop the engine
+		if upgradeNeededRegexp.MatchString(err.Error()) {
+			e.logger.Info("node upgrade required", "height", pb.Block.Height, "err", err)
+			e.Stop()
+			return false, false, true
+		}
+
 		panic(fmt.Sprintf("Failed to process committed block (%d:%X): %v", pb.Block.Height, pb.Block.Hash(), err))
 	}
 
@@ -71,7 +81,7 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer bool, appl
 	// signal the block has been applied
 	e.signalBlockApplied()
 
-	return false, true
+	return false, true, false
 }
 
 // applyAttestorCommit applies an attestor commit message from a peer.
