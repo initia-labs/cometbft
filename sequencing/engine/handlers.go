@@ -16,7 +16,7 @@ import (
 	cmttime "github.com/cometbft/cometbft/types/time"
 )
 
-var upgradeNeededRegexp = regexp.MustCompile(`UPGRADE .* NEEDED`)
+var upgradeNeededRegex = regexp.MustCompile(`UPGRADE .* NEEDED`)
 
 // applyProposedBlock applies a proposed block message from a peer.
 func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, upgrade bool) {
@@ -57,9 +57,9 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, 
 	state, err = e.blockExec.ApplyVerifiedBlock(state, blockID, pb.Block)
 	if err != nil {
 		// when an upgrade is needed, we do not panic, just log and stop the engine
-		if upgradeNeededRegexp.MatchString(err.Error()) {
+		if upgradeNeededRegex.MatchString(err.Error()) {
 			e.logger.Error("node upgrade required", "height", pb.Block.Height, "err", err)
-			e.Stop()
+			_ = e.Stop()
 			return false, false, true
 		}
 
