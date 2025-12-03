@@ -13,10 +13,17 @@ const (
 
 func (e *Engine) blockProcessor() {
 	ticker := time.NewTicker(syncInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
 			for {
+				select {
+				case <-e.stopCh:
+					return
+				default:
+				}
+
 				e.stateMu.Lock()
 				stateHeight := e.state.LastBlockHeight
 				e.stateMu.Unlock()
@@ -55,7 +62,9 @@ func (e *Engine) blockProcessor() {
 				// try to register event bus after we receive block
 				e.tryRegisterEventBus()
 
-				if badPeer, applied := e.applyProposedBlock(proposedBlock); badPeer {
+				if badPeer, applied, upgrade := e.applyProposedBlock(proposedBlock); upgrade {
+					return
+				} else if badPeer {
 					e.flagBadPeer(pid, "sent invalid proposed block")
 				} else if applied {
 					e.logger.Info("applied proposed block", "peer", pid, "height", height)
@@ -73,7 +82,6 @@ func (e *Engine) blockProcessor() {
 			}
 
 		case <-e.stopCh:
-			ticker.Stop()
 			return
 		}
 	}
@@ -81,10 +89,17 @@ func (e *Engine) blockProcessor() {
 
 func (e *Engine) attesterCommitProcessor() {
 	ticker := time.NewTicker(syncInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
 			for {
+				select {
+				case <-e.stopCh:
+					return
+				default:
+				}
+
 				id, height, attestorCommit, ok := e.commitBucket.PopLowest()
 				if !ok {
 					break
@@ -111,7 +126,6 @@ func (e *Engine) attesterCommitProcessor() {
 			}
 
 		case <-e.stopCh:
-			ticker.Stop()
 			return
 		}
 	}
@@ -119,12 +133,12 @@ func (e *Engine) attesterCommitProcessor() {
 
 func (e *Engine) statusProcessor() {
 	ticker := time.NewTicker(statusInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
 			e.broadcastStatus()
 		case <-e.stopCh:
-			ticker.Stop()
 			return
 		}
 	}
@@ -132,6 +146,7 @@ func (e *Engine) statusProcessor() {
 
 func (e *Engine) proposerProcessor() {
 	ticker := time.NewTicker(proposeInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
@@ -141,7 +156,6 @@ func (e *Engine) proposerProcessor() {
 		case <-e.reactor.TxsAvailable():
 			e.proposeBlock()
 		case <-e.stopCh:
-			ticker.Stop()
 			return
 		}
 	}
@@ -149,6 +163,7 @@ func (e *Engine) proposerProcessor() {
 
 func (e *Engine) attestorProcessor() {
 	ticker := time.NewTicker(attestInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
@@ -156,7 +171,6 @@ func (e *Engine) attestorProcessor() {
 		case <-e.appliedCh:
 			e.attestBlock()
 		case <-e.stopCh:
-			ticker.Stop()
 			return
 		}
 	}
@@ -177,6 +191,7 @@ func (e *Engine) conflictingVoteProcessor() {
 
 func (e *Engine) badPeerCleanup() {
 	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
@@ -189,7 +204,6 @@ func (e *Engine) badPeerCleanup() {
 				return true
 			})
 		case <-e.stopCh:
-			ticker.Stop()
 			return
 		}
 	}
