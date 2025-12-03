@@ -16,7 +16,7 @@ import (
 	cmttime "github.com/cometbft/cometbft/types/time"
 )
 
-var upgradeNeededRegexp = regexp.MustCompile(`.*UPGRADE .* NEEDED.*`)
+var upgradeNeededRegexp = regexp.MustCompile(`UPGRADE .* NEEDED`)
 
 // applyProposedBlock applies a proposed block message from a peer.
 func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, upgrade bool) {
