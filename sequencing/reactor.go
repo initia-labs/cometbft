@@ -270,6 +270,8 @@ func (r *Reactor) stopEngine() error {
 		return err
 	}
 	r.engineRunning = false
+
+	r.engine.Wait()
 	return nil
 }
 

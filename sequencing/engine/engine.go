@@ -67,6 +67,8 @@ type Engine struct {
 
 	isSequencer *atomic.Bool
 	isAttestor  *atomic.Bool
+
+	done chan struct{}
 }
 
 func NewEngine(
@@ -117,6 +119,8 @@ func NewEngine(
 
 		isSequencer: &atomic.Bool{},
 		isAttestor:  &atomic.Bool{},
+
+		done: make(chan struct{}),
 	}
 
 	eng.switchRole()
@@ -163,15 +167,46 @@ func (b *Engine) SetMetrics(m *Metrics) {
 }
 
 func (b *Engine) Start() error {
-	go b.blockProcessor()
-	go b.attesterCommitProcessor()
-	go b.statusProcessor()
-	go b.proposerProcessor()
-	go b.attestorProcessor()
-	go b.badPeerCleanup()
-	go b.receiveRoutine()
-	go b.conflictingVoteProcessor()
+	waitGroup := sync.WaitGroup{}
+	waitGroup.Add(8)
 
+	go func() {
+		defer waitGroup.Done()
+		b.blockProcessor()
+	}()
+	go func() {
+		defer waitGroup.Done()
+		b.attesterCommitProcessor()
+	}()
+	go func() {
+		defer waitGroup.Done()
+		b.statusProcessor()
+	}()
+	go func() {
+		defer waitGroup.Done()
+		b.proposerProcessor()
+	}()
+	go func() {
+		defer waitGroup.Done()
+		b.attestorProcessor()
+	}()
+	go func() {
+		defer waitGroup.Done()
+		b.badPeerCleanup()
+	}()
+	go func() {
+		defer waitGroup.Done()
+		b.receiveRoutine()
+	}()
+	go func() {
+		defer waitGroup.Done()
+		b.conflictingVoteProcessor()
+	}()
+
+	go func() {
+		waitGroup.Wait()
+		close(b.done)
+	}()
 	return nil
 }
 
@@ -181,6 +216,10 @@ func (b *Engine) Stop() error {
 	})
 	b.metrics.Syncing.Set(0)
 	return nil
+}
+
+func (b *Engine) Wait() {
+	<-b.done
 }
 
 // ResetState replaces the engine's working state and synchronizes related metadata.
