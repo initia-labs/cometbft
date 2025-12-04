@@ -506,7 +506,7 @@ block_interval = "{{ .Sequencing.BlockInterval }}"
 create_empty_blocks = {{ .Sequencing.CreateEmptyBlocks }}
 
 # The interval at which empty blocks are created if there are no transactions
-# in the mempool. Only used if create_empty_blocks=true.
+# in the mempool. Only used if create_empty_blocks=false.
 create_empty_blocks_interval = "{{ .Sequencing.CreateEmptyBlocksInterval }}"
 
 #######################################################
