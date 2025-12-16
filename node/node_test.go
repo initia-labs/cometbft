@@ -473,7 +473,7 @@ func state(nVals int, height int64) (sm.State, dbm.DB, []types.PrivValidator) {
 		vals[i] = types.GenesisValidator{
 			Address: privVal.PrivKey.PubKey().Address(),
 			PubKey:  privVal.PrivKey.PubKey(),
-			Power:   1000,
+			Power:   1,
 			Name:    fmt.Sprintf("test%d", i),
 		}
 	}
