@@ -127,10 +127,10 @@ func validateBlock(state State, block *types.Block) error {
 		}
 
 		// SEQUENCING: verify block time is not too far in the future
-		if block.Time.After(cmttime.Now().Add(allowedFutureBlockTime)) {
+		if maxAllowedTime := block.Time.After(cmttime.Now().Add(allowedFutureBlockTime)); maxAllowedTime {
 			return fmt.Errorf("block time %v is too far in the future (max %v)",
 				block.Time,
-				cmttime.Now().Add(allowedFutureBlockTime),
+				maxAllowedTime,
 			)
 		}
 
