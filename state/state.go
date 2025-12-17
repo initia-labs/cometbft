@@ -248,11 +248,7 @@ func (state State) MakeBlock(
 		timestamp = state.LastBlockTime // genesis time
 	} else {
 		// in sequencing reactor, we set block time to now or last block time + 1ms, whichever is later
-		timestamp = cmttime.Now().UTC()
-		minBlockTime := state.LastBlockTime.Add(time.Millisecond)
-		if timestamp.Before(minBlockTime) {
-			timestamp = minBlockTime
-		}
+		timestamp = LocalTime(state.LastBlockTime)
 	}
 
 	// Fill rest of header with state data.
@@ -265,6 +261,16 @@ func (state State) MakeBlock(
 	)
 
 	return block
+}
+
+// LocalTime returns the local time for a new block based on the last block time.
+func LocalTime(lastBlockTime time.Time) time.Time {
+	timestamp := cmttime.Now().UTC()
+	minBlockTime := lastBlockTime.Add(time.Millisecond)
+	if timestamp.Before(minBlockTime) {
+		timestamp = minBlockTime
+	}
+	return timestamp
 }
 
 //------------------------------------------------------------------------
