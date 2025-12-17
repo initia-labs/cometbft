@@ -17,10 +17,6 @@ import (
 
 var upgradeNeededRegex = regexp.MustCompile(`UPGRADE .* NEEDED`)
 
-const (
-	allowedFutureBlockTime = 15 * time.Second // Max seconds from current time allowed for blocks, before they're considered future blocks
-)
-
 // applyProposedBlock applies a proposed block message from a peer.
 func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, upgrade bool) {
 	if pb == nil || pb.Block == nil || pb.Commit == nil {
@@ -189,12 +185,6 @@ func (e *Engine) attestBlock() {
 	height := e.blockStore.Height()
 	block := e.blockStore.LoadBlock(height)
 	if block == nil {
-		return
-	}
-
-	// refuse to sign if block time is in the future
-	if block.Time.After(cmttime.Now().Add(allowedFutureBlockTime)) {
-		e.logger.Info("refusing to attest block with future timestamp", "height", height, "block_time", block.Time)
 		return
 	}
 
