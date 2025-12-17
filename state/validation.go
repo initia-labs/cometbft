@@ -4,9 +4,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/cometbft/cometbft/crypto"
 	"github.com/cometbft/cometbft/types"
+	cmttime "github.com/cometbft/cometbft/types/time"
+)
+
+const (
+	allowedFutureBlockTime = 15 * time.Second // Max seconds from current time allowed for blocks, before they're considered future blocks
 )
 
 //-----------------------------------------------------
@@ -119,11 +125,12 @@ func validateBlock(state State, block *types.Block) error {
 				state.LastBlockTime,
 			)
 		}
-		medianTime := MedianTime(block.LastCommit, state.LastValidators)
-		if !block.Time.Equal(medianTime) {
-			return fmt.Errorf("invalid block time. Expected %v, got %v",
-				medianTime,
+
+		// SEQUENCING: verify block time is not too far in the future
+		if maxAllowedTime := cmttime.Now().Add(allowedFutureBlockTime); block.Time.After(maxAllowedTime) {
+			return fmt.Errorf("block time %v is too far in the future (max %v)",
 				block.Time,
+				maxAllowedTime,
 			)
 		}
 

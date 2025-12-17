@@ -11,7 +11,6 @@ import (
 	"github.com/cometbft/cometbft/p2p"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/cometbft/cometbft/sequencing/types"
-	cmtstate "github.com/cometbft/cometbft/state"
 	cmttypes "github.com/cometbft/cometbft/types"
 	cmttime "github.com/cometbft/cometbft/types/time"
 )
@@ -69,7 +68,7 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, 
 	e.stateMu.Lock()
 	*e.state = state
 	e.lastProposedBlockHeight = pb.Block.Height
-	e.lastProposedBlockTime = cmtstate.MedianTime(pb.Commit.ToCommit(), state.LastValidators)
+	e.lastProposedBlockTime = pb.Block.Time
 	e.lastProposedBlockNumTxs = len(pb.Block.Data.Txs)
 
 	// try to update our role in case validator set changed
