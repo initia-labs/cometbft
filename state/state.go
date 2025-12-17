@@ -247,7 +247,7 @@ func (state State) MakeBlock(
 	if height == state.InitialHeight {
 		timestamp = state.LastBlockTime // genesis time
 	} else {
-		// in sequencing reactor, we set block time to now or last block time + 1ms, whichever is later
+		// SEQUENCING: use local time instead of MedianTime(lastCommit)
 		timestamp = LocalTime(state.LastBlockTime)
 	}
 
