@@ -67,9 +67,11 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, 
 
 	e.stateMu.Lock()
 	*e.state = state
-	e.lastProposedBlockHeight = pb.Block.Height
-	e.lastProposedBlockTime = pb.Block.Time
-	e.lastProposedBlockNumTxs = len(pb.Block.Data.Txs)
+	if e.lastProposedBlockHeight < pb.Block.Height {
+		e.lastProposedBlockHeight = pb.Block.Height
+		e.lastProposedBlockTime = pb.Block.Time
+		e.lastProposedBlockNumTxs = len(pb.Block.Data.Txs)
+	}
 
 	// try to update our role in case validator set changed
 	e.switchRoleLocked()
@@ -395,6 +397,8 @@ func (e *Engine) proposeBlock() {
 	// keep track of last proposed height to prevent entering this function too often
 	e.stateMu.Lock()
 	e.lastProposedBlockHeight = height
+	e.lastProposedBlockTime = proposedBlock.Time
+	e.lastProposedBlockNumTxs = len(proposedBlock.Data.Txs)
 	e.stateMu.Unlock()
 }
 
