@@ -89,7 +89,7 @@ func (e *Engine) blockProcessor() {
 
 			// ensure blocks up to last proposed block height are processed
 			// to do not lose our own proposals
-			if stateHeight >= lastProposedBlockHeight {
+			if lastProposedBlockHeight == 0 || stateHeight >= lastProposedBlockHeight {
 				return
 			}
 		}
