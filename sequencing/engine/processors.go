@@ -84,11 +84,12 @@ func (e *Engine) blockProcessor() {
 		case <-e.stopCh:
 			e.stateMu.Lock()
 			stateHeight := e.state.LastBlockHeight
+			lastProposedBlockHeight := e.lastProposedBlockHeight
 			e.stateMu.Unlock()
 
 			// ensure blocks up to last proposed block height are processed
 			// to do not lose our own proposals
-			if stateHeight >= e.lastProposedBlockHeight {
+			if stateHeight >= lastProposedBlockHeight {
 				return
 			}
 		}
