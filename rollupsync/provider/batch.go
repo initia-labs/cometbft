@@ -114,7 +114,7 @@ func (bp *BatchProvider) FirstTxHeight(ctx context.Context) (int64, error) {
 		case <-ctx.Done():
 			return 0, ctx.Err()
 		case <-timer.C:
-			res, err := bp.client.TxSearch(ctx, queryStr, false, &page, &txsPerPage, "asc")
+			res, err := bp.client.CelestiaTxSearch(ctx, queryStr, false, &page, &txsPerPage, "asc")
 			if err != nil {
 				bp.logger.Error("Failed fetching first batch", "error", err)
 				continue
@@ -134,7 +134,7 @@ func (bp *BatchProvider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.
 
 	txsPerPage := min(maxTxsPerPage, int(bp.cfg.TxsPerPage))
 	queryStr := fmt.Sprintf("tx.height >= %d AND tx.height < %d AND %s", height, nextHeight, rstypes.QueryEventTypeWithSubmitterFromChainType(bp.chainType, bp.submitter))
-	res, err := bp.client.TxSearch(ctx, queryStr, false, &page, &txsPerPage, "asc")
+	res, err := bp.client.CelestiaTxSearch(ctx, queryStr, false, &page, &txsPerPage, "asc")
 	if err != nil {
 		return false, err
 	}
@@ -162,7 +162,7 @@ func (bp *BatchProvider) fetchBatch(ctx context.Context, batchCh chan<- rstypes.
 	return res.TotalCount <= page*txsPerPage, nil
 }
 
-func (bp *BatchProvider) batchesFromTx(ctx context.Context, tx *coretypes.ResultTx) ([][]byte, error) {
+func (bp *BatchProvider) batchesFromTx(ctx context.Context, tx *coretypes.CelestiaResultTx) ([][]byte, error) {
 	switch bp.chainType {
 	case ophostv1.BatchInfo_INITIA:
 		return bp.batchesFromL1Tx(tx)
@@ -173,7 +173,7 @@ func (bp *BatchProvider) batchesFromTx(ctx context.Context, tx *coretypes.Result
 	}
 }
 
-func (bp *BatchProvider) batchesFromL1Tx(tx *coretypes.ResultTx) ([][]byte, error) {
+func (bp *BatchProvider) batchesFromL1Tx(tx *coretypes.CelestiaResultTx) ([][]byte, error) {
 	_, body, err := UnmarshalCosmosTx(tx.Tx)
 	if err != nil {
 		return nil, err
@@ -205,7 +205,7 @@ func (bp *BatchProvider) batchesFromL1Tx(tx *coretypes.ResultTx) ([][]byte, erro
 	return res, nil
 }
 
-func (bp *BatchProvider) batchesFromCelestiaTx(ctx context.Context, tx *coretypes.ResultTx) ([][]byte, error) {
+func (bp *BatchProvider) batchesFromCelestiaTx(ctx context.Context, tx *coretypes.CelestiaResultTx) ([][]byte, error) {
 	_, body, err := UnmarshalCosmosTx(tx.Tx)
 	if err != nil {
 		return nil, err
