@@ -2,7 +2,6 @@ package rollupsync
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/cometbft/cometbft/types"
 )
@@ -27,8 +26,10 @@ LOOP:
 						continue
 					}
 
-					// end rollup syncer
-					return fmt.Errorf("need to rollback to height %d", block.Height-1)
+					rs.logger.Info("ignore block lower than last synced height",
+						"height", block.Height,
+						"last_synced_height", rs.state.LastBlockHeight)
+					continue
 				} else if rs.state.LastBlockHeight+1 < block.Height || rs.state.LastBlockHeight == block.Height {
 					rs.logger.Error("block height mismatch", "expected", rs.state.LastBlockHeight+1, "got", block.Height)
 					// ignore invalid block
@@ -50,13 +51,17 @@ LOOP:
 				blockPartSetHeader := blockParts.Header()
 				blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: blockPartSetHeader}
 
-				rs.state, err = rs.blockExec.ApplyBlock(rs.state, blockID, block)
+				state, err := rs.blockExec.ApplyBlock(rs.state, blockID, block)
 				if err != nil {
 					rs.logger.Error("failed to apply block",
 						"height", block.Height,
 						"err", err.Error())
 					continue
 				}
+
+				// update state
+				rs.state = state
+
 				// we don't need to save seen commit here, seen commit is used only in consensus.
 				rs.blockStore.SaveBlock(block, blockParts, nil)
 			} else if blockInfo.Commit != nil {
