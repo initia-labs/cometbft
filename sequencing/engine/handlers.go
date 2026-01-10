@@ -19,7 +19,11 @@ import (
 var upgradeNeededRegex = regexp.MustCompile(`UPGRADE .* NEEDED`)
 
 // applyProposedBlock applies a proposed block message from a peer or self.
-func (e *Engine) applyProposedBlock(state state.State, pb *types.ProposedBlock) (badPeer, applied, upgrade bool) {
+func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, upgrade bool) {
+	e.stateMu.Lock()
+	state := e.state.Copy()
+	e.stateMu.Unlock()
+
 	if pb == nil || pb.Block == nil || pb.Commit == nil {
 		return false, false, false
 	}

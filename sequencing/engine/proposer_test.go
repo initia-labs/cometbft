@@ -213,11 +213,7 @@ func produceAndApplyBlock(t *testing.T, eng *Engine) *seqtypes.ProposedBlock {
 	require.True(t, ok)
 	require.Equal(t, proposed.Block.Height, height)
 
-	eng.stateMu.Lock()
-	state := eng.state.Copy()
-	eng.stateMu.Unlock()
-
-	bad, applied, upgrade := eng.applyProposedBlock(state, proposed)
+	bad, applied, upgrade := eng.applyProposedBlock(proposed)
 	require.False(t, bad)
 	require.True(t, applied)
 	require.False(t, upgrade)
