@@ -34,11 +34,13 @@ type Engine struct {
 	privValidator       cmttypes.PrivValidator // for signing votes
 
 	state   *sm.State
-	stateMu *sync.Mutex
+	stateMu sync.Mutex
 
 	stopOnce *sync.Once
 	stopCh   chan struct{}
 
+	// lock to protect proxy app executions
+	execMu     sync.Mutex
 	blockExec  *sm.BlockExecutor
 	blockStore *store.BlockStore
 	eventBus   cmttypes.BlockEventPublisher
@@ -47,6 +49,9 @@ type Engine struct {
 	lastProposedBlockHeight int64
 	lastProposedBlockTime   time.Time
 	lastProposedBlockNumTxs int
+
+	// only used for graceful shutdown to apply last proposed block
+	lastProposedBlock *types.ProposedBlock
 
 	appliedCh          chan struct{}
 	receiveCh          chan p2pMsg
@@ -91,8 +96,7 @@ func NewEngine(
 		logger:  logger,
 		cfg:     cfg,
 
-		state:   state,
-		stateMu: &sync.Mutex{},
+		state: state,
 
 		privValidator:       privValidator,
 		privValidatorPubKey: pubkey,
@@ -158,68 +162,79 @@ func (e *Engine) enqueueConflictingCommit(pid p2p.ID, commit *cmttypes.Commit) {
 }
 
 // SetMetrics overrides the Engine metrics. Passing nil resets metrics to no-ops.
-func (b *Engine) SetMetrics(m *Metrics) {
+func (e *Engine) SetMetrics(m *Metrics) {
 	if m == nil {
-		b.metrics = NopMetrics()
+		e.metrics = NopMetrics()
 	} else {
-		b.metrics = m
+		e.metrics = m
 	}
 }
 
-func (b *Engine) Start() error {
+func (e *Engine) Start() error {
 	waitGroup := sync.WaitGroup{}
 	waitGroup.Add(8)
 
 	go func() {
 		defer waitGroup.Done()
-		b.blockProcessor()
+		e.blockProcessor()
 	}()
 	go func() {
 		defer waitGroup.Done()
-		b.attesterCommitProcessor()
+		e.attesterCommitProcessor()
 	}()
 	go func() {
 		defer waitGroup.Done()
-		b.statusProcessor()
+		e.statusProcessor()
 	}()
 	go func() {
 		defer waitGroup.Done()
-		b.proposerProcessor()
+		e.proposerProcessor()
 	}()
 	go func() {
 		defer waitGroup.Done()
-		b.attestorProcessor()
+		e.attestorProcessor()
 	}()
 	go func() {
 		defer waitGroup.Done()
-		b.badPeerCleanup()
+		e.badPeerCleanup()
 	}()
 	go func() {
 		defer waitGroup.Done()
-		b.receiveRoutine()
+		e.receiveRoutine()
 	}()
 	go func() {
 		defer waitGroup.Done()
-		b.conflictingVoteProcessor()
+		e.conflictingVoteProcessor()
 	}()
 
 	go func() {
 		waitGroup.Wait()
-		close(b.done)
+		close(e.done)
 	}()
 	return nil
 }
 
-func (b *Engine) Stop() error {
-	b.stopOnce.Do(func() {
-		close(b.stopCh)
+func (e *Engine) Stop() error {
+	e.stopOnce.Do(func() {
+		close(e.stopCh)
 	})
-	b.metrics.Syncing.Set(0)
+	e.metrics.Syncing.Set(0)
 	return nil
 }
 
-func (b *Engine) Wait() {
-	<-b.done
+func (e *Engine) Wait() {
+	<-e.done
+
+	// apply last proposed block if not applied yet
+	e.stateMu.Lock()
+	stateHeight := e.state.LastBlockHeight
+	lastProposedBlockHeight := e.lastProposedBlockHeight
+	state := e.state.Copy()
+	e.stateMu.Unlock()
+
+	if lastProposedBlockHeight == stateHeight+1 {
+		_, _, _ = e.applyProposedBlock(state, e.lastProposedBlock)
+	}
 }
 
 // ResetState replaces the engine's working state and synchronizes related metadata.

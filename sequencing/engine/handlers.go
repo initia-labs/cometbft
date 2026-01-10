@@ -11,23 +11,20 @@ import (
 	"github.com/cometbft/cometbft/p2p"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/cometbft/cometbft/sequencing/types"
+	"github.com/cometbft/cometbft/state"
 	cmttypes "github.com/cometbft/cometbft/types"
 	cmttime "github.com/cometbft/cometbft/types/time"
 )
 
 var upgradeNeededRegex = regexp.MustCompile(`UPGRADE .* NEEDED`)
 
-// applyProposedBlock applies a proposed block message from a peer.
-func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, upgrade bool) {
+// applyProposedBlock applies a proposed block message from a peer or self.
+func (e *Engine) applyProposedBlock(state state.State, pb *types.ProposedBlock) (badPeer, applied, upgrade bool) {
 	if pb == nil || pb.Block == nil || pb.Commit == nil {
 		return false, false, false
 	}
 
-	e.stateMu.Lock()
-	state := e.state.Copy()
-	e.stateMu.Unlock()
-
-	if pb.Block.Height <= state.LastBlockHeight {
+	if pb.Block.Height != state.LastBlockHeight+1 {
 		return false, false, false
 	}
 
@@ -52,37 +49,48 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, 
 	// store the block with the validator set
 	e.blockStore.SaveBlockWithValidatorSet(pb.Block, blockParts, pb.Commit.ToCommit(), state.Validators)
 
-	// apply the block
-	state, err = e.blockExec.ApplyVerifiedBlock(state, blockID, pb.Block)
+	// apply the verified block
+	if e.applyVerifiedBlock(state, blockID, pb.Block) {
+		return false, false, true
+	}
+
+	return false, true, false
+}
+
+// applyVerifiedBlock applies a verified block to the state.
+func (e *Engine) applyVerifiedBlock(state state.State, blockID cmttypes.BlockID, b *cmttypes.Block) (upgrade bool) {
+	e.execMu.Lock()
+	state, err := e.blockExec.ApplyVerifiedBlock(state, blockID, b)
+	e.execMu.Unlock()
 	if err != nil {
 		// when an upgrade is needed, we do not panic, just log and stop the engine
 		if upgradeNeededRegex.MatchString(err.Error()) {
-			e.logger.Error("node upgrade required", "height", pb.Block.Height, "err", err)
+			e.logger.Error("node upgrade required", "height", b.Height, "err", err)
 			_ = e.Stop()
-			return false, false, true
+			return true
 		}
 
-		panic(fmt.Sprintf("Failed to process committed block (%d:%X): %v", pb.Block.Height, pb.Block.Hash(), err))
+		panic(fmt.Sprintf("Failed to process committed block (%d:%X): %v", b.Height, b.Hash(), err))
 	}
 
 	e.stateMu.Lock()
 	*e.state = state
-	if e.lastProposedBlockHeight < pb.Block.Height {
-		e.lastProposedBlockHeight = pb.Block.Height
-		e.lastProposedBlockTime = pb.Block.Time
-		e.lastProposedBlockNumTxs = len(pb.Block.Data.Txs)
+	if e.lastProposedBlockHeight < b.Height {
+		e.lastProposedBlockHeight = b.Height
+		e.lastProposedBlockTime = b.Time
+		e.lastProposedBlockNumTxs = len(b.Data.Txs)
 	}
 
 	// try to update our role in case validator set changed
 	e.switchRoleLocked()
 	e.stateMu.Unlock()
 
-	e.metrics.recordBlockMetrics(pb.Block)
+	e.metrics.recordBlockMetrics(b)
 
 	// signal the block has been applied
 	e.signalBlockApplied()
 
-	return false, true, false
+	return false
 }
 
 // applyAttestorCommit applies an attestor commit message from a peer.
@@ -332,6 +340,7 @@ func (e *Engine) proposeBlock() {
 	}
 
 	e.logger.Info("proposing block", "height", height, "proposer", validator.Address)
+	e.execMu.Lock()
 	proposedBlock, err := e.blockExec.CreateProposalBlock(
 		context.Background(),
 		height,
@@ -339,6 +348,7 @@ func (e *Engine) proposeBlock() {
 		lastExtCommit,
 		proposerAddr,
 	)
+	e.execMu.Unlock()
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create proposal block: height %d err %v", height, err))
 	}
@@ -399,6 +409,7 @@ func (e *Engine) proposeBlock() {
 	e.lastProposedBlockHeight = height
 	e.lastProposedBlockTime = proposedBlock.Time
 	e.lastProposedBlockNumTxs = len(proposedBlock.Data.Txs)
+	e.lastProposedBlock = proposed // for graceful shutdown
 	e.stateMu.Unlock()
 }
 

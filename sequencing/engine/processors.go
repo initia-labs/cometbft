@@ -26,6 +26,7 @@ func (e *Engine) blockProcessor() {
 
 				e.stateMu.Lock()
 				stateHeight := e.state.LastBlockHeight
+				state := e.state.Copy()
 				e.stateMu.Unlock()
 
 				// try to keep a buffer of future blocks
@@ -62,7 +63,7 @@ func (e *Engine) blockProcessor() {
 				// try to register event bus after we receive block
 				e.tryRegisterEventBus()
 
-				if badPeer, applied, upgrade := e.applyProposedBlock(proposedBlock); upgrade {
+				if badPeer, applied, upgrade := e.applyProposedBlock(state, proposedBlock); upgrade {
 					return
 				} else if badPeer {
 					e.flagBadPeer(pid, "sent invalid proposed block")
@@ -82,16 +83,7 @@ func (e *Engine) blockProcessor() {
 			}
 
 		case <-e.stopCh:
-			e.stateMu.Lock()
-			stateHeight := e.state.LastBlockHeight
-			lastProposedBlockHeight := e.lastProposedBlockHeight
-			e.stateMu.Unlock()
-
-			// ensure blocks up to last proposed block height are processed
-			// to do not lose our own proposals
-			if lastProposedBlockHeight == 0 || stateHeight >= lastProposedBlockHeight {
-				return
-			}
+			return
 		}
 	}
 }
