@@ -229,11 +229,12 @@ func (e *Engine) Wait() {
 	e.stateMu.Lock()
 	stateHeight := e.state.LastBlockHeight
 	lastProposedBlockHeight := e.lastProposedBlockHeight
+	lastProposedBlock := e.lastProposedBlock
 	state := e.state.Copy()
 	e.stateMu.Unlock()
 
 	if lastProposedBlockHeight == stateHeight+1 {
-		_, _, _ = e.applyProposedBlock(state, e.lastProposedBlock)
+		_, _, _ = e.applyProposedBlock(state, lastProposedBlock)
 	}
 }
 
