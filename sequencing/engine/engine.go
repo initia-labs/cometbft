@@ -246,54 +246,54 @@ func (e *Engine) ResetState(state sm.State) {
 	e.switchRole()
 }
 
-func (p *Engine) AddPeer(peer p2p.Peer) {}
+func (e *Engine) AddPeer(peer p2p.Peer) {}
 
-func (p *Engine) RemovePeer(peer p2p.Peer, reason any) {
-	p.peerSet.Remove(peer.ID())
-	p.badPeers.Delete(peer.ID())
-	p.blockBucket.RemovePeer(peer.ID())
-	p.commitBucket.RemovePeer(peer.ID())
+func (e *Engine) RemovePeer(peer p2p.Peer, reason any) {
+	e.peerSet.Remove(peer.ID())
+	e.badPeers.Delete(peer.ID())
+	e.blockBucket.RemovePeer(peer.ID())
+	e.commitBucket.RemovePeer(peer.ID())
 }
 
-func (p *Engine) flagBadPeer(pid p2p.ID, reason string) {
-	p.badPeers.Store(pid, time.Now())
-	p.peerSet.Remove(pid)
-	p.blockBucket.RemovePeer(pid)
-	p.commitBucket.RemovePeer(pid)
-	p.logger.Error("flagged bad peer", "peer", pid, "reason", reason)
+func (e *Engine) flagBadPeer(pid p2p.ID, reason string) {
+	e.badPeers.Store(pid, time.Now())
+	e.peerSet.Remove(pid)
+	e.blockBucket.RemovePeer(pid)
+	e.commitBucket.RemovePeer(pid)
+	e.logger.Error("flagged bad peer", "peer", pid, "reason", reason)
 }
 
-func (p *Engine) receiveRoutine() {
+func (e *Engine) receiveRoutine() {
 	for {
 		select {
-		case <-p.stopCh:
+		case <-e.stopCh:
 			return
-		case p2pMsg := <-p.receiveCh:
+		case p2pMsg := <-e.receiveCh:
 			msg := p2pMsg.msg
 			envelope := p2pMsg.envelope
 
 			// skip it if the peer is bad
-			if _, ok := p.badPeers.Load(envelope.Src.ID()); ok {
+			if _, ok := e.badPeers.Load(envelope.Src.ID()); ok {
 				continue
 			}
 
 			switch m := msg.(type) {
 			case *types.StatusUpdate:
-				p.handleStatusUpdate(envelope.Src, m)
+				e.handleStatusUpdate(envelope.Src, m)
 			case *types.BlockRequest:
-				p.handleBlockRequest(envelope.Src, m)
+				e.handleBlockRequest(envelope.Src, m)
 			case *types.BlockResponse:
-				p.handleBlockResponse(envelope.Src, m)
+				e.handleBlockResponse(envelope.Src, m)
 			default:
-				p.logger.Debug("pool received unhandled message: %T", msg)
+				e.logger.Debug("pool received unhandled message: %T", msg)
 			}
 		}
 	}
 }
 
-func (p *Engine) Receive(msg types.Message, envelope p2p.Envelope) {
-	if p.receiveCh != nil {
-		p.receiveCh <- p2pMsg{msg: msg, envelope: envelope}
+func (e *Engine) Receive(msg types.Message, envelope p2p.Envelope) {
+	if e.receiveCh != nil {
+		e.receiveCh <- p2pMsg{msg: msg, envelope: envelope}
 	}
 }
 
