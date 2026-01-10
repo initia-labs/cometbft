@@ -232,7 +232,7 @@ func (e *Engine) Wait() {
 	lastProposedBlock := e.lastProposedBlock
 	e.stateMu.Unlock()
 
-	if lastProposedBlockHeight == stateHeight+1 {
+	if lastProposedBlock != nil && lastProposedBlockHeight == stateHeight+1 {
 		_, _, _ = e.applyProposedBlock(lastProposedBlock)
 	}
 }
