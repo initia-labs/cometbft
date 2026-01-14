@@ -48,10 +48,10 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, 
 	}
 	if err := e.blockExec.ValidateBlock(state, pb.Block); err != nil {
 		if prevBlock := e.blockStore.LoadBlock(pb.Block.Height - 1); prevBlock != nil {
-			e.logger.Error("pre-block", "block", prevBlock.String())
+			e.logger.Error("prev-block", "block", prevBlock.String())
 		}
-		if prevCommit := e.blockStore.LoadBlockCommit(pb.Block.Height - 1); prevCommit != nil {
-			e.logger.Error("pre-commit", "commit", prevCommit.StringIndented(""))
+		if prevCommit := e.blockStore.LoadSeenCommit(pb.Block.Height - 1); prevCommit != nil {
+			e.logger.Error("prev-seen-commit", "commit", prevCommit.StringIndented(""))
 		}
 
 		panic(fmt.Sprintf("CONSENSUS FAILURE!!! Proposed block failed validation: block (%d:%X): %v", pb.Block.Height, pb.Block.Hash(), err))
