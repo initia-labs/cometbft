@@ -47,6 +47,10 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, 
 		return true, false, false
 	}
 	if err := e.blockExec.ValidateBlock(state, pb.Block); err != nil {
+		if prevBlock := e.blockStore.LoadBlock(pb.Block.Height - 1); prevBlock != nil {
+			e.logger.Error("pre-block", "block", prevBlock.String())
+		}
+
 		panic(fmt.Sprintf("CONSENSUS FAILURE!!! Proposed block failed validation: block (%d:%X): %v", pb.Block.Height, pb.Block.Hash(), err))
 	}
 
