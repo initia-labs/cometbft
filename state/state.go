@@ -237,7 +237,7 @@ func (state State) MakeBlock(
 	lastCommit *types.Commit,
 	evidence []types.Evidence,
 	proposerAddress []byte,
-) *types.Block {
+) (*types.Block, error) {
 
 	// Build base block with block data.
 	block := types.MakeBlock(height, txs, lastCommit, evidence)
@@ -260,7 +260,7 @@ func (state State) MakeBlock(
 		proposerAddress,
 	)
 
-	return block
+	return block, nil
 }
 
 // LocalTime returns the local time for a new block based on the last block time.
