@@ -169,11 +169,11 @@ func (mem *CListMempool) Unlock() {
 
 // Safe for concurrent use by multiple goroutines.
 func (mem *CListMempool) Size() int {
-	if !mem.hasValidTxs.Load() {
-		return 0
-	}
-
 	return mem.txs.Len()
+}
+
+func (mem *CListMempool) HasValidTxs() bool {
+	return mem.hasValidTxs.Load()
 }
 
 // Safe for concurrent use by multiple goroutines.

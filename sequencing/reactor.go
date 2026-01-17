@@ -220,9 +220,18 @@ func (r *Reactor) Peer(id p2p.ID) p2p.Peer {
 	return r.Switch.Peers().Get(id)
 }
 
+type hasValidTxs interface {
+	HasValidTxs() bool
+}
+
 func (r *Reactor) MempoolSize() int {
 	if r.mempool == nil {
 		return 0
+	}
+	if m, ok := r.mempool.(hasValidTxs); ok {
+		if !m.HasValidTxs() {
+			return 0
+		}
 	}
 	return r.mempool.Size()
 }
