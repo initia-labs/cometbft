@@ -56,9 +56,9 @@ type CListMempool struct {
 	logger  log.Logger
 	metrics *Metrics
 
-	// hasValidRecheckTxs indicates whether any transaction has been successfully rechecked
+	// hasValidTxs indicates whether any transaction has been successfully checked
 	// with a non-txqueue codespace response, meaning it's ready for inclusion in a block
-	hasValidRecheckTxs atomic.Bool
+	hasValidTxs atomic.Bool
 }
 
 var _ Mempool = &CListMempool{}
@@ -169,7 +169,7 @@ func (mem *CListMempool) Unlock() {
 
 // Safe for concurrent use by multiple goroutines.
 func (mem *CListMempool) Size() int {
-	if !mem.hasValidRecheckTxs.Load() {
+	if !mem.hasValidTxs.Load() {
 		return 0
 	}
 
@@ -459,6 +459,7 @@ func (mem *CListMempool) resCbFirstTime(
 				"total", mem.Size(),
 			)
 			if r.CheckTx.Codespace != "txqueue" {
+				mem.hasValidTxs.Store(true)
 				mem.notifyTxsAvailable()
 			}
 		} else {
@@ -509,9 +510,9 @@ func (mem *CListMempool) resCbRecheck(tx types.Tx, res *abci.ResponseCheckTx) {
 			mem.cache.Remove(tx)
 			mem.metrics.EvictedTxs.Add(1)
 		}
-	} else if res.Codespace != "txqueue" && !mem.hasValidRecheckTxs.Load() {
+	} else if res.Codespace != "txqueue" && !mem.hasValidTxs.Load() {
 		// if the tx is valid and non-txqueue codespace, and we haven't seen a valid recheck tx yet, set the flag
-		mem.hasValidRecheckTxs.Store(true)
+		mem.hasValidTxs.Store(true)
 	}
 }
 
@@ -604,7 +605,7 @@ func (mem *CListMempool) Update(
 	// Set height
 	mem.height.Store(height)
 	mem.notifiedTxsAvailable.Store(false)
-	mem.hasValidRecheckTxs.Store(false)
+	mem.hasValidTxs.Store(false)
 
 	if preCheck != nil {
 		mem.preCheck = preCheck
@@ -645,7 +646,7 @@ func (mem *CListMempool) Update(
 	}
 
 	// Notify if there are still valid txs left in the mempool.
-	if mem.Size() > 0 && mem.hasValidRecheckTxs.Load() {
+	if mem.Size() > 0 && mem.hasValidTxs.Load() {
 		mem.notifyTxsAvailable()
 	}
 
