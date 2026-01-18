@@ -199,7 +199,7 @@ func (memR *Reactor) gossipTxRoutine(peer p2p.Peer) {
 		peerHeight := peerState.GetHeight()
 
 		memR.mempool.gossipMut.Lock()
-		gossipTxs := []types.TxKey{}
+		gossipTxs := make([]types.TxKey, len(memR.mempool.gossipTxs))
 		copy(gossipTxs, memR.mempool.gossipTxs)
 		memR.mempool.gossipMut.Unlock()
 
