@@ -513,6 +513,19 @@ func (mem *CListMempool) resCbRecheck(tx types.Tx, res *abci.ResponseCheckTx) {
 	} else if res.Codespace != "txqueue" && !mem.hasValidTxs.Load() {
 		// if the tx is valid and non-txqueue codespace, and we haven't seen a valid recheck tx yet, set the flag
 		mem.hasValidTxs.Store(true)
+
+		// move tx back to the end of the list to re-notify availability to peers
+		if elem, ok := mem.getCElement(tx.Key()); ok {
+			mempoolTx := mem.txs.Remove(elem)
+
+			elem.DetachPrev()
+			elem.DetachNext()
+
+			if mempoolTx != nil {
+				mem.txs.PushBack(mempoolTx)
+			}
+
+		}
 	}
 }
 
