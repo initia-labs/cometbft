@@ -61,7 +61,7 @@ type CListMempool struct {
 	hasValidTxs atomic.Bool
 
 	// gossipTxs keeps track of txs that need to be gossiped to peers
-	gossipTxs []*mempoolTx
+	gossipTxs []types.TxKey
 	gossipMut sync.Mutex
 }
 
@@ -520,11 +520,9 @@ func (mem *CListMempool) resCbRecheck(tx types.Tx, res *abci.ResponseCheckTx) {
 			mem.hasValidTxs.Store(true)
 		}
 
-		if memTx := mem.getMemTx(tx.Key()); memTx != nil {
-			mem.gossipMut.Lock()
-			mem.gossipTxs = append(mem.gossipTxs, memTx)
-			mem.gossipMut.Unlock()
-		}
+		mem.gossipMut.Lock()
+		mem.gossipTxs = append(mem.gossipTxs, tx.Key())
+		mem.gossipMut.Unlock()
 	}
 }
 

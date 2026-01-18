@@ -199,15 +199,19 @@ func (memR *Reactor) gossipTxRoutine(peer p2p.Peer) {
 		peerHeight := peerState.GetHeight()
 
 		memR.mempool.gossipMut.Lock()
-		gossipTxs := []*mempoolTx{}
+		gossipTxs := []types.TxKey{}
 		copy(gossipTxs, memR.mempool.gossipTxs)
 		memR.mempool.gossipMut.Unlock()
 
-		for _, memTx := range gossipTxs {
+		for _, txKey := range gossipTxs {
 			if !memR.IsRunning() || !peer.IsRunning() {
 				return
 			}
 			// allow for a lag of 1 block
+			memTx := memR.mempool.getMemTx(txKey)
+			if memTx == nil {
+				continue
+			}
 			if peerHeight < memTx.Height()-1 {
 				continue
 			}
