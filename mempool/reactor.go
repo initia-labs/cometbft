@@ -124,6 +124,7 @@ func (memR *Reactor) AddPeer(peer p2p.Peer) {
 
 			memR.mempool.metrics.ActiveOutboundConnections.Add(1)
 			defer memR.mempool.metrics.ActiveOutboundConnections.Add(-1)
+			go memR.gossipTxRoutine(peer)
 			memR.broadcastTxRoutine(peer)
 		}()
 	}
@@ -170,6 +171,55 @@ func (memR *Reactor) Receive(e p2p.Envelope) {
 // PeerState describes the state of a peer.
 type PeerState interface {
 	GetHeight() int64
+}
+
+func (memR *Reactor) gossipTxRoutine(peer p2p.Peer) {
+	var lastGossipHeight int64 = -1
+
+	for {
+		// In case of both next.NextWaitChan() and peer.Quit() are variable at the same time
+		if !memR.IsRunning() || !peer.IsRunning() {
+			return
+		}
+
+		// Make sure the peer is up to date.
+		peerState, ok := peer.Get(types.PeerStateKey).(PeerState)
+		if !ok {
+			time.Sleep(PeerCatchupSleepIntervalMS * time.Millisecond)
+			continue
+		}
+
+		mempoolHeight := memR.mempool.height.Load()
+		if lastGossipHeight >= mempoolHeight {
+			time.Sleep(PeerCatchupSleepIntervalMS * time.Millisecond)
+			continue
+		}
+
+		lastGossipHeight = mempoolHeight
+		peerHeight := peerState.GetHeight()
+
+		memR.mempool.gossipMut.Lock()
+		gossipTxs := []*mempoolTx{}
+		copy(gossipTxs, memR.mempool.gossipTxs)
+		memR.mempool.gossipMut.Unlock()
+
+		for _, memTx := range gossipTxs {
+			if !memR.IsRunning() || !peer.IsRunning() {
+				return
+			}
+			// allow for a lag of 1 block
+			if peerHeight < memTx.Height()-1 {
+				continue
+			}
+			if success := peer.Send(p2p.Envelope{
+				ChannelID: MempoolChannel,
+				Message:   &protomem.Txs{Txs: [][]byte{memTx.tx}},
+			}); !success {
+				time.Sleep(PeerCatchupSleepIntervalMS * time.Millisecond)
+				continue
+			}
+		}
+	}
 }
 
 // Send new mempool txs to peer.
