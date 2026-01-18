@@ -59,6 +59,10 @@ type CListMempool struct {
 	// hasValidTxs indicates whether any transaction has been successfully checked
 	// with a non-txqueue codespace response, meaning it's ready for inclusion in a block
 	hasValidTxs atomic.Bool
+
+	// gossipTxs keeps track of txs that need to be gossiped to peers
+	gossipTxs []types.TxKey
+	gossipMut sync.Mutex
 }
 
 var _ Mempool = &CListMempool{}
@@ -510,9 +514,15 @@ func (mem *CListMempool) resCbRecheck(tx types.Tx, res *abci.ResponseCheckTx) {
 			mem.cache.Remove(tx)
 			mem.metrics.EvictedTxs.Add(1)
 		}
-	} else if res.Codespace != "txqueue" && !mem.hasValidTxs.Load() {
+	} else if res.Codespace != "txqueue" {
 		// if the tx is valid and non-txqueue codespace, and we haven't seen a valid recheck tx yet, set the flag
-		mem.hasValidTxs.Store(true)
+		if !mem.hasValidTxs.Load() {
+			mem.hasValidTxs.Store(true)
+		}
+
+		mem.gossipMut.Lock()
+		mem.gossipTxs = append(mem.gossipTxs, tx.Key())
+		mem.gossipMut.Unlock()
 	}
 }
 
@@ -606,6 +616,11 @@ func (mem *CListMempool) Update(
 	mem.height.Store(height)
 	mem.notifiedTxsAvailable.Store(false)
 	mem.hasValidTxs.Store(false)
+
+	// Clear gossipTxs map
+	mem.gossipMut.Lock()
+	mem.gossipTxs = mem.gossipTxs[:0]
+	mem.gossipMut.Unlock()
 
 	if preCheck != nil {
 		mem.preCheck = preCheck
