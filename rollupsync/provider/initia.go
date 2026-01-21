@@ -247,16 +247,16 @@ func (lp L1Provider) GetAllCurrencyPairs(ctx context.Context, height int64) ([]s
 	return pairs, nil
 }
 
-// GetOraclePrice queries a single currency pair price from L1 oracle module
-func (lp L1Provider) GetOraclePrice(ctx context.Context, height int64, currencyPair string) (*opchildv1.OraclePriceData, error) {
-	req := &rstypes.GetPriceRequest{CurrencyPair: currencyPair}
+// GetOraclePrices queries all currency pair prices from L1 oracle module
+func (lp L1Provider) GetOraclePrices(ctx context.Context, height int64, currencyPairs []string) ([]*opchildv1.OraclePriceData, error) {
+	req := &rstypes.GetPricesRequest{CurrencyPairIds: currencyPairs}
 	reqBytes, err := gogoproto.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
 
 	res, err := lp.client.ABCIQueryWithOptions(ctx,
-		"/connect.oracle.v2.Query/GetPrice",
+		"/connect.oracle.v2.Query/GetPrices",
 		reqBytes,
 		rpcclient.ABCIQueryOptions{Height: height})
 	if err != nil {
@@ -266,20 +266,25 @@ func (lp L1Provider) GetOraclePrice(ctx context.Context, height int64, currencyP
 		return nil, errors.New(res.Response.Log)
 	}
 
-	resp := new(rstypes.GetPriceResponse)
+	resp := new(rstypes.GetPricesResponse)
 	if err := gogoproto.Unmarshal(res.Response.Value, resp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal price response: %v", err)
-	}
-	if resp.Price == nil {
-		return nil, fmt.Errorf("no price data for currency pair %s", currencyPair)
+		return nil, fmt.Errorf("failed to unmarshal prices response: %v", err)
 	}
 
-	return &opchildv1.OraclePriceData{
-		CurrencyPair:   currencyPair,
-		Price:          resp.Price.Price,
-		Decimals:       resp.Decimals,
-		Nonce:          resp.Nonce,
-		CurrencyPairId: resp.Id,
-		Timestamp:      resp.Price.BlockTimestamp.UnixNano(),
-	}, nil
+	prices := make([]*opchildv1.OraclePriceData, 0, len(resp.Prices))
+	for i, priceResp := range resp.Prices {
+		if priceResp.Price == nil {
+			continue // skip pairs with no price data
+		}
+		prices = append(prices, &opchildv1.OraclePriceData{
+			CurrencyPair:   currencyPairs[i],
+			Price:          priceResp.Price.Price,
+			Decimals:       priceResp.Decimals,
+			Nonce:          priceResp.Nonce,
+			CurrencyPairId: priceResp.Id,
+			Timestamp:      priceResp.Price.BlockTimestamp.UnixNano(),
+		})
+	}
+
+	return prices, nil
 }

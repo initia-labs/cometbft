@@ -26,14 +26,14 @@ func (m *GetAllCurrencyPairsResponse) Reset()         { *m = GetAllCurrencyPairs
 func (m *GetAllCurrencyPairsResponse) String() string { return "" }
 func (*GetAllCurrencyPairsResponse) ProtoMessage()    {}
 
-// GetPriceRequest is the request for GetPrice query
-type GetPriceRequest struct {
-	CurrencyPair string `protobuf:"bytes,1,opt,name=currency_pair,json=currencyPair,proto3" json:"currency_pair,omitempty"`
+// GetPricesRequest is the request for a batch GetPrices query
+type GetPricesRequest struct {
+	CurrencyPairIds []string `protobuf:"bytes,1,rep,name=currency_pair_ids,json=currencyPairIds,proto3" json:"currency_pair_ids,omitempty"`
 }
 
-func (m *GetPriceRequest) Reset()         { *m = GetPriceRequest{} }
-func (m *GetPriceRequest) String() string { return "" }
-func (*GetPriceRequest) ProtoMessage()    {}
+func (m *GetPricesRequest) Reset()         { *m = GetPricesRequest{} }
+func (m *GetPricesRequest) String() string { return "" }
+func (*GetPricesRequest) ProtoMessage()    {}
 
 // QuotePrice represents the price data from connect oracle
 type QuotePrice struct {
@@ -46,7 +46,7 @@ func (m *QuotePrice) Reset()         { *m = QuotePrice{} }
 func (m *QuotePrice) String() string { return "" }
 func (*QuotePrice) ProtoMessage()    {}
 
-// GetPriceResponse is the response from GetPrice query
+// GetPriceResponse is the response for a single price
 type GetPriceResponse struct {
 	Price    *QuotePrice `protobuf:"bytes,1,opt,name=price,proto3" json:"price,omitempty"`
 	Nonce    uint64      `protobuf:"varint,2,opt,name=nonce,proto3" json:"nonce,omitempty"`
@@ -57,3 +57,12 @@ type GetPriceResponse struct {
 func (m *GetPriceResponse) Reset()         { *m = GetPriceResponse{} }
 func (m *GetPriceResponse) String() string { return "" }
 func (*GetPriceResponse) ProtoMessage()    {}
+
+// GetPricesResponse is the response from batch GetPrices query
+type GetPricesResponse struct {
+	Prices []GetPriceResponse `protobuf:"bytes,1,rep,name=prices,proto3" json:"prices"`
+}
+
+func (m *GetPricesResponse) Reset()         { *m = GetPricesResponse{} }
+func (m *GetPricesResponse) String() string { return "" }
+func (*GetPricesResponse) ProtoMessage()    {}

@@ -66,14 +66,10 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block, propos
 						rs.logger.Error("failed to get currency pairs", "retry", retry, "error", err.Error())
 						return false
 					}
-					prices := make([]*opchildv1.OraclePriceData, 0, len(pairs))
-					for _, pair := range pairs {
-						priceData, err := rs.l1Provider.GetOraclePrice(ctx, int64(msg.OracleData.L1BlockHeight), pair)
-						if err != nil {
-							rs.logger.Debug("failed to get oracle price, skipping", "pair", pair, "error", err.Error())
-							continue
-						}
-						prices = append(prices, priceData)
+					prices, err := rs.l1Provider.GetOraclePrices(ctx, int64(msg.OracleData.L1BlockHeight), pairs)
+					if err != nil {
+						rs.logger.Error("failed to get oracle prices", "retry", retry, "error", err.Error())
+						return false
 					}
 					msg.OracleData.Prices = prices
 					return true
@@ -142,14 +138,10 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block, propos
 								rs.logger.Error("failed to get currency pairs", "retry", retry, "error", err.Error())
 								return false
 							}
-							prices := make([]*opchildv1.OraclePriceData, 0, len(pairs))
-							for _, pair := range pairs {
-								priceData, err := rs.l1Provider.GetOraclePrice(ctx, int64(msg.OracleData.L1BlockHeight), pair)
-								if err != nil {
-									rs.logger.Debug("failed to get oracle price, skipping", "pair", pair, "error", err.Error())
-									continue
-								}
-								prices = append(prices, priceData)
+							prices, err := rs.l1Provider.GetOraclePrices(ctx, int64(msg.OracleData.L1BlockHeight), pairs)
+							if err != nil {
+								rs.logger.Error("failed to get oracle prices", "retry", retry, "error", err.Error())
+								return false
 							}
 							msg.OracleData.Prices = prices
 							return true
