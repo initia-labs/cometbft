@@ -54,43 +54,127 @@ func (rs *RollupSyncer) fillData(ctx context.Context, block *types.Block, propos
 				if err != nil {
 					return errors.Join(errors.New("failed to marshal oracle msg"), err)
 				}
-			case "/cosmos.authz.v1beta1.MsgExec":
-				authzMsg := new(authzv1beta1.MsgExec)
-				err := anyMsg.UnmarshalTo(authzMsg)
-				if err != nil {
-					return err
-				}
-				if len(authzMsg.Msgs) != 1 || authzMsg.Msgs[0].TypeUrl != "/opinit.opchild.v1.MsgUpdateOracle" {
-					continue
-				}
-				msg := new(opchildv1.MsgUpdateOracle)
-				err = authzMsg.Msgs[0].UnmarshalTo(msg)
-				if err != nil {
+			case "/opinit.opchild.v1.MsgRelayOracleData":
+				msg := new(opchildv1.MsgRelayOracleData)
+				if err := anyMsg.UnmarshalTo(msg); err != nil {
 					return err
 				}
 
-				err = SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
-					res, err := rs.l1Provider.GetOracleTx(ctx, int64(msg.Height))
+				if err := SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+					pairs, err := rs.l1Provider.GetAllCurrencyPairs(ctx, int64(msg.OracleData.L1BlockHeight))
 					if err != nil {
-						rs.logger.Error("failed to fetch oracle tx", "height", msg.Height, "retry", retry, "error", err.Error())
+						rs.logger.Error("failed to get currency pairs", "retry", retry, "error", err.Error())
 						return false
 					}
-					msg.Data = res
+					prices, err := rs.l1Provider.GetOraclePrices(ctx, int64(msg.OracleData.L1BlockHeight), pairs)
+					if err != nil {
+						rs.logger.Error("failed to get oracle prices", "retry", retry, "error", err.Error())
+						return false
+					}
+					msg.OracleData.Prices = prices
 					return true
-				})
-				if err != nil {
-					return errors.Join(errors.New("failed to fetch oracle tx"), err)
+				}); err != nil {
+					return errors.Join(errors.New("failed to restore oracle prices"), err)
 				}
 
-				// https://github.com/cosmos/cosmos-sdk/blob/main/docs/learn/advanced/05-encoding.md#anys-typeurl
-				err = anyutil.MarshalFrom(authzMsg.Msgs[0], msg, proto.MarshalOptions{})
-				if err != nil {
-					return errors.Join(errors.New("failed to marshal oracle msg"), err)
+				if err := SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+					proofHeight := int64(msg.OracleData.ProofHeight.RevisionHeight) - 1
+					_, proofBytes, err := rs.l1Provider.GetOraclePriceHashWithProof(ctx, proofHeight)
+					if err != nil {
+						rs.logger.Error("failed to get oracle proof", "retry", retry, "error", err.Error())
+						return false
+					}
+					msg.OracleData.Proof = proofBytes
+					return true
+				}); err != nil {
+					return errors.Join(errors.New("failed to restore oracle proof"), err)
 				}
 
-				err = anyutil.MarshalFrom(anyMsg, authzMsg, proto.MarshalOptions{})
+				err = anyutil.MarshalFrom(anyMsg, msg, proto.MarshalOptions{})
 				if err != nil {
-					return errors.Join(errors.New("failed to marshal oracle msg"), err)
+					return errors.Join(errors.New("failed to marshal relay oracle msg"), err)
+				}
+			case "/cosmos.authz.v1beta1.MsgExec":
+				authzMsg := new(authzv1beta1.MsgExec)
+				if err := anyMsg.UnmarshalTo(authzMsg); err != nil {
+					return err
+				}
+
+				modified := false
+				for _, innerMsg := range authzMsg.Msgs {
+					switch innerMsg.TypeUrl {
+					case "/opinit.opchild.v1.MsgUpdateOracle":
+						msg := new(opchildv1.MsgUpdateOracle)
+						if err := innerMsg.UnmarshalTo(msg); err != nil {
+							return err
+						}
+
+						if err := SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+							res, err := rs.l1Provider.GetOracleTx(ctx, int64(msg.Height))
+							if err != nil {
+								rs.logger.Error("failed to fetch oracle tx", "height", msg.Height, "retry", retry, "error", err.Error())
+								return false
+							}
+							msg.Data = res
+							return true
+						}); err != nil {
+							return errors.Join(errors.New("failed to fetch oracle tx"), err)
+						}
+
+						// https://github.com/cosmos/cosmos-sdk/blob/main/docs/learn/advanced/05-encoding.md#anys-typeurl
+						if err := anyutil.MarshalFrom(innerMsg, msg, proto.MarshalOptions{}); err != nil {
+							return errors.Join(errors.New("failed to marshal oracle msg"), err)
+						}
+						modified = true
+					case "/opinit.opchild.v1.MsgRelayOracleData":
+						msg := new(opchildv1.MsgRelayOracleData)
+						if err := innerMsg.UnmarshalTo(msg); err != nil {
+							return err
+						}
+
+						if err := SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+							pairs, err := rs.l1Provider.GetAllCurrencyPairs(ctx, int64(msg.OracleData.L1BlockHeight))
+							if err != nil {
+								rs.logger.Error("failed to get currency pairs", "retry", retry, "error", err.Error())
+								return false
+							}
+							prices, err := rs.l1Provider.GetOraclePrices(ctx, int64(msg.OracleData.L1BlockHeight), pairs)
+							if err != nil {
+								rs.logger.Error("failed to get oracle prices", "retry", retry, "error", err.Error())
+								return false
+							}
+							msg.OracleData.Prices = prices
+							return true
+						}); err != nil {
+							return errors.Join(errors.New("failed to restore oracle prices"), err)
+						}
+
+						if err := SleepWithRetry(ctx, rs.cfg.FetchInterval, func(retry int) bool {
+							proofHeight := int64(msg.OracleData.ProofHeight.RevisionHeight) - 1
+							_, proofBytes, err := rs.l1Provider.GetOraclePriceHashWithProof(ctx, proofHeight)
+							if err != nil {
+								rs.logger.Error("failed to get oracle proof", "retry", retry, "error", err.Error())
+								return false
+							}
+							msg.OracleData.Proof = proofBytes
+							return true
+						}); err != nil {
+							return errors.Join(errors.New("failed to restore oracle proof"), err)
+						}
+
+						if err := anyutil.MarshalFrom(innerMsg, msg, proto.MarshalOptions{}); err != nil {
+							return errors.Join(errors.New("failed to marshal relay oracle msg"), err)
+						}
+						modified = true
+					}
+				}
+
+				if !modified {
+					continue
+				}
+
+				if err := anyutil.MarshalFrom(anyMsg, authzMsg, proto.MarshalOptions{}); err != nil {
+					return errors.Join(errors.New("failed to marshal authz msg"), err)
 				}
 			case "/ibc.core.client.v1.MsgUpdateClient":
 				updateClientMsg := new(ibcprotoclient.MsgUpdateClient)
