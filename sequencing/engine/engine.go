@@ -137,10 +137,8 @@ func (e *Engine) tryRegisterEventBus() {
 		return
 	}
 
-	if !e.CatchUp() {
-		e.blockExec.SetEventBus(e.eventBus)
-		e.eventBusRegistered = true
-	}
+	e.blockExec.SetEventBus(e.eventBus)
+	e.eventBusRegistered = true
 }
 
 func (e *Engine) signalBlockApplied() {
