@@ -183,7 +183,12 @@ func (memR *Reactor) appEventLoop() {
 			case EventTxRemoved:
 				memR.insertedTxsMtx.Lock()
 				delete(memR.insertedTxs, ev.TxKey)
+				empty := len(memR.insertedTxs) == 0
 				memR.insertedTxsMtx.Unlock()
+
+				if empty {
+					memR.mempool.SetHasValidTxs(false)
+				}
 
 				memR.mempool.RemoveTxByKey(ev.TxKey)
 

@@ -212,7 +212,6 @@ func (mp *ProxyMempool) Update(
 ) error {
 	mp.height.Store(blockHeight)
 	mp.notifiedTxsAvailable.Store(false)
-	mp.hasValidTxs.Store(false)
 
 	for idx, tx := range blockTxs {
 		if txResults[idx].Code == abci.CodeTypeOK || mp.config.KeepInvalidTxsInCache {
@@ -221,14 +220,13 @@ func (mp *ProxyMempool) Update(
 		mp.RemoveTxByKey(tx.Key())
 	}
 
-	mp.metrics.Size.Set(float64(mp.Size()))
-	mp.metrics.SizeBytes.Set(float64(mp.SizeBytes()))
-
-	// notify validator if there are still pending txs
-	if mp.Size() > 0 {
-		mp.hasValidTxs.Store(true)
+	// renotify if there are still valid txs from before this block.
+	if mp.hasValidTxs.Load() {
 		mp.notifyTxsAvailable()
 	}
+
+	mp.metrics.Size.Set(float64(mp.Size()))
+	mp.metrics.SizeBytes.Set(float64(mp.SizeBytes()))
 
 	return nil
 }
