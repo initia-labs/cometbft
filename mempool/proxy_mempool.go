@@ -206,7 +206,7 @@ func (mp *ProxyMempool) Unlock() {
 func (mp *ProxyMempool) Update(
 	blockHeight int64,
 	blockTxs types.Txs,
-	_ []*abci.ExecTxResult,
+	txResults []*abci.ExecTxResult,
 	_ PreCheckFunc,
 	_ PostCheckFunc,
 ) error {
@@ -214,13 +214,21 @@ func (mp *ProxyMempool) Update(
 	mp.notifiedTxsAvailable.Store(false)
 	mp.hasValidTxs.Store(false)
 
-	for _, tx := range blockTxs {
-		mp.includedTxCache.Push(tx) // cache the committed tx hash so late gossip is rejected locally
+	for idx, tx := range blockTxs {
+		if txResults[idx].Code == abci.CodeTypeOK || mp.config.KeepInvalidTxsInCache {
+			mp.includedTxCache.Push(tx) // cache the valid committed tx
+		}
 		mp.RemoveTxByKey(tx.Key())
 	}
 
 	mp.metrics.Size.Set(float64(mp.Size()))
 	mp.metrics.SizeBytes.Set(float64(mp.SizeBytes()))
+
+	// notify validator if there are still pending txs
+	if mp.Size() > 0 {
+		mp.hasValidTxs.Store(true)
+		mp.notifyTxsAvailable()
+	}
 
 	return nil
 }
