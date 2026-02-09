@@ -20,7 +20,8 @@ const (
 	regossipMaxInterval   = 5 * time.Minute
 	regossipMaxAttempts   = 16
 
-	regossipHeightInterval int64 = 3
+	regossipHeightInterval    int64 = 3
+	regossipMaxHeightInterval int64 = 100
 )
 
 // regossipEntry tracks a tx in the regossip set with per-tx back-off state.
@@ -194,8 +195,8 @@ func (memR *Reactor) appEventLoop() {
 }
 
 // regossipLoop periodically checks inserted txs and regossips those whose
-// per-tx back-off interval has elapsed. Back-off is exponential:
-// baseInterval * 2^attempts (capped at regossipMaxInterval).
+// per-tx back-off interval has elapsed. Both time and height back-off are
+// exponential: base * 2^attempts (capped at their respective maximums).
 func (memR *Reactor) regossipLoop() {
 	ticker := time.NewTicker(regossipCheckInterval)
 	defer ticker.Stop()
@@ -221,9 +222,13 @@ func (memR *Reactor) regossipLoop() {
 				if backoff > regossipMaxInterval {
 					backoff = regossipMaxInterval
 				}
-
 				timeDue := now.Sub(entry.lastGossipTime) >= backoff
-				heightDue := curHeight >= entry.lastGossipHeight+regossipHeightInterval
+
+				heightBackoff := regossipHeightInterval << min(entry.attempts, regossipMaxAttempts)
+				if heightBackoff > regossipMaxHeightInterval {
+					heightBackoff = regossipMaxHeightInterval
+				}
+				heightDue := curHeight >= entry.lastGossipHeight+heightBackoff
 
 				if timeDue || heightDue {
 					toGossip = append(toGossip, entry.tx)

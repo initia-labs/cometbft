@@ -315,7 +315,23 @@ func TestRegossipBackoff_OverflowProtection(t *testing.T) {
 	}
 }
 
-func TestRegossipLoop_TimeBased(t *testing.T) {
+func TestRegossipHeightBackoff_Exponential(t *testing.T) {
+	for i := 0; i < 8; i++ {
+		heightBackoff := regossipHeightInterval << min(i, regossipMaxAttempts)
+		if heightBackoff > regossipMaxHeightInterval {
+			heightBackoff = regossipMaxHeightInterval
+		}
+
+		if i < 6 {
+			expected := regossipHeightInterval << i
+			assert.Equal(t, expected, heightBackoff, "attempt %d should have height backoff %d", i, expected)
+		} else {
+			assert.Equal(t, regossipMaxHeightInterval, heightBackoff, "attempt %d should be capped at regossipMaxHeightInterval", i)
+		}
+	}
+}
+
+func TestGossipLoop_TimeBased(t *testing.T) {
 	config := cfg.TestConfig()
 	const N = 2
 	reactors, switches := makeAndConnectReactors(config, N)
