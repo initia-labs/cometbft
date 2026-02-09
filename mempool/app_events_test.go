@@ -288,6 +288,219 @@ func TestGossipTxToPeers_ExcludesSender(t *testing.T) {
 	assert.Zero(t, reactors[1].mempool.Size(), "reactor[1] should not receive txs that it supposedly sent")
 }
 
+func TestRegossipBackoff_Exponential(t *testing.T) {
+	for i := 0; i < 8; i++ {
+		backoff := regossipBaseInterval << min(i, regossipMaxAttempts)
+		if backoff > regossipMaxInterval {
+			backoff = regossipMaxInterval
+		}
+
+		if i < 7 {
+			expected := regossipBaseInterval << i
+			assert.Equal(t, expected, backoff, "attempt %d should have backoff %v", i, expected)
+		} else {
+			assert.Equal(t, regossipMaxInterval, backoff, "attempt %d should be capped at regossipMaxInterval", i)
+		}
+	}
+}
+
+func TestRegossipBackoff_OverflowProtection(t *testing.T) {
+	for attempts := regossipMaxAttempts; attempts <= regossipMaxAttempts+10; attempts++ {
+		backoff := regossipBaseInterval << min(attempts, regossipMaxAttempts)
+		if backoff > regossipMaxInterval {
+			backoff = regossipMaxInterval
+		}
+		assert.True(t, backoff > 0, "backoff should never be negative (attempts=%d)", attempts)
+		assert.Equal(t, regossipMaxInterval, backoff, "backoff should be capped at max (attempts=%d)", attempts)
+	}
+}
+
+func TestRegossipLoop_TimeBased(t *testing.T) {
+	config := cfg.TestConfig()
+	const N = 2
+	reactors, switches := makeAndConnectReactors(config, N)
+	defer func() {
+		for _, s := range switches {
+			_ = s.Stop()
+		}
+	}()
+	for _, r := range reactors {
+		for _, peer := range r.Switch.Peers().List() {
+			peer.Set(types.PeerStateKey, peerState{1})
+		}
+	}
+
+	tx := kvstore.NewRandomTx(20)
+	txKey := types.Tx(tx).Key()
+
+	reactors[0].insertedTxsMtx.Lock()
+	reactors[0].insertedTxs[txKey] = &regossipEntry{
+		tx:               tx,
+		lastGossipTime:   time.Now().Add(-regossipBaseInterval - time.Second),
+		lastGossipHeight: reactors[0].mempool.Height(),
+		attempts:         0,
+	}
+	reactors[0].insertedTxsMtx.Unlock()
+
+	// wait for reactor[1] to receive the tx via regossip
+	ok := waitForCondition(5*time.Second, func() bool {
+		return reactors[1].mempool.Size() >= 1
+	})
+	require.True(t, ok, "reactor[1] should receive tx via time-based regossip")
+}
+
+func TestRegossipLoop_HeightBased(t *testing.T) {
+	config := cfg.TestConfig()
+	const N = 2
+	reactors, switches := makeAndConnectReactors(config, N)
+	defer func() {
+		for _, s := range switches {
+			_ = s.Stop()
+		}
+	}()
+	for _, r := range reactors {
+		for _, peer := range r.Switch.Peers().List() {
+			peer.Set(types.PeerStateKey, peerState{1})
+		}
+	}
+
+	tx := kvstore.NewRandomTx(20)
+	txKey := types.Tx(tx).Key()
+
+	// inject a tx with recent lastGossipTime but old lastGossipHeight
+	reactors[0].insertedTxsMtx.Lock()
+	reactors[0].insertedTxs[txKey] = &regossipEntry{
+		tx:               tx,
+		lastGossipTime:   time.Now().Add(time.Hour), // far in the future, time won't trigger
+		lastGossipHeight: 0,                         // old height, height condition will trigger
+		attempts:         0,
+	}
+	reactors[0].insertedTxsMtx.Unlock()
+
+	// advance height past the height interval
+	mp := reactors[0].mempool
+	mp.Lock()
+	_ = mp.Update(regossipHeightInterval+1, nil, nil, nil, nil)
+	mp.Unlock()
+
+	// wait for reactor[1] to receive the tx via height-based regossip
+	ok := waitForCondition(5*time.Second, func() bool {
+		return reactors[1].mempool.Size() >= 1
+	})
+	require.True(t, ok, "reactor[1] should receive tx via height-based regossip")
+}
+
+func TestRegossipLoop_CleansCommittedTxs(t *testing.T) {
+	config := cfg.TestConfig()
+	reactors, switches := makeAndConnectReactors(config, 1)
+	defer func() {
+		for _, s := range switches {
+			_ = s.Stop()
+		}
+	}()
+
+	tx := types.Tx("committed-tx")
+	txKey := tx.Key()
+
+	// add tx to insertedTxs
+	reactors[0].insertedTxsMtx.Lock()
+	reactors[0].insertedTxs[txKey] = &regossipEntry{
+		tx:               tx,
+		lastGossipTime:   time.Now(),
+		lastGossipHeight: 0,
+	}
+	reactors[0].insertedTxsMtx.Unlock()
+
+	mp := reactors[0].mempool
+	mp.Lock()
+	results := []*abci.ExecTxResult{{Code: 0}}
+	_ = mp.Update(1, types.Txs{tx}, results, nil, nil)
+	mp.Unlock()
+
+	require.True(t, mp.IsIncludedTx(tx), "tx should be in included cache")
+
+	ok := waitForCondition(5*time.Second, func() bool {
+		reactors[0].insertedTxsMtx.Lock()
+		_, exists := reactors[0].insertedTxs[txKey]
+		reactors[0].insertedTxsMtx.Unlock()
+		return !exists
+	})
+	require.True(t, ok, "committed tx should be cleaned from insertedTxs by regossipLoop")
+}
+
+func TestRegossipLoop_AttemptsIncrement(t *testing.T) {
+	config := cfg.TestConfig()
+	reactors, switches := makeAndConnectReactors(config, 1)
+	defer func() {
+		for _, s := range switches {
+			_ = s.Stop()
+		}
+	}()
+
+	tx := types.Tx("attempts-test")
+	txKey := tx.Key()
+
+	// inject tx with expired backoff so it triggers immediately
+	reactors[0].insertedTxsMtx.Lock()
+	reactors[0].insertedTxs[txKey] = &regossipEntry{
+		tx:               tx,
+		lastGossipTime:   time.Now().Add(-regossipBaseInterval - time.Second),
+		lastGossipHeight: 0,
+		attempts:         0,
+	}
+	reactors[0].insertedTxsMtx.Unlock()
+
+	ok := waitForCondition(5*time.Second, func() bool {
+		reactors[0].insertedTxsMtx.Lock()
+		entry, exists := reactors[0].insertedTxs[txKey]
+		var attempts int
+		if exists {
+			attempts = entry.attempts
+		}
+		reactors[0].insertedTxsMtx.Unlock()
+		return exists && attempts >= 1
+	})
+	require.True(t, ok, "attempts should be incremented after regossip")
+}
+
+func TestEventTxInserted_DoesNotGossip(t *testing.T) {
+	config := cfg.TestConfig()
+	const N = 2
+	reactors, switches := makeAndConnectReactors(config, N)
+	defer func() {
+		for _, s := range switches {
+			_ = s.Stop()
+		}
+	}()
+	for _, r := range reactors {
+		for _, peer := range r.Switch.Peers().List() {
+			peer.Set(types.PeerStateKey, peerState{1})
+		}
+	}
+
+	tx := types.Tx("inserted-no-gossip")
+
+	// send EventTxInserted directly (not via CheckTx which fires EventTxQueued)
+	reactors[0].mempool.AppEventCh() <- AppMempoolEvent{
+		Type:  EventTxInserted,
+		TxKey: tx.Key(),
+		Tx:    tx,
+	}
+
+	// wait for the event to be processed
+	ok := waitForCondition(2*time.Second, func() bool {
+		reactors[0].insertedTxsMtx.Lock()
+		_, exists := reactors[0].insertedTxs[tx.Key()]
+		reactors[0].insertedTxsMtx.Unlock()
+		return exists
+	})
+	require.True(t, ok, "tx should be in insertedTxs")
+
+	time.Sleep(500 * time.Millisecond)
+	assert.Zero(t, reactors[1].mempool.Size(),
+		"reactor[1] should not receive tx from EventTxInserted (only EventTxQueued gossips)")
+}
+
 func TestReactorReceive_EmptyTxs(t *testing.T) {
 	config := cfg.TestConfig()
 	reactors, switches := makeAndConnectReactors(config, 2)

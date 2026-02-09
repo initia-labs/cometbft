@@ -18,13 +18,17 @@ const (
 	regossipCheckInterval = 1 * time.Second
 	regossipBaseInterval  = 3 * time.Second
 	regossipMaxInterval   = 5 * time.Minute
+	regossipMaxAttempts   = 16
+
+	regossipHeightInterval int64 = 3
 )
 
 // regossipEntry tracks a tx in the regossip set with per-tx back-off state.
 type regossipEntry struct {
-	tx         types.Tx
-	lastGossip time.Time
-	attempts   int
+	tx               types.Tx
+	lastGossipTime   time.Time
+	lastGossipHeight int64
+	attempts         int
 }
 
 // Reactor handles mempool tx broadcasting amongst peers.
@@ -161,9 +165,9 @@ func (memR *Reactor) appEventLoop() {
 			case EventTxInserted:
 				memR.insertedTxsMtx.Lock()
 				memR.insertedTxs[ev.TxKey] = &regossipEntry{
-					tx:         ev.Tx,
-					lastGossip: time.Now(),
-					attempts:   0,
+					tx:               ev.Tx,
+					lastGossipTime:   time.Now(),
+					lastGossipHeight: memR.mempool.Height(),
 				}
 				memR.insertedTxsMtx.Unlock()
 
@@ -203,6 +207,7 @@ func (memR *Reactor) regossipLoop() {
 
 		select {
 		case now := <-ticker.C:
+			curHeight := memR.mempool.Height()
 			var toGossip []types.Tx
 
 			memR.insertedTxsMtx.Lock()
@@ -212,14 +217,18 @@ func (memR *Reactor) regossipLoop() {
 					continue
 				}
 
-				backoff := regossipBaseInterval << entry.attempts
+				backoff := regossipBaseInterval << min(entry.attempts, regossipMaxAttempts)
 				if backoff > regossipMaxInterval {
 					backoff = regossipMaxInterval
 				}
 
-				if now.Sub(entry.lastGossip) >= backoff {
+				timeDue := now.Sub(entry.lastGossipTime) >= backoff
+				heightDue := curHeight >= entry.lastGossipHeight+regossipHeightInterval
+
+				if timeDue || heightDue {
 					toGossip = append(toGossip, entry.tx)
-					entry.lastGossip = now
+					entry.lastGossipTime = now
+					entry.lastGossipHeight = curHeight
 					entry.attempts++
 				}
 			}
