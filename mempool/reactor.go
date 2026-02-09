@@ -2,8 +2,6 @@ package mempool
 
 import (
 	"errors"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"fmt"
@@ -17,13 +15,16 @@ import (
 )
 
 const (
-	regossipInterval = 500 * time.Millisecond
+	regossipCheckInterval = 1 * time.Second
+	regossipBaseInterval  = 3 * time.Second
+	regossipMaxInterval   = 5 * time.Minute
 )
 
-// peerTxTracker tracks known txs for a single peer with its own mutex.
-type peerTxTracker struct {
-	mtx   cmtsync.RWMutex
-	known map[types.TxKey]struct{}
+// regossipEntry tracks a tx in the regossip set with per-tx back-off state.
+type regossipEntry struct {
+	tx         types.Tx
+	lastGossip time.Time
+	attempts   int
 }
 
 // Reactor handles mempool tx broadcasting amongst peers.
@@ -34,15 +35,9 @@ type Reactor struct {
 	mempool *ProxyMempool
 	ids     *mempoolIDs
 
-	// peerKnownTxs tracks which txs each peer already knows about (p2p.ID -> *peerTxTracker)
-	peerKnownTxs sync.Map
-
-	// insertedTxs is the regossip set, txs promoted to the active mempool
-	insertedTxsMtx sync.RWMutex
-	insertedTxs    map[types.TxKey]types.Tx
-
-	// lastKnownHeight tracks the last height seen by regossipLoop
-	lastKnownHeight atomic.Int64
+	// insertedTxs is the regossip set of txs promoted to the active mempool.
+	insertedTxsMtx cmtsync.Mutex
+	insertedTxs    map[types.TxKey]*regossipEntry
 }
 
 // NewReactor returns a new Reactor with the given config and mempool.
@@ -51,7 +46,7 @@ func NewReactor(config *cfg.MempoolConfig, mempool *ProxyMempool) *Reactor {
 		config:      config,
 		mempool:     mempool,
 		ids:         newMempoolIDs(),
-		insertedTxs: make(map[types.TxKey]types.Tx),
+		insertedTxs: make(map[types.TxKey]*regossipEntry),
 	}
 	memR.BaseReactor = *p2p.NewBaseReactor("Mempool", memR)
 
@@ -107,10 +102,6 @@ func (memR *Reactor) GetChannels() []*p2p.ChannelDescriptor {
 
 // AddPeer implements Reactor.
 func (memR *Reactor) AddPeer(peer p2p.Peer) {
-	memR.peerKnownTxs.Store(peer.ID(), &peerTxTracker{
-		known: make(map[types.TxKey]struct{}),
-	})
-
 	// start a routine to check transactions from the peer
 	go memR.checkTxRoutine(peer)
 }
@@ -118,7 +109,6 @@ func (memR *Reactor) AddPeer(peer p2p.Peer) {
 // RemovePeer implements Reactor.
 func (memR *Reactor) RemovePeer(peer p2p.Peer, _ interface{}) {
 	memR.ids.Reclaim(peer)
-	memR.peerKnownTxs.Delete(peer.ID())
 }
 
 // Receive implements Reactor.
@@ -165,20 +155,20 @@ func (memR *Reactor) appEventLoop() {
 			switch ev.Type {
 			case EventTxQueued:
 				if memR.config.Broadcast {
-					memR.gossipTxToPeers(ev.TxKey, ev.Tx, ev.SenderID)
+					memR.gossipTxToPeers(ev.Tx, ev.SenderID)
 				}
 
 			case EventTxInserted:
 				memR.insertedTxsMtx.Lock()
-				memR.insertedTxs[ev.TxKey] = ev.Tx
+				memR.insertedTxs[ev.TxKey] = &regossipEntry{
+					tx:         ev.Tx,
+					lastGossip: time.Now(),
+					attempts:   0,
+				}
 				memR.insertedTxsMtx.Unlock()
 
 				memR.mempool.SetHasValidTxs(true)
 				memR.mempool.NotifyTxsAvailable()
-
-				if memR.config.Broadcast {
-					memR.gossipTxToPeers(ev.TxKey, ev.Tx, ev.SenderID)
-				}
 
 			case EventTxRemoved:
 				memR.insertedTxsMtx.Lock()
@@ -191,14 +181,6 @@ func (memR *Reactor) appEventLoop() {
 				}
 
 				memR.mempool.RemoveTxByKey(ev.TxKey)
-
-				memR.peerKnownTxs.Range(func(_, value interface{}) bool {
-					pt := value.(*peerTxTracker)
-					pt.mtx.Lock()
-					delete(pt.known, ev.TxKey)
-					pt.mtx.Unlock()
-					return true
-				})
 			}
 
 		case <-memR.Quit():
@@ -207,9 +189,11 @@ func (memR *Reactor) appEventLoop() {
 	}
 }
 
-// regossipLoop periodically regossips inserted txs to peers that may not have them yet.
+// regossipLoop periodically checks inserted txs and regossips those whose
+// per-tx back-off interval has elapsed. Back-off is exponential:
+// baseInterval * 2^attempts (capped at regossipMaxInterval).
 func (memR *Reactor) regossipLoop() {
-	ticker := time.NewTicker(regossipInterval)
+	ticker := time.NewTicker(regossipCheckInterval)
 	defer ticker.Stop()
 
 	for {
@@ -218,33 +202,31 @@ func (memR *Reactor) regossipLoop() {
 		}
 
 		select {
-		case <-ticker.C:
-			// on each new block, clear peerKnownTxs to bound memory growth
-			if h := memR.mempool.Height(); h > memR.lastKnownHeight.Load() {
-				memR.lastKnownHeight.Store(h)
-				memR.peerKnownTxs.Range(func(_, value interface{}) bool {
-					pt := value.(*peerTxTracker)
-					pt.mtx.Lock()
-					pt.known = make(map[types.TxKey]struct{})
-					pt.mtx.Unlock()
-					return true
-				})
-			}
+		case now := <-ticker.C:
+			var toGossip []types.Tx
 
-			// clear committed txs and snapshot the regossip set
 			memR.insertedTxsMtx.Lock()
-			txs := make(map[types.TxKey]types.Tx, len(memR.insertedTxs))
-			for k, v := range memR.insertedTxs {
-				if memR.mempool.IsIncludedTx(v) {
+			for k, entry := range memR.insertedTxs {
+				if memR.mempool.IsIncludedTx(entry.tx) {
 					delete(memR.insertedTxs, k)
-				} else {
-					txs[k] = v
+					continue
+				}
+
+				backoff := regossipBaseInterval << entry.attempts
+				if backoff > regossipMaxInterval {
+					backoff = regossipMaxInterval
+				}
+
+				if now.Sub(entry.lastGossip) >= backoff {
+					toGossip = append(toGossip, entry.tx)
+					entry.lastGossip = now
+					entry.attempts++
 				}
 			}
 			memR.insertedTxsMtx.Unlock()
 
-			for txKey, tx := range txs {
-				memR.gossipTxToPeers(txKey, tx, "")
+			for _, item := range toGossip {
+				memR.gossipTxToPeers(item, "")
 			}
 
 		case <-memR.Quit():
@@ -253,35 +235,17 @@ func (memR *Reactor) regossipLoop() {
 	}
 }
 
-// gossipTxToPeers sends a tx to all peers that don't already know about it, skipping the original sender.
-func (memR *Reactor) gossipTxToPeers(txKey types.TxKey, tx types.Tx, excludePeer p2p.ID) {
-	peers := memR.Switch.Peers().List()
-
-	for _, peer := range peers {
-		pid := peer.ID()
-		if pid == excludePeer {
+// gossipTxToPeers sends a tx to all connected peers, skipping the excluding peer.
+func (memR *Reactor) gossipTxToPeers(tx types.Tx, excludePeer p2p.ID) {
+	for _, peer := range memR.Switch.Peers().List() {
+		if peer.ID() == excludePeer {
 			continue
 		}
 
-		tracker, ok := memR.peerKnownTxs.Load(pid)
-		if !ok {
-			continue
-		}
-		pt := tracker.(*peerTxTracker)
-
-		pt.mtx.Lock()
-		if _, already := pt.known[txKey]; already {
-			pt.mtx.Unlock()
-			continue
-		}
-
-		if peer.Send(p2p.Envelope{
+		peer.Send(p2p.Envelope{
 			ChannelID: MempoolChannel,
 			Message:   &protomem.Txs{Txs: [][]byte{tx}},
-		}) {
-			pt.known[txKey] = struct{}{}
-		}
-		pt.mtx.Unlock()
+		})
 	}
 }
 
@@ -304,16 +268,6 @@ func (memR *Reactor) checkTxRoutine(peer p2p.Peer) {
 		case protoTxs := <-checkTxChan:
 			for _, tx := range protoTxs {
 				ntx := types.Tx(tx)
-
-				// record peerKnownTxs before calling CheckTx
-				txKey := ntx.Key()
-				if tracker, ok := memR.peerKnownTxs.Load(peer.ID()); ok {
-					pt := tracker.(*peerTxTracker)
-					pt.mtx.Lock()
-					pt.known[txKey] = struct{}{}
-					pt.mtx.Unlock()
-				}
-
 				err := memR.mempool.CheckTx(ntx, nil, txInfo)
 				if err != nil {
 					switch {

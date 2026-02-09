@@ -103,9 +103,9 @@ func TestAppEventLoop_EventTxInserted_AddsToInsertedTxs(t *testing.T) {
 	}
 
 	ok := waitForCondition(2*time.Second, func() bool {
-		reactors[0].insertedTxsMtx.RLock()
+		reactors[0].insertedTxsMtx.Lock()
 		_, exists := reactors[0].insertedTxs[txKey]
-		reactors[0].insertedTxsMtx.RUnlock()
+		reactors[0].insertedTxsMtx.Unlock()
 		return exists
 	})
 	require.True(t, ok, "tx should be in insertedTxs after EventTxInserted")
@@ -131,9 +131,9 @@ func TestAppEventLoop_EventTxRemoved_RemovesFromInsertedTxs(t *testing.T) {
 	}
 
 	ok := waitForCondition(2*time.Second, func() bool {
-		reactors[0].insertedTxsMtx.RLock()
+		reactors[0].insertedTxsMtx.Lock()
 		_, exists := reactors[0].insertedTxs[txKey]
-		reactors[0].insertedTxsMtx.RUnlock()
+		reactors[0].insertedTxsMtx.Unlock()
 		return exists
 	})
 	require.True(t, ok, "tx should be in insertedTxs")
@@ -145,9 +145,9 @@ func TestAppEventLoop_EventTxRemoved_RemovesFromInsertedTxs(t *testing.T) {
 	}
 
 	ok = waitForCondition(2*time.Second, func() bool {
-		reactors[0].insertedTxsMtx.RLock()
+		reactors[0].insertedTxsMtx.Lock()
 		_, exists := reactors[0].insertedTxs[txKey]
-		reactors[0].insertedTxsMtx.RUnlock()
+		reactors[0].insertedTxsMtx.Unlock()
 		return !exists
 	})
 	require.True(t, ok, "tx should be removed from insertedTxs after EventTxRemoved")
@@ -188,50 +188,6 @@ func TestAppEventLoop_EventTxRemoved_RemovesFromKnownTxs(t *testing.T) {
 		return !exists
 	})
 	require.True(t, ok, "tx should be removed from knownTxs after EventTxRemoved")
-}
-
-func TestAppEventLoop_EventTxRemoved_ClearsPeerKnownTxs(t *testing.T) {
-	config := cfg.TestConfig()
-	const N = 2
-	reactors, switches := makeAndConnectReactors(config, N)
-	defer func() {
-		for _, s := range switches {
-			_ = s.Stop()
-		}
-	}()
-	for _, r := range reactors {
-		for _, peer := range r.Switch.Peers().List() {
-			peer.Set(types.PeerStateKey, peerState{1})
-		}
-	}
-
-	tx := types.Tx("peer-known-remove")
-	txKey := tx.Key()
-
-	// manually add to peerKnownTxs
-	peerID := reactors[0].Switch.Peers().List()[0].ID()
-	reactors[0].peerKnownTxsMtx.Lock()
-	if known, ok := reactors[0].peerKnownTxs[peerID]; ok {
-		known[txKey] = struct{}{}
-	}
-	reactors[0].peerKnownTxsMtx.Unlock()
-
-	// send EventTxRemoved
-	reactors[0].mempool.AppEventCh() <- AppMempoolEvent{
-		Type:  EventTxRemoved,
-		TxKey: txKey,
-	}
-
-	ok := waitForCondition(2*time.Second, func() bool {
-		reactors[0].peerKnownTxsMtx.RLock()
-		defer reactors[0].peerKnownTxsMtx.RUnlock()
-		if known, exists := reactors[0].peerKnownTxs[peerID]; exists {
-			_, hasTx := known[txKey]
-			return !hasTx
-		}
-		return true
-	})
-	require.True(t, ok, "tx should be removed from peerKnownTxs after EventTxRemoved")
 }
 
 func TestAppEventLoop_EventTxQueued_GossipsToPeers(t *testing.T) {
@@ -330,77 +286,6 @@ func TestGossipTxToPeers_ExcludesSender(t *testing.T) {
 	// wait a bit, then verify reactor[1] got no txs, since it was the sender
 	time.Sleep(200 * time.Millisecond)
 	assert.Zero(t, reactors[1].mempool.Size(), "reactor[1] should not receive txs that it supposedly sent")
-}
-
-func TestRegossipLoop_ClearsPeerKnownTxsOnNewHeight(t *testing.T) {
-	config := cfg.TestConfig()
-	const N = 2
-	reactors, switches := makeAndConnectReactors(config, N)
-	defer func() {
-		for _, s := range switches {
-			_ = s.Stop()
-		}
-	}()
-	for _, r := range reactors {
-		for _, peer := range r.Switch.Peers().List() {
-			peer.Set(types.PeerStateKey, peerState{1})
-		}
-	}
-
-	// add a tx so that peerKnownTxs gets populated
-	tx := kvstore.NewRandomTx(20)
-	err := reactors[0].mempool.CheckTx(tx, nil, TxInfo{SenderID: UnknownPeerID})
-	require.NoError(t, err)
-
-	// wait for gossip propagation
-	time.Sleep(500 * time.Millisecond)
-
-	// verify peerKnownTxs has entries
-	peerID := reactors[0].Switch.Peers().List()[0].ID()
-	reactors[0].peerKnownTxsMtx.RLock()
-	initialCount := len(reactors[0].peerKnownTxs[peerID])
-	reactors[0].peerKnownTxsMtx.RUnlock()
-	require.Greater(t, initialCount, 0, "should have known txs for peer")
-
-	// simulate a new block by advancing height
-	reactors[0].mempool.Lock()
-	reactors[0].mempool.Update(2, nil, nil, nil, nil)
-	reactors[0].mempool.Unlock()
-
-	// wait for regossipLoop to detect height change and clear
-	ok := waitForCondition(2*time.Second, func() bool {
-		reactors[0].peerKnownTxsMtx.RLock()
-		count := len(reactors[0].peerKnownTxs[peerID])
-		reactors[0].peerKnownTxsMtx.RUnlock()
-		return count == 0 || count != initialCount
-	})
-	require.True(t, ok, "peerKnownTxs should be reset after height change")
-}
-
-func TestReactorAddRemovePeer(t *testing.T) {
-	config := cfg.TestConfig()
-	reactors, switches := makeAndConnectReactors(config, 2)
-	defer func() {
-		for _, s := range switches {
-			_ = s.Stop()
-		}
-	}()
-
-	peer := reactors[0].Switch.Peers().List()[0]
-
-	// verify that peer is being tracked in peerKnownTxs after AddPeer
-	reactors[0].peerKnownTxsMtx.RLock()
-	_, hasPeer := reactors[0].peerKnownTxs[peer.ID()]
-	reactors[0].peerKnownTxsMtx.RUnlock()
-	require.True(t, hasPeer, "peer should be tracked in peerKnownTxs")
-
-	// remove peer
-	reactors[0].RemovePeer(peer, nil)
-
-	reactors[0].peerKnownTxsMtx.RLock()
-	_, hasPeer = reactors[0].peerKnownTxs[peer.ID()]
-	reactors[0].peerKnownTxsMtx.RUnlock()
-	require.False(t, hasPeer, "peer should be removed from peerKnownTxs")
 }
 
 func TestReactorReceive_EmptyTxs(t *testing.T) {

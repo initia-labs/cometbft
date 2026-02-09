@@ -306,8 +306,13 @@ func TestProxyMempool_Update(t *testing.T) {
 	mp.notifiedTxsAvailable.Store(true)
 	mp.hasValidTxs.Store(true)
 
+	txResults := make([]*abci.ExecTxResult, 2)
+	for i := range txResults {
+		txResults[i] = &abci.ExecTxResult{Code: 0}
+	}
+
 	t.Run("height is updated", func(t *testing.T) {
-		err := mp.Update(10, txs[:2], nil, nil, nil)
+		err := mp.Update(10, txs[:2], txResults, nil, nil)
 		require.NoError(t, err)
 		require.Equal(t, int64(10), mp.Height())
 	})
@@ -322,9 +327,12 @@ func TestProxyMempool_Update(t *testing.T) {
 		require.False(t, mp.IsIncludedTx(txs[2]))
 	})
 
-	t.Run("flags are reset", func(t *testing.T) {
+	t.Run("notifiedTxsAvailable is reset", func(t *testing.T) {
 		require.False(t, mp.notifiedTxsAvailable.Load())
-		require.False(t, mp.hasValidTxs.Load())
+	})
+
+	t.Run("hasValidTxs triggers renotification", func(t *testing.T) {
+		require.True(t, mp.hasValidTxs.Load())
 	})
 }
 
