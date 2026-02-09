@@ -170,20 +170,17 @@ func (memR *Reactor) appEventLoop() {
 					lastGossipTime:   time.Now(),
 					lastGossipHeight: memR.mempool.Height(),
 				}
-				memR.insertedTxsMtx.Unlock()
-
 				memR.mempool.SetHasValidTxs(true)
 				memR.mempool.NotifyTxsAvailable()
+				memR.insertedTxsMtx.Unlock()
 
 			case EventTxRemoved:
 				memR.insertedTxsMtx.Lock()
 				delete(memR.insertedTxs, ev.TxKey)
-				empty := len(memR.insertedTxs) == 0
-				memR.insertedTxsMtx.Unlock()
-
-				if empty {
+				if len(memR.insertedTxs) == 0 {
 					memR.mempool.SetHasValidTxs(false)
 				}
+				memR.insertedTxsMtx.Unlock()
 
 				memR.mempool.RemoveTxByKey(ev.TxKey)
 			}
@@ -218,16 +215,10 @@ func (memR *Reactor) regossipLoop() {
 					continue
 				}
 
-				backoff := regossipBaseInterval << min(entry.attempts, regossipMaxAttempts)
-				if backoff > regossipMaxInterval {
-					backoff = regossipMaxInterval
-				}
+				backoff := min(regossipBaseInterval<<min(entry.attempts, regossipMaxAttempts), regossipMaxInterval)
 				timeDue := now.Sub(entry.lastGossipTime) >= backoff
 
-				heightBackoff := regossipHeightInterval << min(entry.attempts, regossipMaxAttempts)
-				if heightBackoff > regossipMaxHeightInterval {
-					heightBackoff = regossipMaxHeightInterval
-				}
+				heightBackoff := min(regossipHeightInterval<<min(entry.attempts, regossipMaxAttempts), regossipMaxHeightInterval)
 				heightDue := curHeight >= entry.lastGossipHeight+heightBackoff
 
 				if timeDue || heightDue {

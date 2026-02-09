@@ -290,10 +290,7 @@ func TestGossipTxToPeers_ExcludesSender(t *testing.T) {
 
 func TestRegossipBackoff_Exponential(t *testing.T) {
 	for i := 0; i < 8; i++ {
-		backoff := regossipBaseInterval << min(i, regossipMaxAttempts)
-		if backoff > regossipMaxInterval {
-			backoff = regossipMaxInterval
-		}
+		backoff := min(regossipBaseInterval<<min(i, regossipMaxAttempts), regossipMaxInterval)
 
 		if i < 7 {
 			expected := regossipBaseInterval << i
@@ -306,10 +303,7 @@ func TestRegossipBackoff_Exponential(t *testing.T) {
 
 func TestRegossipBackoff_OverflowProtection(t *testing.T) {
 	for attempts := regossipMaxAttempts; attempts <= regossipMaxAttempts+10; attempts++ {
-		backoff := regossipBaseInterval << min(attempts, regossipMaxAttempts)
-		if backoff > regossipMaxInterval {
-			backoff = regossipMaxInterval
-		}
+		backoff := min(regossipBaseInterval<<min(attempts, regossipMaxAttempts), regossipMaxInterval)
 		assert.True(t, backoff > 0, "backoff should never be negative (attempts=%d)", attempts)
 		assert.Equal(t, regossipMaxInterval, backoff, "backoff should be capped at max (attempts=%d)", attempts)
 	}
@@ -317,10 +311,7 @@ func TestRegossipBackoff_OverflowProtection(t *testing.T) {
 
 func TestRegossipHeightBackoff_Exponential(t *testing.T) {
 	for i := 0; i < 8; i++ {
-		heightBackoff := regossipHeightInterval << min(i, regossipMaxAttempts)
-		if heightBackoff > regossipMaxHeightInterval {
-			heightBackoff = regossipMaxHeightInterval
-		}
+		heightBackoff := min(regossipHeightInterval<<min(i, regossipMaxAttempts), regossipMaxHeightInterval)
 
 		if i < 6 {
 			expected := regossipHeightInterval << i

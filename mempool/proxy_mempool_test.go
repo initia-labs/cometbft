@@ -149,44 +149,6 @@ func TestProxyMempool_CheckTx_IncludedTxCache(t *testing.T) {
 	require.ErrorIs(t, err, ErrTxInCache)
 }
 
-func TestProxyMempool_CheckTx_SenderTracking(t *testing.T) {
-	conn := newMockAppConn(t)
-	setupCheckTxAsyncOK(conn)
-
-	mp := NewProxyMempool(newTestConfig(), conn, 0)
-	mp.SetLogger(log.NewNopLogger())
-
-	tx := types.Tx("tx-with-sender")
-	txKey := tx.Key()
-
-	err := mp.CheckTx(tx, nil, TxInfo{SenderP2PID: "peerA"})
-	require.NoError(t, err)
-	drainAppEventCh(mp)
-
-	// verify peerA is recorded from the callback.
-	entry, ok := mp.knownTxs.Load(txKey)
-	require.True(t, ok, "tx should be in knownTxs after successful CheckTx")
-	known := entry.(*knownTxEntry)
-
-	var senderKeys []string
-	known.senders.Range(func(k, _ interface{}) bool {
-		senderKeys = append(senderKeys, fmt.Sprintf("%v", k))
-		return true
-	})
-	require.Contains(t, senderKeys, "peerA", "peerA should be in senders")
-
-	err = mp.CheckTx(tx, nil, TxInfo{SenderP2PID: "peerB"})
-	require.ErrorIs(t, err, ErrTxInCache)
-
-	// verify peerB is also recorded
-	senderKeys = nil
-	known.senders.Range(func(k, _ interface{}) bool {
-		senderKeys = append(senderKeys, fmt.Sprintf("%v", k))
-		return true
-	})
-	require.Contains(t, senderKeys, "peerB", "peerB should be in senders after dedup path")
-}
-
 func TestProxyMempool_CheckTx_EventTxQueued(t *testing.T) {
 	conn := newMockAppConn(t)
 	setupCheckTxAsyncOK(conn)

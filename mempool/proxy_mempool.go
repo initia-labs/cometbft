@@ -13,12 +13,6 @@ import (
 	"github.com/cometbft/cometbft/types"
 )
 
-// knownTxEntry tracks a transaction that has been seen by this node.
-type knownTxEntry struct {
-	tx      types.Tx
-	senders sync.Map
-}
-
 // ProxyMempool implements the Mempool interface as a thin passthrough.
 // By using this ProxyMempool the CometBFT becomes a gossip layer while the application owns the real mempool.
 type ProxyMempool struct {
@@ -117,11 +111,7 @@ func (mp *ProxyMempool) CheckTx(
 
 	txKey := tx.Key()
 
-	if entry, ok := mp.knownTxs.Load(txKey); ok {
-		known := entry.(*knownTxEntry)
-		if txInfo.SenderP2PID != "" {
-			known.senders.Store(txInfo.SenderP2PID, struct{}{})
-		}
+	if _, ok := mp.knownTxs.Load(txKey); ok {
 		return ErrTxInCache
 	}
 
@@ -141,11 +131,7 @@ func (mp *ProxyMempool) CheckTx(
 		}
 
 		if checkTxRes.Code == abci.CodeTypeOK {
-			entry := &knownTxEntry{tx: tx}
-			if txInfo.SenderP2PID != "" {
-				entry.senders.Store(txInfo.SenderP2PID, struct{}{})
-			}
-			if _, loaded := mp.knownTxs.LoadOrStore(txKey, entry); !loaded {
+			if _, loaded := mp.knownTxs.LoadOrStore(txKey, tx); !loaded {
 				mp.knownTxCount.Add(1)
 				mp.knownTxBytes.Add(int64(txSize))
 
@@ -173,9 +159,8 @@ func (mp *ProxyMempool) CheckTx(
 // RemoveTxByKey removes a transaction from the knownTxs cache.
 func (mp *ProxyMempool) RemoveTxByKey(txKey types.TxKey) error {
 	if entry, ok := mp.knownTxs.LoadAndDelete(txKey); ok {
-		known := entry.(*knownTxEntry)
 		mp.knownTxCount.Add(-1)
-		mp.knownTxBytes.Add(-int64(len(known.tx)))
+		mp.knownTxBytes.Add(-int64(len(entry.(types.Tx))))
 		return nil
 	}
 
