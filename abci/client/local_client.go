@@ -15,7 +15,7 @@ import (
 type localClient struct {
 	service.BaseService
 
-	mtx *cmtsync.Mutex
+	mtx *cmtsync.RWMutex
 	types.Application
 	Callback
 }
@@ -26,9 +26,9 @@ var _ Client = (*localClient)(nil)
 // Tendermint as the client will call to the application as the server. The only
 // difference, is that the local client has a global mutex which enforces serialization
 // of all the ABCI calls from Tendermint to the Application.
-func NewLocalClient(mtx *cmtsync.Mutex, app types.Application) Client {
+func NewLocalClient(mtx *cmtsync.RWMutex, app types.Application) Client {
 	if mtx == nil {
-		mtx = new(cmtsync.Mutex)
+		mtx = new(cmtsync.RWMutex)
 	}
 	cli := &localClient{
 		mtx:         mtx,
@@ -45,8 +45,8 @@ func (app *localClient) SetResponseCallback(cb Callback) {
 }
 
 func (app *localClient) CheckTxAsync(ctx context.Context, req *types.RequestCheckTx) (*ReqRes, error) {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
+	app.mtx.RLock()
+	defer app.mtx.RUnlock()
 
 	res, err := app.Application.CheckTx(ctx, req)
 	if err != nil {
@@ -86,22 +86,22 @@ func (app *localClient) Echo(_ context.Context, msg string) (*types.ResponseEcho
 }
 
 func (app *localClient) Info(ctx context.Context, req *types.RequestInfo) (*types.ResponseInfo, error) {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
+	app.mtx.RLock()
+	defer app.mtx.RUnlock()
 
 	return app.Application.Info(ctx, req)
 }
 
 func (app *localClient) CheckTx(ctx context.Context, req *types.RequestCheckTx) (*types.ResponseCheckTx, error) {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
+	app.mtx.RLock()
+	defer app.mtx.RUnlock()
 
 	return app.Application.CheckTx(ctx, req)
 }
 
 func (app *localClient) Query(ctx context.Context, req *types.RequestQuery) (*types.ResponseQuery, error) {
-	app.mtx.Lock()
-	defer app.mtx.Unlock()
+	app.mtx.RLock()
+	defer app.mtx.RUnlock()
 
 	return app.Application.Query(ctx, req)
 }
