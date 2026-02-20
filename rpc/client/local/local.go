@@ -9,6 +9,7 @@ import (
 	"github.com/cometbft/cometbft/libs/log"
 	cmtpubsub "github.com/cometbft/cometbft/libs/pubsub"
 	cmtquery "github.com/cometbft/cometbft/libs/pubsub/query"
+	mempl "github.com/cometbft/cometbft/mempool"
 	nm "github.com/cometbft/cometbft/node"
 	rpcclient "github.com/cometbft/cometbft/rpc/client"
 	"github.com/cometbft/cometbft/rpc/core"
@@ -59,6 +60,16 @@ func New(node *nm.Node) *Local {
 }
 
 var _ rpcclient.Client = (*Local)(nil)
+
+// Mempool returns the CometBFT mempool from the local node's RPC environment.
+// This allows in-process callers (e.g. the app's PostSetup hook) to access
+// the mempool for event channel wiring without going through the server layer.
+func (c *Local) Mempool() mempl.Mempool {
+	if c.env != nil {
+		return c.env.Mempool
+	}
+	return nil
+}
 
 // SetLogger allows to set a logger on the client.
 func (c *Local) SetLogger(l log.Logger) {

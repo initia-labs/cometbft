@@ -1,6 +1,8 @@
 module github.com/cometbft/cometbft
 
-go 1.22.11
+go 1.23.6
+
+toolchain go1.23.8
 
 require (
 	github.com/BurntSushi/toml v1.4.0
@@ -39,9 +41,9 @@ require (
 	github.com/spf13/viper v1.19.0
 	github.com/stretchr/testify v1.10.0
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	golang.org/x/crypto v0.33.0
-	golang.org/x/net v0.35.0
-	golang.org/x/sync v0.11.0
+	golang.org/x/crypto v0.36.0
+	golang.org/x/net v0.38.0
+	golang.org/x/sync v0.12.0
 	gonum.org/v1/gonum v0.15.1
 	google.golang.org/grpc v1.70.0
 	google.golang.org/protobuf v1.36.5
@@ -52,7 +54,7 @@ require (
 	cosmossdk.io/api v0.7.6
 	github.com/celestiaorg/go-square/v2 v2.0.0
 	github.com/cosmos/cosmos-proto v1.0.0-beta.5
-	github.com/initia-labs/OPinit/api v1.0.0
+	github.com/initia-labs/OPinit/api v1.3.0
 )
 
 require (
@@ -133,8 +135,8 @@ require (
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
 	golang.org/x/mod v0.19.0 // indirect
-	golang.org/x/sys v0.30.0 // indirect
-	golang.org/x/text v0.22.0 // indirect
+	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/tools v0.23.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241202173237-19429a94021a // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241202173237-19429a94021a // indirect

@@ -1,47 +1,59 @@
 package mempool
 
 import (
-	"context"
 	"errors"
 	"time"
 
 	"fmt"
 
 	cfg "github.com/cometbft/cometbft/config"
-	"github.com/cometbft/cometbft/libs/clist"
 	"github.com/cometbft/cometbft/libs/log"
+	cmtsync "github.com/cometbft/cometbft/libs/sync"
 	"github.com/cometbft/cometbft/p2p"
 	protomem "github.com/cometbft/cometbft/proto/tendermint/mempool"
 	"github.com/cometbft/cometbft/types"
-	"golang.org/x/sync/semaphore"
 )
 
+const (
+	regossipCheckInterval = 1 * time.Second
+	regossipBaseInterval  = 3 * time.Second
+	regossipMaxInterval   = 5 * time.Minute
+	regossipMaxAttempts   = 16
+
+	regossipHeightInterval    int64 = 3
+	regossipMaxHeightInterval int64 = 100
+)
+
+// regossipEntry tracks a tx in the regossip set with per-tx back-off state.
+type regossipEntry struct {
+	tx               types.Tx
+	lastGossipTime   time.Time
+	lastGossipHeight int64
+	attempts         int
+}
+
 // Reactor handles mempool tx broadcasting amongst peers.
-// It maintains a map from peer ID to counter, to prevent gossiping txs to the
-// peers you received it from.
+// It is driven by application events pushed through the ProxyMempool's event channel.
 type Reactor struct {
 	p2p.BaseReactor
 	config  *cfg.MempoolConfig
-	mempool *CListMempool
+	mempool *ProxyMempool
 	ids     *mempoolIDs
 
-	// Semaphores to keep track of how many connections to peers are active for broadcasting
-	// transactions. Each semaphore has a capacity that puts an upper bound on the number of
-	// connections for different groups of peers.
-	activePersistentPeersSemaphore    *semaphore.Weighted
-	activeNonPersistentPeersSemaphore *semaphore.Weighted
+	// insertedTxs is the regossip set of txs promoted to the active mempool.
+	insertedTxsMtx cmtsync.Mutex
+	insertedTxs    map[types.TxKey]*regossipEntry
 }
 
 // NewReactor returns a new Reactor with the given config and mempool.
-func NewReactor(config *cfg.MempoolConfig, mempool *CListMempool) *Reactor {
+func NewReactor(config *cfg.MempoolConfig, mempool *ProxyMempool) *Reactor {
 	memR := &Reactor{
-		config:  config,
-		mempool: mempool,
-		ids:     newMempoolIDs(),
+		config:      config,
+		mempool:     mempool,
+		ids:         newMempoolIDs(),
+		insertedTxs: make(map[types.TxKey]*regossipEntry),
 	}
 	memR.BaseReactor = *p2p.NewBaseReactor("Mempool", memR)
-	memR.activePersistentPeersSemaphore = semaphore.NewWeighted(int64(memR.config.ExperimentalMaxGossipConnectionsToPersistentPeers))
-	memR.activeNonPersistentPeersSemaphore = semaphore.NewWeighted(int64(memR.config.ExperimentalMaxGossipConnectionsToNonPersistentPeers))
 
 	return memR
 }
@@ -63,6 +75,13 @@ func (memR *Reactor) OnStart() error {
 	if !memR.config.Broadcast {
 		memR.Logger.Info("Tx broadcasting is disabled")
 	}
+
+	// start the global event goroutines
+	go memR.appEventLoop()
+	if memR.config.Broadcast {
+		go memR.regossipLoop()
+	}
+
 	return nil
 }
 
@@ -87,48 +106,7 @@ func (memR *Reactor) GetChannels() []*p2p.ChannelDescriptor {
 }
 
 // AddPeer implements Reactor.
-// It starts a broadcast routine ensuring all txs are forwarded to the given peer.
 func (memR *Reactor) AddPeer(peer p2p.Peer) {
-	if memR.config.Broadcast {
-		go func() {
-			// Always forward transactions to unconditional peers.
-			if !memR.Switch.IsPeerUnconditional(peer.ID()) {
-				// Depending on the type of peer, we choose a semaphore to limit the gossiping peers.
-				var peerSemaphore *semaphore.Weighted
-				if peer.IsPersistent() && memR.config.ExperimentalMaxGossipConnectionsToPersistentPeers > 0 {
-					peerSemaphore = memR.activePersistentPeersSemaphore
-				} else if !peer.IsPersistent() && memR.config.ExperimentalMaxGossipConnectionsToNonPersistentPeers > 0 {
-					peerSemaphore = memR.activeNonPersistentPeersSemaphore
-				}
-
-				if peerSemaphore != nil {
-					for peer.IsRunning() {
-						// Block on the semaphore until a slot is available to start gossiping with this peer.
-						// Do not block indefinitely, in case the peer is disconnected before gossiping starts.
-						ctxTimeout, cancel := context.WithTimeout(context.TODO(), 30*time.Second)
-						// Block sending transactions to peer until one of the connections become
-						// available in the semaphore.
-						err := peerSemaphore.Acquire(ctxTimeout, 1)
-						cancel()
-
-						if err != nil {
-							continue
-						}
-
-						// Release semaphore to allow other peer to start sending transactions.
-						defer peerSemaphore.Release(1)
-						break
-					}
-				}
-			}
-
-			memR.mempool.metrics.ActiveOutboundConnections.Add(1)
-			defer memR.mempool.metrics.ActiveOutboundConnections.Add(-1)
-			go memR.gossipTxRoutine(peer)
-			memR.broadcastTxRoutine(peer)
-		}()
-	}
-
 	// start a routine to check transactions from the peer
 	go memR.checkTxRoutine(peer)
 }
@@ -136,7 +114,6 @@ func (memR *Reactor) AddPeer(peer p2p.Peer) {
 // RemovePeer implements Reactor.
 func (memR *Reactor) RemovePeer(peer p2p.Peer, _ interface{}) {
 	memR.ids.Reclaim(peer)
-	// broadcast routine checks if peer is gone and returns
 }
 
 // Receive implements Reactor.
@@ -164,8 +141,6 @@ func (memR *Reactor) Receive(e p2p.Envelope) {
 		memR.Switch.StopPeerForError(e.Src, fmt.Errorf("mempool cannot handle message of type: %T", e.Message))
 		return
 	}
-
-	// broadcasting happens from go routines per peer
 }
 
 // PeerState describes the state of a peer.
@@ -173,128 +148,109 @@ type PeerState interface {
 	GetHeight() int64
 }
 
-func (memR *Reactor) gossipTxRoutine(peer p2p.Peer) {
-	var lastGossipHeight int64 = -1
-
+// appEventLoop consumes events from the ProxyMempool's event channel and acts on them.
+func (memR *Reactor) appEventLoop() {
 	for {
-		// In case of both next.NextWaitChan() and peer.Quit() are variable at the same time
-		if !memR.IsRunning() || !peer.IsRunning() {
+		if !memR.IsRunning() {
 			return
 		}
 
-		// Make sure the peer is up to date.
-		peerState, ok := peer.Get(types.PeerStateKey).(PeerState)
-		if !ok {
-			time.Sleep(PeerCatchupSleepIntervalMS * time.Millisecond)
-			continue
-		}
+		select {
+		case ev := <-memR.mempool.AppEventCh():
+			switch ev.Type {
+			case EventTxQueued:
+				if memR.config.Broadcast {
+					memR.gossipTxToPeers(ev.Tx, ev.SenderID)
+				}
 
-		mempoolHeight := memR.mempool.height.Load()
-		if lastGossipHeight >= mempoolHeight {
-			time.Sleep(PeerCatchupSleepIntervalMS * time.Millisecond)
-			continue
-		}
+			case EventTxInserted:
+				memR.insertedTxsMtx.Lock()
+				memR.insertedTxs[ev.TxKey] = &regossipEntry{
+					tx:               ev.Tx,
+					lastGossipTime:   time.Now(),
+					lastGossipHeight: memR.mempool.Height(),
+				}
+				memR.mempool.SetHasValidTxs(true)
+				memR.mempool.NotifyTxsAvailable()
+				memR.insertedTxsMtx.Unlock()
 
-		lastGossipHeight = mempoolHeight
-		peerHeight := peerState.GetHeight()
+			case EventTxRemoved:
+				memR.insertedTxsMtx.Lock()
+				delete(memR.insertedTxs, ev.TxKey)
+				if len(memR.insertedTxs) == 0 {
+					memR.mempool.SetHasValidTxs(false)
+				}
+				memR.insertedTxsMtx.Unlock()
 
-		memR.mempool.gossipMut.Lock()
-		gossipTxs := make([]types.TxKey, len(memR.mempool.gossipTxs))
-		copy(gossipTxs, memR.mempool.gossipTxs)
-		memR.mempool.gossipMut.Unlock()
+				memR.mempool.RemoveTxByKey(ev.TxKey)
+			}
 
-		for _, txKey := range gossipTxs {
-			if !memR.IsRunning() || !peer.IsRunning() {
-				return
-			}
-			// allow for a lag of 1 block
-			memTx := memR.mempool.getMemTx(txKey)
-			if memTx == nil {
-				continue
-			}
-			if peerHeight < memTx.Height()-1 {
-				continue
-			}
-			if success := peer.Send(p2p.Envelope{
-				ChannelID: MempoolChannel,
-				Message:   &protomem.Txs{Txs: [][]byte{memTx.tx}},
-			}); !success {
-				time.Sleep(PeerCatchupSleepIntervalMS * time.Millisecond)
-				continue
-			}
+		case <-memR.Quit():
+			return
 		}
 	}
 }
 
-// Send new mempool txs to peer.
-func (memR *Reactor) broadcastTxRoutine(peer p2p.Peer) {
-	peerID := memR.ids.GetForPeer(peer)
-	var next *clist.CElement
+// regossipLoop periodically checks inserted txs and regossips those whose
+// per-tx back-off interval has elapsed. Both time and height back-off are
+// exponential: base * 2^attempts (capped at their respective maximums).
+func (memR *Reactor) regossipLoop() {
+	ticker := time.NewTicker(regossipCheckInterval)
+	defer ticker.Stop()
 
 	for {
-		// In case of both next.NextWaitChan() and peer.Quit() are variable at the same time
-		if !memR.IsRunning() || !peer.IsRunning() {
+		if !memR.IsRunning() {
 			return
-		}
-
-		// This happens because the CElement we were looking at got garbage
-		// collected (removed). That is, .NextWait() returned nil. Go ahead and
-		// start from the beginning.
-		if next == nil {
-			select {
-			case <-memR.mempool.TxsWaitChan(): // Wait until a tx is available
-				if next = memR.mempool.TxsFront(); next == nil {
-					continue
-				}
-			case <-peer.Quit():
-				return
-			case <-memR.Quit():
-				return
-			}
-		}
-
-		// Make sure the peer is up to date.
-		peerState, ok := peer.Get(types.PeerStateKey).(PeerState)
-		if !ok {
-			// Peer does not have a state yet. We set it in the consensus reactor, but
-			// when we add peer in Switch, the order we call reactors#AddPeer is
-			// different every time due to us using a map. Sometimes other reactors
-			// will be initialized before the consensus reactor. We should wait a few
-			// milliseconds and retry.
-			time.Sleep(PeerCatchupSleepIntervalMS * time.Millisecond)
-			continue
-		}
-
-		// Allow for a lag of 1 block.
-		memTx := next.Value.(*mempoolTx)
-		if peerState.GetHeight() < memTx.Height()-1 {
-			time.Sleep(PeerCatchupSleepIntervalMS * time.Millisecond)
-			continue
-		}
-
-		// NOTE: Transaction batching was disabled due to
-		// https://github.com/tendermint/tendermint/issues/5796
-
-		if !memTx.isSender(peerID) {
-			success := peer.Send(p2p.Envelope{
-				ChannelID: MempoolChannel,
-				Message:   &protomem.Txs{Txs: [][]byte{memTx.tx}},
-			})
-			if !success {
-				time.Sleep(PeerCatchupSleepIntervalMS * time.Millisecond)
-				continue
-			}
 		}
 
 		select {
-		case <-next.NextWaitChan():
-			// see the start of the for loop for nil check
-			next = next.Next()
-		case <-peer.Quit():
-			return
+		case now := <-ticker.C:
+			curHeight := memR.mempool.Height()
+			var toGossip []types.Tx
+
+			memR.insertedTxsMtx.Lock()
+			for k, entry := range memR.insertedTxs {
+				if memR.mempool.IsIncludedTx(entry.tx) {
+					delete(memR.insertedTxs, k)
+					continue
+				}
+
+				backoff := min(regossipBaseInterval<<min(entry.attempts, regossipMaxAttempts), regossipMaxInterval)
+				timeDue := now.Sub(entry.lastGossipTime) >= backoff
+
+				heightBackoff := min(regossipHeightInterval<<min(entry.attempts, regossipMaxAttempts), regossipMaxHeightInterval)
+				heightDue := curHeight >= entry.lastGossipHeight+heightBackoff
+
+				if timeDue || heightDue {
+					toGossip = append(toGossip, entry.tx)
+					entry.lastGossipTime = now
+					entry.lastGossipHeight = curHeight
+					entry.attempts++
+				}
+			}
+			memR.insertedTxsMtx.Unlock()
+
+			for _, item := range toGossip {
+				memR.gossipTxToPeers(item, "")
+			}
+
 		case <-memR.Quit():
 			return
 		}
+	}
+}
+
+// gossipTxToPeers sends a tx to all connected peers, skipping the excluding peer.
+func (memR *Reactor) gossipTxToPeers(tx types.Tx, excludePeer p2p.ID) {
+	for _, peer := range memR.Switch.Peers().List() {
+		if peer.ID() == excludePeer {
+			continue
+		}
+
+		peer.Send(p2p.Envelope{
+			ChannelID: MempoolChannel,
+			Message:   &protomem.Txs{Txs: [][]byte{tx}},
+		})
 	}
 }
 
@@ -309,17 +265,15 @@ func (memR *Reactor) checkTxRoutine(peer p2p.Peer) {
 	txInfo := TxInfo{SenderID: peerID, SenderP2PID: peer.ID()}
 
 	for {
-		// In case of both next.NextWaitChan() and peer.Quit() are variable at the same time
 		if !memR.IsRunning() || !peer.IsRunning() {
 			return
 		}
 
 		select {
 		case protoTxs := <-checkTxChan:
-			var err error
 			for _, tx := range protoTxs {
 				ntx := types.Tx(tx)
-				err = memR.mempool.CheckTx(ntx, nil, txInfo)
+				err := memR.mempool.CheckTx(ntx, nil, txInfo)
 				if err != nil {
 					switch {
 					case errors.Is(err, ErrTxInCache):
