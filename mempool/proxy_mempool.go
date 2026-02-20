@@ -32,6 +32,9 @@ type ProxyMempool struct {
 	knownTxCount atomic.Int64
 	knownTxBytes atomic.Int64
 
+	// in-flight CheckTx guard: txKey -> struct{} while the abci call is pending
+	inCheckTxs sync.Map
+
 	txsAvailable         chan struct{}
 	notifiedTxsAvailable atomic.Bool
 	hasValidTxs          atomic.Bool
@@ -119,12 +122,20 @@ func (mp *ProxyMempool) CheckTx(
 		return ErrTxInCache
 	}
 
+	// prevent duplicate in-flight CheckTx calls for the same tx
+	if _, loaded := mp.inCheckTxs.LoadOrStore(txKey, struct{}{}); loaded {
+		return ErrTxInCache
+	}
+
 	reqRes, err := mp.proxyAppConn.CheckTxAsync(context.TODO(), &abci.RequestCheckTx{Tx: tx})
 	if err != nil {
+		mp.inCheckTxs.Delete(txKey)
 		return ErrAppConnMempool{Err: err}
 	}
 
 	reqRes.SetCallback(func(res *abci.Response) {
+		mp.inCheckTxs.Delete(txKey)
+
 		checkTxRes := res.GetCheckTx()
 		if checkTxRes == nil {
 			return
@@ -225,7 +236,7 @@ func (mp *ProxyMempool) FlushAppConn() error {
 	return nil
 }
 
-// Flush clears the knownTxs cache.
+// Flush clears all mempool state.
 func (mp *ProxyMempool) Flush() {
 	mp.knownTxs.Range(func(key, _ interface{}) bool {
 		mp.knownTxs.Delete(key)
@@ -233,6 +244,8 @@ func (mp *ProxyMempool) Flush() {
 	})
 	mp.knownTxCount.Store(0)
 	mp.knownTxBytes.Store(0)
+	mp.includedTxCache.Reset()
+	mp.hasValidTxs.Store(false)
 }
 
 // TxsAvailable returns a channel that fires once per height when transactions are available in the mempool.
