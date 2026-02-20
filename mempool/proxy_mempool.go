@@ -246,6 +246,10 @@ func (mp *ProxyMempool) Flush() {
 	mp.knownTxBytes.Store(0)
 	mp.includedTxCache.Reset()
 	mp.hasValidTxs.Store(false)
+	mp.inCheckTxs.Range(func(key, _ interface{}) bool {
+		mp.inCheckTxs.Delete(key)
+		return true
+	})
 }
 
 // TxsAvailable returns a channel that fires once per height when transactions are available in the mempool.
