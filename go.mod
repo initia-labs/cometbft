@@ -54,7 +54,7 @@ require (
 	cosmossdk.io/api v0.7.6
 	github.com/celestiaorg/go-square/v2 v2.0.0
 	github.com/cosmos/cosmos-proto v1.0.0-beta.5
-	github.com/initia-labs/OPinit/api v1.2.1-0.20260107071306-7207b34866b7
+	github.com/initia-labs/OPinit/api v1.3.0
 )
 
 require (
