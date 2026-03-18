@@ -50,9 +50,6 @@ type Engine struct {
 	lastProposedBlockTime   time.Time
 	lastProposedBlockNumTxs int
 
-	// only used for graceful shutdown to apply last proposed block
-	lastProposedBlock *types.ProposedBlock
-
 	appliedCh          chan struct{}
 	receiveCh          chan p2pMsg
 	conflictingVotesCh chan conflictingCommit
@@ -222,17 +219,6 @@ func (e *Engine) Stop() error {
 
 func (e *Engine) Wait() {
 	<-e.done
-
-	// apply last proposed block if not applied yet
-	e.stateMu.Lock()
-	stateHeight := e.state.LastBlockHeight
-	lastProposedBlockHeight := e.lastProposedBlockHeight
-	lastProposedBlock := e.lastProposedBlock
-	e.stateMu.Unlock()
-
-	if lastProposedBlock != nil && lastProposedBlockHeight == stateHeight+1 {
-		_, _, _ = e.applyProposedBlock(lastProposedBlock)
-	}
 }
 
 // ResetState replaces the engine's working state and synchronizes related metadata.

@@ -12,6 +12,7 @@ import (
 
 	"github.com/cometbft/cometbft/evidence"
 	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	seqproto "github.com/cometbft/cometbft/proto/tendermint/sequencing"
 	cmtstore "github.com/cometbft/cometbft/proto/tendermint/store"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	sm "github.com/cometbft/cometbft/state"
@@ -761,6 +762,68 @@ func (bs *BlockStore) saveValidatorSetBatch(valSet *types.ValidatorSet, batch db
 		return fmt.Errorf("unable to marshal validator set: %w", err)
 	}
 	return batch.Set(calcValidatorSetKey(valSetHash), valSetBytes)
+}
+
+// SEQUENCING: pending proposal storage for crash-safe block production.
+// The sequencer saves the proposed block before and after signing so that
+// on restart it can recover without re-creating a potentially conflicting block.
+
+var pendingProposalKey = []byte("PP")
+
+// SavePendingProposal persists a pending sequencer proposal.
+// Pass a nil commit to record the pre-sign (block-only) state;
+// pass the signed ExtendedCommit after signing to record the post-sign state.
+func (bs *BlockStore) SavePendingProposal(block *types.Block, commit *types.ExtendedCommit) {
+	blockProto, err := block.ToProto()
+	if err != nil {
+		panic(fmt.Sprintf("failed to convert block to proto: %v", err))
+	}
+	pb := &seqproto.ProposedBlock{Block: blockProto}
+	if commit != nil {
+		pb.Commit = commit.ToProto()
+	}
+	bz, err := proto.Marshal(pb)
+	if err != nil {
+		panic(fmt.Sprintf("failed to marshal pending proposal: %v", err))
+	}
+	if err := bs.db.SetSync(pendingProposalKey, bz); err != nil {
+		panic(fmt.Sprintf("failed to save pending proposal: %v", err))
+	}
+}
+
+// LoadPendingProposal loads the persisted pending proposal, if any.
+// commit is nil when the block was saved before signing.
+func (bs *BlockStore) LoadPendingProposal() (block *types.Block, commit *types.ExtendedCommit) {
+	bz, err := bs.db.Get(pendingProposalKey)
+	if err != nil {
+		panic(fmt.Sprintf("failed to load pending proposal: %v", err))
+	}
+	if len(bz) == 0 {
+		return nil, nil
+	}
+	pb := &seqproto.ProposedBlock{}
+	if err := proto.Unmarshal(bz, pb); err != nil {
+		panic(fmt.Sprintf("failed to unmarshal pending proposal: %v", err))
+	}
+	if pb.Block == nil {
+		panic("pending proposal is missing block payload")
+	}
+	block, err = types.BlockFromProto(pb.Block)
+	if err != nil {
+		panic(fmt.Sprintf("failed to decode pending proposal block: %v", err))
+	}
+	if pb.Commit != nil {
+		commit, err = types.ExtendedCommitFromProto(pb.Commit)
+		if err != nil {
+			panic(fmt.Sprintf("failed to decode pending proposal commit: %v", err))
+		}
+	}
+	return block, commit
+}
+
+// DeletePendingProposal removes the persisted pending proposal.
+func (bs *BlockStore) DeletePendingProposal() error {
+	return bs.db.DeleteSync(pendingProposalKey)
 }
 
 //-----------------------------------------------------------------------------
