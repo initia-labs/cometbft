@@ -803,19 +803,19 @@ func (bs *BlockStore) LoadPendingProposal() (block *types.Block, commit *types.E
 	}
 	pb := &seqproto.ProposedBlock{}
 	if err := proto.Unmarshal(bz, pb); err != nil {
-		return nil, nil
+		panic(fmt.Sprintf("failed to unmarshal pending proposal: %v", err))
 	}
 	if pb.Block == nil {
-		return nil, nil
+		panic("pending proposal is missing block payload")
 	}
 	block, err = types.BlockFromProto(pb.Block)
 	if err != nil {
-		return nil, nil
+		panic(fmt.Sprintf("failed to decode pending proposal block: %v", err))
 	}
 	if pb.Commit != nil {
 		commit, err = types.ExtendedCommitFromProto(pb.Commit)
 		if err != nil {
-			return nil, nil
+			panic(fmt.Sprintf("failed to decode pending proposal commit: %v", err))
 		}
 	}
 	return block, commit
