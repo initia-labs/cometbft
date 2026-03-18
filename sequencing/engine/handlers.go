@@ -60,6 +60,11 @@ func (e *Engine) applyProposedBlock(pb *types.ProposedBlock) (badPeer, applied, 
 	// store the block with the validator set
 	e.blockStore.SaveBlockWithValidatorSet(pb.Block, blockParts, pb.Commit.ToCommit(), state.Validators)
 
+	// block is now durably stored; clear the pending proposal if any
+	if err := e.blockStore.DeletePendingProposal(); err != nil {
+		e.logger.Error("failed to delete pending proposal", "height", pb.Block.Height, "err", err)
+	}
+
 	// apply the verified block
 	if e.applyVerifiedBlock(state, blockID, pb.Block) {
 		return false, false, true
@@ -350,78 +355,102 @@ func (e *Engine) proposeBlock() {
 		lastExtCommit = lastCommit.WrappedExtendedCommit()
 	}
 
-	e.logger.Info("proposing block", "height", height, "proposer", validator.Address)
-	e.execMu.Lock()
-	proposedBlock, err := e.blockExec.CreateProposalBlock(
-		context.Background(),
-		height,
-		state,
-		lastExtCommit,
-		proposerAddr,
-	)
-	e.execMu.Unlock()
-	if err != nil {
-		panic(fmt.Sprintf("Failed to create proposal block: height %d err %v", height, err))
+	// check for a persisted pending proposal from a previous run
+	var proposedBlock *cmttypes.Block
+	var extCommit *cmttypes.ExtendedCommit
+
+	pendingBlock, pendingCommit := e.blockStore.LoadPendingProposal()
+	if pendingBlock != nil && pendingBlock.Height == height {
+		e.logger.Info("recovering pending proposal", "height", height, "signed", pendingCommit != nil)
+		proposedBlock = pendingBlock
+		extCommit = pendingCommit // nil = pre-sign, non-nil = already signed
+	} else {
+		e.logger.Info("proposing block", "height", height, "proposer", validator.Address)
+		e.execMu.Lock()
+		var err error
+		proposedBlock, err = e.blockExec.CreateProposalBlock(
+			context.Background(),
+			height,
+			state,
+			lastExtCommit,
+			proposerAddr,
+		)
+		e.execMu.Unlock()
+		if err != nil {
+			panic(fmt.Sprintf("Failed to create proposal block: height %d err %v", height, err))
+		}
+		// persist the block before signing so we can recover even if we crash mid-sign
+		if err := e.blockStore.SavePendingProposal(proposedBlock, nil); err != nil {
+			e.logger.Error("failed to save pending proposal (pre-sign)", "height", height, "err", err)
+		}
 	}
+
 	proposedBlockID, err := blockID(proposedBlock)
 	if err != nil {
 		e.logger.Error("unable to compute block ID", "height", height, "err", err)
 		return
 	}
 
-	// create self vote
-	vote := &cmttypes.Vote{
-		ValidatorAddress: proposerAddr,
-		ValidatorIndex:   idx,
-		Height:           height,
-		Round:            0,
-		Timestamp:        voteTime(proposedBlock.Time),
-		Type:             cmtproto.PrecommitType,
-		BlockID:          proposedBlockID,
-	}
-
-	v := vote.ToProto()
-	if err = e.privValidator.SignVote(state.ChainID, v); err != nil {
-		if !ignoreSignErr(err) {
-			e.logger.Error("unable to sign proposal vote", "height", height, "err", err)
-		} else {
-			e.logger.Debug("ignoring error signing proposal vote", "height", height, "err", err)
+	if extCommit == nil {
+		// create self vote and sign
+		vote := &cmttypes.Vote{
+			ValidatorAddress: proposerAddr,
+			ValidatorIndex:   idx,
+			Height:           height,
+			Round:            0,
+			Timestamp:        voteTime(proposedBlock.Time),
+			Type:             cmtproto.PrecommitType,
+			BlockID:          proposedBlockID,
 		}
-		return
-	}
 
-	vote.Timestamp = v.Timestamp
-	vote.Signature = v.Signature
-	vote.ExtensionSignature = v.ExtensionSignature
-	signatures := make([]cmttypes.CommitSig, state.Validators.Size())
-	for i := range signatures {
-		signatures[i] = cmttypes.NewCommitSigAbsent()
+		v := vote.ToProto()
+		if err = e.privValidator.SignVote(state.ChainID, v); err != nil {
+			if !ignoreSignErr(err) {
+				e.logger.Error("unable to sign proposal vote", "height", height, "err", err)
+			} else {
+				e.logger.Debug("ignoring error signing proposal vote", "height", height, "err", err)
+			}
+			return
+		}
+
+		vote.Timestamp = v.Timestamp
+		vote.Signature = v.Signature
+		vote.ExtensionSignature = v.ExtensionSignature
+		signatures := make([]cmttypes.CommitSig, state.Validators.Size())
+		for i := range signatures {
+			signatures[i] = cmttypes.NewCommitSigAbsent()
+		}
+		commit := &cmttypes.Commit{
+			Height:     height,
+			BlockID:    proposedBlockID,
+			Signatures: signatures,
+		}
+		commit.Signatures[idx] = vote.CommitSig()
+		extCommit = commit.WrappedExtendedCommit()
+
+		// persist signed proposal so we can recover after signing but before apply
+		if err := e.blockStore.SavePendingProposal(proposedBlock, extCommit); err != nil {
+			e.logger.Error("failed to save pending proposal (post-sign)", "height", height, "err", err)
+		}
 	}
-	commit := &cmttypes.Commit{
-		Height:     height,
-		BlockID:    proposedBlockID,
-		Signatures: signatures,
-	}
-	commit.Signatures[idx] = vote.CommitSig()
 
 	proposed := &types.ProposedBlock{
 		Block:  proposedBlock,
-		Commit: commit.WrappedExtendedCommit(),
+		Commit: extCommit,
 	}
-
-	// add block to bucket as well
-	e.blockBucket.Add(types.SELF_PEER_ID, height, proposed)
-
-	// broadcast the proposed block
-	e.broadcastProposedBlock(proposed)
 
 	// keep track of last proposed height to prevent entering this function too often
 	e.stateMu.Lock()
 	e.lastProposedBlockHeight = height
 	e.lastProposedBlockTime = proposedBlock.Time
 	e.lastProposedBlockNumTxs = len(proposedBlock.Data.Txs)
-	e.lastProposedBlock = proposed // for graceful shutdown
 	e.stateMu.Unlock()
+
+	// add block to bucket as well
+	e.blockBucket.Add(types.SELF_PEER_ID, height, proposed)
+
+	// broadcast the proposed block
+	e.broadcastProposedBlock(proposed)
 }
 
 func voteTime(lastBlockTime time.Time) time.Time {

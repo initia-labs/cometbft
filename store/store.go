@@ -12,6 +12,7 @@ import (
 
 	"github.com/cometbft/cometbft/evidence"
 	cmtsync "github.com/cometbft/cometbft/libs/sync"
+	seqproto "github.com/cometbft/cometbft/proto/tendermint/sequencing"
 	cmtstore "github.com/cometbft/cometbft/proto/tendermint/store"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	sm "github.com/cometbft/cometbft/state"
@@ -761,6 +762,63 @@ func (bs *BlockStore) saveValidatorSetBatch(valSet *types.ValidatorSet, batch db
 		return fmt.Errorf("unable to marshal validator set: %w", err)
 	}
 	return batch.Set(calcValidatorSetKey(valSetHash), valSetBytes)
+}
+
+// SEQUENCING: pending proposal storage for crash-safe block production.
+// The sequencer saves the proposed block before and after signing so that
+// on restart it can recover without re-creating a potentially conflicting block.
+
+var pendingProposalKey = []byte("PP")
+
+// SavePendingProposal persists a pending sequencer proposal.
+// Pass a nil commit to record the pre-sign (block-only) state;
+// pass the signed ExtendedCommit after signing to record the post-sign state.
+func (bs *BlockStore) SavePendingProposal(block *types.Block, commit *types.ExtendedCommit) error {
+	blockProto, err := block.ToProto()
+	if err != nil {
+		return fmt.Errorf("failed to convert block to proto: %w", err)
+	}
+	pb := &seqproto.ProposedBlock{Block: blockProto}
+	if commit != nil {
+		pb.Commit = commit.ToProto()
+	}
+	bz, err := proto.Marshal(pb)
+	if err != nil {
+		return fmt.Errorf("failed to marshal pending proposal: %w", err)
+	}
+	return bs.db.Set(pendingProposalKey, bz)
+}
+
+// LoadPendingProposal loads the persisted pending proposal, if any.
+// commit is nil when the block was saved before signing.
+func (bs *BlockStore) LoadPendingProposal() (block *types.Block, commit *types.ExtendedCommit) {
+	bz, err := bs.db.Get(pendingProposalKey)
+	if err != nil || len(bz) == 0 {
+		return nil, nil
+	}
+	pb := &seqproto.ProposedBlock{}
+	if err := proto.Unmarshal(bz, pb); err != nil {
+		return nil, nil
+	}
+	if pb.Block == nil {
+		return nil, nil
+	}
+	block, err = types.BlockFromProto(pb.Block)
+	if err != nil {
+		return nil, nil
+	}
+	if pb.Commit != nil {
+		commit, err = types.ExtendedCommitFromProto(pb.Commit)
+		if err != nil {
+			return nil, nil
+		}
+	}
+	return block, commit
+}
+
+// DeletePendingProposal removes the persisted pending proposal.
+func (bs *BlockStore) DeletePendingProposal() error {
+	return bs.db.Delete(pendingProposalKey)
 }
 
 //-----------------------------------------------------------------------------
