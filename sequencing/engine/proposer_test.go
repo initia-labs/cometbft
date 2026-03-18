@@ -277,3 +277,101 @@ func TestProposerProcessorCreatesBlockOnTxsAvailable(t *testing.T) {
 		return eng.blockBucket.Len() > 0
 	}, 300*time.Millisecond, 20*time.Millisecond)
 }
+
+// resetForRestart mimics a fresh engine start: clears the tracking fields
+// that would be zero-valued on a real restart while keeping the block store.
+func resetForRestart(eng *Engine) {
+	eng.stateMu.Lock()
+	eng.lastProposedBlockHeight = 0
+	eng.lastProposedBlockTime = time.Time{}
+	eng.lastProposedBlockNumTxs = 0
+	eng.stateMu.Unlock()
+}
+
+// TestProposeBlockSavesPendingProposal verifies that proposeBlock persists
+// a signed pending proposal to the block store.
+func TestProposeBlockSavesPendingProposal(t *testing.T) {
+	eng, _, _ := newProposerTestEngine(t, 500*time.Millisecond)
+
+	b, c := eng.blockStore.LoadPendingProposal()
+	require.Nil(t, b)
+	require.Nil(t, c)
+
+	eng.proposeBlock()
+
+	b, c = eng.blockStore.LoadPendingProposal()
+	require.NotNil(t, b, "block should be persisted after proposeBlock")
+	require.NotNil(t, c, "signed commit should be persisted after proposeBlock")
+	require.Equal(t, int64(1), b.Height)
+}
+
+// TestProposeBlockDeletesPendingProposalOnApply verifies that
+// applyProposedBlock removes the pending proposal once the block is durable.
+func TestProposeBlockDeletesPendingProposalOnApply(t *testing.T) {
+	eng, _, _ := newProposerTestEngine(t, 500*time.Millisecond)
+
+	eng.proposeBlock()
+
+	b, _ := eng.blockStore.LoadPendingProposal()
+	require.NotNil(t, b, "pending proposal should exist before apply")
+
+	_, _, proposed, ok := eng.blockBucket.PopLowest()
+	require.True(t, ok)
+
+	bad, applied, _ := eng.applyProposedBlock(proposed)
+	require.False(t, bad)
+	require.True(t, applied)
+
+	b, _ = eng.blockStore.LoadPendingProposal()
+	require.Nil(t, b, "pending proposal should be deleted after apply")
+}
+
+// TestProposeBlockRecoversSigned verifies that when a signed pending proposal
+// exists for the current height on restart, proposeBlock reuses it without
+// re-creating or re-signing the block.
+func TestProposeBlockRecoversSigned(t *testing.T) {
+	eng, _, _ := newProposerTestEngine(t, 500*time.Millisecond)
+
+	eng.proposeBlock()
+
+	_, _, firstProposed, ok := eng.blockBucket.PopLowest()
+	require.True(t, ok)
+	originalHash := firstProposed.Block.Hash()
+
+	// Simulate restart: pending proposal is still in the block store,
+	// but the in-memory tracking fields are reset to zero values.
+	resetForRestart(eng)
+
+	eng.proposeBlock()
+
+	_, _, recovered, ok := eng.blockBucket.PopLowest()
+	require.True(t, ok, "block should be produced via recovery")
+	require.Equal(t, originalHash, recovered.Block.Hash(), "recovered block must have the same content")
+	require.Equal(t, firstProposed.Commit.Height, recovered.Commit.Height)
+}
+
+// TestProposeBlockRecoversUnsigned verifies that when only an unsigned
+// (pre-sign) pending proposal exists, proposeBlock reuses the block and
+// signs it again rather than creating a new block.
+func TestProposeBlockRecoversUnsigned(t *testing.T) {
+	eng, _, _ := newProposerTestEngine(t, 500*time.Millisecond)
+
+	eng.proposeBlock()
+
+	_, _, firstProposed, ok := eng.blockBucket.PopLowest()
+	require.True(t, ok)
+	originalHash := firstProposed.Block.Hash()
+
+	// Overwrite with the unsigned (pre-sign) state to simulate a crash
+	// that occurred after block creation but before signing.
+	require.NoError(t, eng.blockStore.SavePendingProposal(firstProposed.Block, nil))
+
+	resetForRestart(eng)
+
+	eng.proposeBlock()
+
+	_, _, recovered, ok := eng.blockBucket.PopLowest()
+	require.True(t, ok, "block should be produced via recovery")
+	require.Equal(t, originalHash, recovered.Block.Hash(), "recovered block must have the same content")
+	require.NotNil(t, recovered.Commit, "recovered block must be signed")
+}
