@@ -786,14 +786,17 @@ func (bs *BlockStore) SavePendingProposal(block *types.Block, commit *types.Exte
 	if err != nil {
 		return fmt.Errorf("failed to marshal pending proposal: %w", err)
 	}
-	return bs.db.Set(pendingProposalKey, bz)
+	return bs.db.SetSync(pendingProposalKey, bz)
 }
 
 // LoadPendingProposal loads the persisted pending proposal, if any.
 // commit is nil when the block was saved before signing.
 func (bs *BlockStore) LoadPendingProposal() (block *types.Block, commit *types.ExtendedCommit) {
 	bz, err := bs.db.Get(pendingProposalKey)
-	if err != nil || len(bz) == 0 {
+	if err != nil {
+		panic(fmt.Sprintf("failed to load pending proposal: %v", err))
+	}
+	if len(bz) == 0 {
 		return nil, nil
 	}
 	pb := &seqproto.ProposedBlock{}

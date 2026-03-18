@@ -382,6 +382,7 @@ func (e *Engine) proposeBlock() {
 		// persist the block before signing so we can recover even if we crash mid-sign
 		if err := e.blockStore.SavePendingProposal(proposedBlock, nil); err != nil {
 			e.logger.Error("failed to save pending proposal (pre-sign)", "height", height, "err", err)
+			return
 		}
 	}
 
