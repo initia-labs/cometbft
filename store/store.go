@@ -823,7 +823,7 @@ func (bs *BlockStore) LoadPendingProposal() (block *types.Block, commit *types.E
 
 // DeletePendingProposal removes the persisted pending proposal.
 func (bs *BlockStore) DeletePendingProposal() error {
-	return bs.db.Delete(pendingProposalKey)
+	return bs.db.DeleteSync(pendingProposalKey)
 }
 
 //-----------------------------------------------------------------------------
