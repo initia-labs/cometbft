@@ -380,10 +380,7 @@ func (e *Engine) proposeBlock() {
 			panic(fmt.Sprintf("Failed to create proposal block: height %d err %v", height, err))
 		}
 		// persist the block before signing so we can recover even if we crash mid-sign
-		if err := e.blockStore.SavePendingProposal(proposedBlock, nil); err != nil {
-			e.logger.Error("failed to save pending proposal (pre-sign)", "height", height, "err", err)
-			return
-		}
+		e.blockStore.SavePendingProposal(proposedBlock, nil)
 	}
 
 	proposedBlockID, err := blockID(proposedBlock)
@@ -430,9 +427,7 @@ func (e *Engine) proposeBlock() {
 		extCommit = commit.WrappedExtendedCommit()
 
 		// persist signed proposal so we can recover after signing but before apply
-		if err := e.blockStore.SavePendingProposal(proposedBlock, extCommit); err != nil {
-			e.logger.Error("failed to save pending proposal (post-sign)", "height", height, "err", err)
-		}
+		e.blockStore.SavePendingProposal(proposedBlock, extCommit)
 	}
 
 	proposed := &types.ProposedBlock{

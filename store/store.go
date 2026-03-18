@@ -773,10 +773,10 @@ var pendingProposalKey = []byte("PP")
 // SavePendingProposal persists a pending sequencer proposal.
 // Pass a nil commit to record the pre-sign (block-only) state;
 // pass the signed ExtendedCommit after signing to record the post-sign state.
-func (bs *BlockStore) SavePendingProposal(block *types.Block, commit *types.ExtendedCommit) error {
+func (bs *BlockStore) SavePendingProposal(block *types.Block, commit *types.ExtendedCommit) {
 	blockProto, err := block.ToProto()
 	if err != nil {
-		return fmt.Errorf("failed to convert block to proto: %w", err)
+		panic(fmt.Sprintf("failed to convert block to proto: %v", err))
 	}
 	pb := &seqproto.ProposedBlock{Block: blockProto}
 	if commit != nil {
@@ -784,9 +784,11 @@ func (bs *BlockStore) SavePendingProposal(block *types.Block, commit *types.Exte
 	}
 	bz, err := proto.Marshal(pb)
 	if err != nil {
-		return fmt.Errorf("failed to marshal pending proposal: %w", err)
+		panic(fmt.Sprintf("failed to marshal pending proposal: %v", err))
 	}
-	return bs.db.SetSync(pendingProposalKey, bz)
+	if err := bs.db.SetSync(pendingProposalKey, bz); err != nil {
+		panic(fmt.Sprintf("failed to save pending proposal: %v", err))
+	}
 }
 
 // LoadPendingProposal loads the persisted pending proposal, if any.

@@ -364,7 +364,7 @@ func TestProposeBlockRecoversUnsigned(t *testing.T) {
 
 	// Overwrite with the unsigned (pre-sign) state to simulate a crash
 	// that occurred after block creation but before signing.
-	require.NoError(t, eng.blockStore.SavePendingProposal(firstProposed.Block, nil))
+	eng.blockStore.SavePendingProposal(firstProposed.Block, nil)
 
 	resetForRestart(eng)
 
