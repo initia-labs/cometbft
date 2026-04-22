@@ -298,7 +298,9 @@ func (bcR *Reactor) Receive(e p2p.Envelope) { //nolint: dupl // recreated in a t
 		bcR.pool.SetPeerRange(e.Src.ID(), msg.Base, msg.Height)
 	case *bcproto.NoBlockResponse:
 		bcR.Logger.Debug("Peer does not have requested block", "peer", e.Src, "height", msg.Height)
-		bcR.pool.RedoRequestFrom(msg.Height, e.Src.ID())
+		if banned := bcR.pool.RedoRequestFromNoBlock(msg.Height, e.Src.ID()); banned {
+			bcR.Switch.StopPeerForError(e.Src, fmt.Errorf("peer sent NoBlockResponse for advertised height %d", msg.Height))
+		}
 	default:
 		bcR.Logger.Error(fmt.Sprintf("Unknown message type %v", reflect.TypeOf(msg)))
 	}

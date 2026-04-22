@@ -81,7 +81,7 @@ type BlockPool struct {
 	peers         map[p2p.ID]*bpPeer
 	bannedPeers   map[p2p.ID]time.Time
 	sortedPeers   []*bpPeer // sorted by curRate, highest first
-	maxPeerHeight int64     // the biggest reported height
+	maxPeerHeight int64     // the highest height reachable from peer ranges
 
 	// atomic
 	numPending int32 // number of requests pending assignment or block response
@@ -357,7 +357,7 @@ func (pool *BlockPool) Height() int64 {
 	return pool.height
 }
 
-// MaxPeerHeight returns the highest reported height.
+// MaxPeerHeight returns the highest height reachable from peer ranges.
 func (pool *BlockPool) MaxPeerHeight() int64 {
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
@@ -396,7 +396,7 @@ func (pool *BlockPool) SetPeerRange(peerID p2p.ID, base int64, height int64) {
 		pool.sortedPeers = append([]*bpPeer{peer}, pool.sortedPeers...)
 	}
 
-	if height > pool.maxPeerHeight {
+	if peer.base <= max(pool.height, 1) && height > pool.maxPeerHeight {
 		pool.maxPeerHeight = height
 	}
 }
@@ -442,13 +442,39 @@ func (pool *BlockPool) removePeer(peerID p2p.ID) {
 
 // If no peers are left, maxPeerHeight is set to 0.
 func (pool *BlockPool) updateMaxPeerHeight() {
+	// Blockchain heights start at 1, so clamp to ensure peers with base=1
+	// are considered reachable even when pool.height is 0.
+	needed := max(pool.height, 1)
+
 	var max int64
 	for _, peer := range pool.peers {
-		if peer.height > max {
+		if peer.base <= needed && peer.height > max {
 			max = peer.height
 		}
 	}
 	pool.maxPeerHeight = max
+}
+
+// RedoRequestFromNoBlock retries the request at the given height. If the peer
+// claims the height is in its available range, sending NoBlockResponse
+// contradicts its status and the peer is removed and banned.
+func (pool *BlockPool) RedoRequestFromNoBlock(height int64, peerID p2p.ID) bool {
+	pool.mtx.Lock()
+	defer pool.mtx.Unlock()
+
+	peer := pool.peers[peerID]
+	if peer != nil && height >= peer.base && height <= peer.height {
+		pool.removePeer(peerID)
+		pool.banPeer(peerID)
+		return true
+	}
+
+	if requester, ok := pool.requesters[height]; ok {
+		if requester.didRequestFrom(peerID) {
+			requester.redo(peerID)
+		}
+	}
+	return false
 }
 
 // IsPeerBanned returns true if the peer is banned.

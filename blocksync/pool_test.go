@@ -164,6 +164,50 @@ func TestBlockPoolBasic(t *testing.T) {
 	}
 }
 
+func TestBlockPoolMaxPeerHeightOnlyUsesPeersCoveringCurrentHeight(t *testing.T) {
+	pool := NewBlockPool(100, nil, nil)
+
+	pool.SetPeerRange(p2p.ID("good"), 1, 120)
+	pool.SetPeerRange(p2p.ID("bad"), 121, math.MaxInt64)
+
+	require.Equal(t, int64(120), pool.MaxPeerHeight())
+
+	pool.SetPeerRange(p2p.ID("better"), 90, 130)
+
+	require.Equal(t, int64(130), pool.MaxPeerHeight())
+}
+
+func TestBlockPoolMaxPeerHeightClampsGenesisHeight(t *testing.T) {
+	pool := NewBlockPool(0, nil, nil)
+
+	pool.SetPeerRange(p2p.ID("good"), 1, 120)
+
+	require.Equal(t, int64(120), pool.MaxPeerHeight())
+}
+
+func TestBlockPoolNoBlockResponseBansPeerForAdvertisedHeight(t *testing.T) {
+	pool := NewBlockPool(100, nil, nil)
+
+	pool.SetPeerRange(p2p.ID("bad"), 100, math.MaxInt64)
+
+	banned := pool.RedoRequestFromNoBlock(100, p2p.ID("bad"))
+
+	require.True(t, banned)
+	require.True(t, pool.IsPeerBanned(p2p.ID("bad")))
+	require.Equal(t, int64(0), pool.MaxPeerHeight())
+}
+
+func TestBlockPoolNoBlockResponseAllowsUnadvertisedHeight(t *testing.T) {
+	pool := NewBlockPool(100, nil, nil)
+
+	pool.SetPeerRange(p2p.ID("peer"), 110, 120)
+
+	banned := pool.RedoRequestFromNoBlock(100, p2p.ID("peer"))
+
+	require.False(t, banned)
+	require.False(t, pool.IsPeerBanned(p2p.ID("peer")))
+}
+
 func TestBlockPoolTimeout(t *testing.T) {
 	var (
 		start      = int64(42)
