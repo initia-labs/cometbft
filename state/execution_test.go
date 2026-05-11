@@ -286,7 +286,7 @@ func TestFinalizeBlockMisbehavior(t *testing.T) {
 	// we don't need to worry about validating the evidence as long as they pass validate basic
 	dve, err := types.NewMockDuplicateVoteEvidenceWithValidator(3, defaultEvidenceTime, privVal, state.ChainID)
 	require.NoError(t, err)
-	dve.ValidatorPower = 1000
+	dve.ValidatorPower = state.Validators.Validators[0].VotingPower
 	lcae := &types.LightClientAttackEvidence{
 		ConflictingBlock: &types.LightBlock{
 			SignedHeader: &types.SignedHeader{
@@ -317,7 +317,7 @@ func TestFinalizeBlockMisbehavior(t *testing.T) {
 			Height:           3,
 			Time:             defaultEvidenceTime,
 			Validator:        types.TM2PB.Validator(state.Validators.Validators[0]),
-			TotalVotingPower: 10,
+			TotalVotingPower: dve.TotalVotingPower,
 		},
 		{
 			Type:             abci.MisbehaviorType_LIGHT_CLIENT_ATTACK,
@@ -415,7 +415,7 @@ func TestProcessProposal(t *testing.T) {
 				BlockIdFlag: cmtproto.BlockIDFlagCommit,
 				Validator: abci.Validator{
 					Address: addr,
-					Power:   1000,
+					Power:   testValidatorPower(0),
 				},
 			})
 		lastCommitSig = append(lastCommitSig, vote.CommitSig())

@@ -91,7 +91,7 @@ func TestRollbackHard(t *testing.T) {
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	stateStore := state.NewStore(dbm.NewMemDB(), state.StoreOptions{DiscardABCIResponses: false})
 
-	valSet, _ := types.RandValidatorSet(5, 10)
+	valSet := genValSet(5)
 
 	params := types.DefaultConsensusParams()
 	params.Version.App = 10
@@ -240,7 +240,7 @@ func TestRollbackDifferentStateHeight(t *testing.T) {
 
 func setupStateStore(t *testing.T, height int64) state.Store {
 	stateStore := state.NewStore(dbm.NewMemDB(), state.StoreOptions{DiscardABCIResponses: false})
-	valSet, _ := types.RandValidatorSet(5, 10)
+	valSet := genValSet(5)
 
 	params := types.DefaultConsensusParams()
 	params.Version.App = 10
@@ -347,6 +347,7 @@ func TestRollback_To(t *testing.T) {
 	}
 
 	// rollback the state
+	blockStore.On("DeleteBlocksFromHeight", nextHeight).Return(nil)
 	rollbackHeight, rollbackHash, err := state.RollbackTo(blockStore, stateStore, height, false)
 	require.NoError(t, err)
 	require.EqualValues(t, height, rollbackHeight)

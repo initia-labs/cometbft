@@ -13,8 +13,16 @@ import (
 const batchVerifyThreshold = 2
 
 func shouldBatchVerify(vals *ValidatorSet, commit *Commit) bool {
-	return len(commit.Signatures) >= batchVerifyThreshold &&
-		batch.SupportsBatchVerifier(vals.GetProposer().PubKey) &&
+	if len(commit.Signatures) < batchVerifyThreshold {
+		return false
+	}
+
+	proposer := vals.Proposer
+	if proposer == nil {
+		proposer = vals.findProposer()
+	}
+	return proposer != nil &&
+		batch.SupportsBatchVerifier(proposer.PubKey) &&
 		vals.AllKeysHaveSameType()
 }
 

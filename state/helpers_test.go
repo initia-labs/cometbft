@@ -132,7 +132,7 @@ func makeState(nVals, height int) (sm.State, dbm.DB, map[string]types.PrivValida
 		vals[i] = types.GenesisValidator{
 			Address: valAddr,
 			PubKey:  pk.PubKey(),
-			Power:   1000,
+			Power:   testValidatorPower(i),
 			Name:    fmt.Sprintf("test%d", i),
 		}
 		privVals[valAddr.String()] = types.NewMockPVWithParams(pk, false, false)
@@ -165,9 +165,16 @@ func makeState(nVals, height int) (sm.State, dbm.DB, map[string]types.PrivValida
 func genValSet(size int) *types.ValidatorSet {
 	vals := make([]*types.Validator, size)
 	for i := 0; i < size; i++ {
-		vals[i] = types.NewValidator(ed25519.GenPrivKey().PubKey(), 10)
+		vals[i] = types.NewValidator(ed25519.GenPrivKey().PubKey(), testValidatorPower(i))
 	}
 	return types.NewValidatorSet(vals)
+}
+
+func testValidatorPower(index int) int64 {
+	if index == 0 {
+		return types.SequencerVotingPower
+	}
+	return types.AttestorVotingPower
 }
 
 func makeHeaderPartsResponsesValPubKeyChange(
@@ -180,32 +187,11 @@ func makeHeaderPartsResponsesValPubKeyChange(
 	}
 	abciResponses := &abci.ResponseFinalizeBlock{}
 	// If the pubkey is new, remove the old and add the new.
-	_, val := state.NextValidators.GetByIndex(0)
+	val := getSequencer(state.NextValidators)
 	if !bytes.Equal(pubkey.Bytes(), val.PubKey.Bytes()) {
 		abciResponses.ValidatorUpdates = []abci.ValidatorUpdate{
 			types.TM2PB.NewValidatorUpdate(val.PubKey, 0),
-			types.TM2PB.NewValidatorUpdate(pubkey, 10),
-		}
-	}
-
-	return block.Header, types.BlockID{Hash: block.Hash(), PartSetHeader: types.PartSetHeader{}}, abciResponses
-}
-
-func makeHeaderPartsResponsesValPowerChange(
-	state sm.State,
-	power int64,
-) (types.Header, types.BlockID, *abci.ResponseFinalizeBlock) {
-	block, err := makeBlock(state, state.LastBlockHeight+1, new(types.Commit))
-	if err != nil {
-		return types.Header{}, types.BlockID{}, nil
-	}
-	abciResponses := &abci.ResponseFinalizeBlock{}
-
-	// If the pubkey is new, remove the old and add the new.
-	_, val := state.NextValidators.GetByIndex(0)
-	if val.VotingPower != power {
-		abciResponses.ValidatorUpdates = []abci.ValidatorUpdate{
-			types.TM2PB.NewValidatorUpdate(val.PubKey, power),
+			types.TM2PB.NewValidatorUpdate(pubkey, val.VotingPower),
 		}
 	}
 
@@ -224,6 +210,16 @@ func makeHeaderPartsResponsesParams(
 		ConsensusParamUpdates: &params,
 	}
 	return block.Header, types.BlockID{Hash: block.Hash(), PartSetHeader: types.PartSetHeader{}}, abciResponses
+}
+
+func getSequencer(vals *types.ValidatorSet) *types.Validator {
+	for i := 0; i < vals.Size(); i++ {
+		_, val := vals.GetByIndex(int32(i))
+		if val.VotingPower == types.SequencerVotingPower {
+			return val
+		}
+	}
+	return nil
 }
 
 func randomGenesisDoc() *types.GenesisDoc {
