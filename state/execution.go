@@ -43,6 +43,9 @@ type BlockExecutor struct {
 	logger log.Logger
 
 	metrics *Metrics
+
+	// blockTimeTolerance is the maximum allowed difference between proposed block time and wall clock.
+	blockTimeTolerance time.Duration
 }
 
 type BlockExecutorOption func(executor *BlockExecutor)
@@ -50,6 +53,12 @@ type BlockExecutorOption func(executor *BlockExecutor)
 func BlockExecutorWithMetrics(metrics *Metrics) BlockExecutorOption {
 	return func(blockExec *BlockExecutor) {
 		blockExec.metrics = metrics
+	}
+}
+
+func BlockExecutorWithBlockTimeTolerance(d time.Duration) BlockExecutorOption {
+	return func(blockExec *BlockExecutor) {
+		blockExec.blockTimeTolerance = d
 	}
 }
 
@@ -191,11 +200,30 @@ func (blockExec *BlockExecutor) ProcessProposal(
 // Validation does not mutate state, but does require historical information from the stateDB,
 // ie. to verify evidence from a validator at an old height.
 func (blockExec *BlockExecutor) ValidateBlock(state State, block *types.Block) error {
-	err := validateBlock(state, block)
-	if err != nil {
+	return blockExec.validateBlockAndCheckEvidence(state, block)
+}
+
+// ValidateBlockSkipLastCommit validates the same as blockexec.ValidateBlock
+// however it performs no validation of the block's LastCommit.
+//
+// This should only be used if you know that the LastCommit has already been validated elsewhere.
+func (blockExec *BlockExecutor) ValidateBlockSkipLastCommit(state State, block *types.Block) error {
+	return blockExec.validateBlockAndCheckEvidence(state, block, withSkipLastCommit)
+}
+
+func (blockExec *BlockExecutor) validateBlockAndCheckEvidence(state State, block *types.Block, opts ...func(*blockValidationOptions)) error {
+	if err := validateBlock(state, block, append(opts, blockExec.withBlockTimeTolerance)...); err != nil {
 		return err
 	}
 	return blockExec.evpool.CheckEvidence(block.Evidence.Evidence)
+}
+
+func (blockExec *BlockExecutor) withBlockTimeTolerance(opts *blockValidationOptions) {
+	opts.blockTimeTolerance = blockExec.blockTimeTolerance
+}
+
+func withSkipLastCommit(opts *blockValidationOptions) {
+	opts.skipLastCommitVerification = true
 }
 
 // ApplyVerifiedBlock does the same as `ApplyBlock`, but skips verification.
@@ -215,7 +243,7 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	state State, blockID types.BlockID, block *types.Block,
 ) (State, error) {
 
-	if err := validateBlock(state, block); err != nil {
+	if err := validateBlock(state, block, blockExec.withBlockTimeTolerance); err != nil {
 		return state, ErrInvalidBlock(err)
 	}
 

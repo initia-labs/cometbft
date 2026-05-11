@@ -512,6 +512,9 @@ create_empty_blocks = {{ .Sequencing.CreateEmptyBlocks }}
 # in the mempool. Only used if create_empty_blocks=false.
 create_empty_blocks_interval = "{{ .Sequencing.CreateEmptyBlocksInterval }}"
 
+# Maximum allowed difference between proposed block time and wall-clock time.
+block_time_tolerance = "{{ .Consensus.BlockTimeTolerance }}"
+
 #######################################################
 ###         Storage Configuration Options           ###
 #######################################################

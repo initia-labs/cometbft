@@ -343,10 +343,8 @@ LOOP:
 			}
 			if err != nil {
 				idx.log.Error("failed to parse bounds:", err)
-			} else {
-				if withinBounds {
-					idx.setTmpHeights(tmpHeights, it)
-				}
+			} else if withinBounds {
+				idx.setTmpHeights(tmpHeights, it)
 			}
 		}
 
@@ -593,7 +591,7 @@ func (idx *BlockerIndexer) indexEvents(batch dbm.Batch, events []abci.Event, hei
 	heightBz := int64ToBytes(height)
 
 	for _, event := range events {
-		idx.eventSeq = idx.eventSeq + 1
+		idx.eventSeq++
 		// only index events with a non-empty type
 		if len(event.Type) == 0 {
 			continue

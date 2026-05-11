@@ -8,17 +8,21 @@ import (
 
 	"github.com/cometbft/cometbft/crypto"
 	"github.com/cometbft/cometbft/types"
-	cmttime "github.com/cometbft/cometbft/types/time"
-)
-
-const (
-	allowedFutureBlockTime = 15 * time.Second // Max seconds from current time allowed for blocks, before they're considered future blocks
 )
 
 //-----------------------------------------------------
 // Validate block
 
-func validateBlock(state State, block *types.Block) error {
+type blockValidationOptions struct {
+	blockTimeTolerance         time.Duration
+	skipLastCommitVerification bool
+}
+
+func validateBlock(state State, block *types.Block, opts ...func(*blockValidationOptions)) error {
+	var vopts blockValidationOptions
+	for _, o := range opts {
+		o(&vopts)
+	}
 	// Validate internal consistency.
 	if err := block.ValidateBasic(); err != nil {
 		return err
@@ -93,7 +97,7 @@ func validateBlock(state State, block *types.Block) error {
 		if len(block.LastCommit.Signatures) != 0 {
 			return errors.New("initial block can't have LastCommit signatures")
 		}
-	} else {
+	} else if !vopts.skipLastCommitVerification {
 		// SEQUENCING: use sequencer commit verification
 		if err := state.LastValidators.VerifySequencerCommit(
 			state.ChainID, state.LastBlockID, block.Height-1, block.LastCommit); err != nil {
@@ -117,20 +121,18 @@ func validateBlock(state State, block *types.Block) error {
 	}
 
 	// Validate block Time
+	if tol := vopts.blockTimeTolerance; tol > 0 && !block.Time.Before(time.Now().Add(tol)) {
+		return fmt.Errorf(
+			"block time %v is too far in the future (wall clock %v + tolerance %v)",
+			block.Time, time.Now(), tol,
+		)
+	}
 	switch {
 	case block.Height > state.InitialHeight:
 		if !block.Time.After(state.LastBlockTime) {
 			return fmt.Errorf("block time %v not greater than last block time %v",
 				block.Time,
 				state.LastBlockTime,
-			)
-		}
-
-		// SEQUENCING: verify block time is not too far in the future
-		if maxAllowedTime := cmttime.Now().Add(allowedFutureBlockTime); block.Time.After(maxAllowedTime) {
-			return fmt.Errorf("block time %v is too far in the future (max %v)",
-				block.Time,
-				maxAllowedTime,
 			)
 		}
 
