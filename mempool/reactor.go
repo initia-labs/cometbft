@@ -22,14 +22,24 @@ const (
 
 	regossipHeightInterval    int64 = 3
 	regossipMaxHeightInterval int64 = 100
+
+	gossipHistoryTTL = 5 * time.Minute
 )
 
-// regossipEntry tracks a tx in the regossip set with per-tx back-off state.
+// regossipEntry tracks tx in the regossip set. Per-tx outbound gossip
+// state (attempts, last time/height) lives in gossipHistory, so it survives
+// evict-readmit cycles and continues to grow exponential backoff.
 type regossipEntry struct {
-	tx               types.Tx
+	tx types.Tx
+}
+
+// gossipHistoryEntry records outbound gossip state for a tx hash, independent
+// of whether the tx is currently in the active mempool. Cleared by TTL.
+type gossipHistoryEntry struct {
 	lastGossipTime   time.Time
 	lastGossipHeight int64
 	attempts         int
+	expiry           time.Time
 }
 
 // Reactor handles mempool tx broadcasting amongst peers.
@@ -40,18 +50,23 @@ type Reactor struct {
 	mempool *ProxyMempool
 	ids     *mempoolIDs
 
-	// insertedTxs is the regossip set of txs promoted to the active mempool.
+	// insertedTxs is the regossip set of txs currently in the active mempool.
 	insertedTxsMtx cmtsync.Mutex
 	insertedTxs    map[types.TxKey]*regossipEntry
+
+	// gossipHistory persists per-hash outbound gossip state across evict-readmit
+	// cycles, so exponential backoff continues to grow regardless of admission.
+	gossipHistory map[types.TxKey]*gossipHistoryEntry
 }
 
 // NewReactor returns a new Reactor with the given config and mempool.
 func NewReactor(config *cfg.MempoolConfig, mempool *ProxyMempool) *Reactor {
 	memR := &Reactor{
-		config:      config,
-		mempool:     mempool,
-		ids:         newMempoolIDs(),
-		insertedTxs: make(map[types.TxKey]*regossipEntry),
+		config:        config,
+		mempool:       mempool,
+		ids:           newMempoolIDs(),
+		insertedTxs:   make(map[types.TxKey]*regossipEntry),
+		gossipHistory: make(map[types.TxKey]*gossipHistoryEntry),
 	}
 	memR.BaseReactor = *p2p.NewBaseReactor("Mempool", memR)
 
@@ -160,16 +175,22 @@ func (memR *Reactor) appEventLoop() {
 			switch ev.Type {
 			case EventTxQueued:
 				if memR.config.Broadcast {
-					memR.gossipTxToPeers(ev.Tx, ev.SenderID)
+					now := time.Now()
+					curHeight := memR.mempool.Height()
+					memR.insertedTxsMtx.Lock()
+					gossip := memR.shouldGossipNowLocked(ev.TxKey, now, curHeight)
+					if gossip {
+						memR.recordGossipLocked(ev.TxKey, now, curHeight)
+					}
+					memR.insertedTxsMtx.Unlock()
+					if gossip {
+						memR.gossipTxToPeers(ev.Tx, ev.SenderID)
+					}
 				}
 
 			case EventTxInserted:
 				memR.insertedTxsMtx.Lock()
-				memR.insertedTxs[ev.TxKey] = &regossipEntry{
-					tx:               ev.Tx,
-					lastGossipTime:   time.Now(),
-					lastGossipHeight: memR.mempool.Height(),
-				}
+				memR.insertedTxs[ev.TxKey] = &regossipEntry{tx: ev.Tx}
 				memR.mempool.SetHasValidTxs(true)
 				memR.mempool.NotifyTxsAvailable()
 				memR.insertedTxsMtx.Unlock()
@@ -209,23 +230,20 @@ func (memR *Reactor) regossipLoop() {
 			var toGossip []types.Tx
 
 			memR.insertedTxsMtx.Lock()
+			// sweep expired gossipHistory entries
+			for k, entry := range memR.gossipHistory {
+				if !entry.expiry.After(now) {
+					delete(memR.gossipHistory, k)
+				}
+			}
 			for k, entry := range memR.insertedTxs {
 				if memR.mempool.IsIncludedTx(entry.tx) {
 					delete(memR.insertedTxs, k)
 					continue
 				}
-
-				backoff := min(regossipBaseInterval<<min(entry.attempts, regossipMaxAttempts), regossipMaxInterval)
-				timeDue := now.Sub(entry.lastGossipTime) >= backoff
-
-				heightBackoff := min(regossipHeightInterval<<min(entry.attempts, regossipMaxAttempts), regossipMaxHeightInterval)
-				heightDue := curHeight >= entry.lastGossipHeight+heightBackoff
-
-				if timeDue || heightDue {
+				if memR.shouldGossipNowLocked(k, now, curHeight) {
 					toGossip = append(toGossip, entry.tx)
-					entry.lastGossipTime = now
-					entry.lastGossipHeight = curHeight
-					entry.attempts++
+					memR.recordGossipLocked(k, now, curHeight)
 				}
 			}
 			memR.insertedTxsMtx.Unlock()
@@ -238,6 +256,44 @@ func (memR *Reactor) regossipLoop() {
 			return
 		}
 	}
+}
+
+// shouldGossipNowLocked returns whether enough time/height has elapsed since
+// the last gossip of this tx to fire another broadcast under exponential backoff.
+// Caller must hold insertedTxsMtx.
+func (memR *Reactor) shouldGossipNowLocked(key types.TxKey, now time.Time, curHeight int64) bool {
+	entry, ok := memR.gossipHistory[key]
+	if !ok {
+		return true
+	}
+
+	attempts := min(entry.attempts, regossipMaxAttempts)
+	backoff := min(regossipBaseInterval<<attempts, regossipMaxInterval)
+	if now.Sub(entry.lastGossipTime) >= backoff {
+		return true
+	}
+
+	heightBackoff := min(regossipHeightInterval<<attempts, regossipMaxHeightInterval)
+	if curHeight >= entry.lastGossipHeight+heightBackoff {
+		return true
+	}
+
+	return false
+}
+
+// recordGossipLocked updates gossip history after a successful broadcast.
+// Caller must hold insertedTxsMtx.
+func (memR *Reactor) recordGossipLocked(key types.TxKey, now time.Time, curHeight int64) {
+	entry, ok := memR.gossipHistory[key]
+	if !ok {
+		entry = &gossipHistoryEntry{}
+		memR.gossipHistory[key] = entry
+	}
+
+	entry.lastGossipTime = now
+	entry.lastGossipHeight = curHeight
+	entry.attempts++
+	entry.expiry = now.Add(gossipHistoryTTL)
 }
 
 // gossipTxToPeers sends a tx to all connected peers, skipping the excluding peer.
