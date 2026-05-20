@@ -190,6 +190,48 @@ func TestAppEventLoop_EventTxRemoved_RemovesFromKnownTxs(t *testing.T) {
 	require.True(t, ok, "tx should be removed from knownTxs after EventTxRemoved")
 }
 
+func TestAppEventLoop_EventTxRemoved_PreservesGossipHistory(t *testing.T) {
+	config := cfg.TestConfig()
+	reactors, switches := makeAndConnectReactors(config, 1)
+	defer func() {
+		for _, s := range switches {
+			_ = s.Stop()
+		}
+	}()
+
+	r := reactors[0]
+	tx := types.Tx("evict-readmit-tx")
+	txKey := tx.Key()
+	now := time.Now()
+
+	r.insertedTxsMtx.Lock()
+	r.insertedTxs[txKey] = tx
+	r.recordGossipLocked(txKey, now, r.mempool.Height())
+	r.insertedTxsMtx.Unlock()
+
+	r.mempool.AppEventCh() <- AppMempoolEvent{
+		Type:  EventTxRemoved,
+		TxKey: txKey,
+	}
+
+	ok := waitForCondition(2*time.Second, func() bool {
+		r.insertedTxsMtx.Lock()
+		_, inserted := r.insertedTxs[txKey]
+		_, history := r.gossipHistory.Get(txKey)
+		r.insertedTxsMtx.Unlock()
+		return !inserted && history && r.mempool.isAdmissionCoolingDown(txKey)
+	})
+	require.True(t, ok, "tx removal should preserve gossip history and start admission cooldown")
+
+	r.insertedTxsMtx.Lock()
+	shouldGossipNow := r.shouldGossipNowLocked(txKey, now.Add(time.Second), r.mempool.Height())
+	shouldGossipLater := r.shouldGossipNowLocked(txKey, now.Add(2*regossipBaseInterval+time.Second), r.mempool.Height())
+	r.insertedTxsMtx.Unlock()
+
+	require.False(t, shouldGossipNow, "readmitted tx should stay under existing backoff")
+	require.True(t, shouldGossipLater, "tx should become gossipable after existing backoff elapses")
+}
+
 func TestAppEventLoop_EventTxQueued_GossipsToPeers(t *testing.T) {
 	config := cfg.TestConfig()
 	const N = 2
@@ -341,12 +383,13 @@ func TestGossipLoop_TimeBased(t *testing.T) {
 	txKey := types.Tx(tx).Key()
 
 	reactors[0].insertedTxsMtx.Lock()
-	reactors[0].insertedTxs[txKey] = &regossipEntry{
-		tx:               tx,
+	reactors[0].insertedTxs[txKey] = tx
+	reactors[0].gossipHistory.Add(txKey, &gossipHistoryEntry{
 		lastGossipTime:   time.Now().Add(-regossipBaseInterval - time.Second),
 		lastGossipHeight: reactors[0].mempool.Height(),
 		attempts:         0,
-	}
+		expiry:           time.Now().Add(gossipHistoryTTL),
+	})
 	reactors[0].insertedTxsMtx.Unlock()
 
 	// wait for reactor[1] to receive the tx via regossip
@@ -376,12 +419,13 @@ func TestRegossipLoop_HeightBased(t *testing.T) {
 
 	// inject a tx with recent lastGossipTime but old lastGossipHeight
 	reactors[0].insertedTxsMtx.Lock()
-	reactors[0].insertedTxs[txKey] = &regossipEntry{
-		tx:               tx,
+	reactors[0].insertedTxs[txKey] = tx
+	reactors[0].gossipHistory.Add(txKey, &gossipHistoryEntry{
 		lastGossipTime:   time.Now().Add(time.Hour), // far in the future, time won't trigger
 		lastGossipHeight: 0,                         // old height, height condition will trigger
 		attempts:         0,
-	}
+		expiry:           time.Now().Add(gossipHistoryTTL),
+	})
 	reactors[0].insertedTxsMtx.Unlock()
 
 	// advance height past the height interval
@@ -411,11 +455,7 @@ func TestRegossipLoop_CleansCommittedTxs(t *testing.T) {
 
 	// add tx to insertedTxs
 	reactors[0].insertedTxsMtx.Lock()
-	reactors[0].insertedTxs[txKey] = &regossipEntry{
-		tx:               tx,
-		lastGossipTime:   time.Now(),
-		lastGossipHeight: 0,
-	}
+	reactors[0].insertedTxs[txKey] = tx
 	reactors[0].insertedTxsMtx.Unlock()
 
 	mp := reactors[0].mempool
@@ -449,17 +489,18 @@ func TestRegossipLoop_AttemptsIncrement(t *testing.T) {
 
 	// inject tx with expired backoff so it triggers immediately
 	reactors[0].insertedTxsMtx.Lock()
-	reactors[0].insertedTxs[txKey] = &regossipEntry{
-		tx:               tx,
+	reactors[0].insertedTxs[txKey] = tx
+	reactors[0].gossipHistory.Add(txKey, &gossipHistoryEntry{
 		lastGossipTime:   time.Now().Add(-regossipBaseInterval - time.Second),
 		lastGossipHeight: 0,
 		attempts:         0,
-	}
+		expiry:           time.Now().Add(gossipHistoryTTL),
+	})
 	reactors[0].insertedTxsMtx.Unlock()
 
 	ok := waitForCondition(5*time.Second, func() bool {
 		reactors[0].insertedTxsMtx.Lock()
-		entry, exists := reactors[0].insertedTxs[txKey]
+		entry, exists := reactors[0].gossipHistory.Get(txKey)
 		var attempts int
 		if exists {
 			attempts = entry.attempts
@@ -468,6 +509,37 @@ func TestRegossipLoop_AttemptsIncrement(t *testing.T) {
 		return exists && attempts >= 1
 	})
 	require.True(t, ok, "attempts should be incremented after regossip")
+}
+
+func TestGossipHistory_BoundsEntriesByCacheSize(t *testing.T) {
+	config := cfg.TestConfig()
+	config.Mempool.CacheSize = 2
+	reactors, switches := makeAndConnectReactors(config, 1)
+	defer func() {
+		for _, s := range switches {
+			_ = s.Stop()
+		}
+	}()
+
+	tx1 := types.Tx("gossip-history-1").Key()
+	tx2 := types.Tx("gossip-history-2").Key()
+	tx3 := types.Tx("gossip-history-3").Key()
+
+	reactors[0].insertedTxsMtx.Lock()
+	now := time.Now()
+	reactors[0].recordGossipLocked(tx1, now, 1)
+	reactors[0].recordGossipLocked(tx2, now, 1)
+	reactors[0].recordGossipLocked(tx3, now, 1)
+	_, hasTx1 := reactors[0].gossipHistory.Get(tx1)
+	_, hasTx2 := reactors[0].gossipHistory.Get(tx2)
+	_, hasTx3 := reactors[0].gossipHistory.Get(tx3)
+	historyLen := reactors[0].gossipHistory.Len()
+	reactors[0].insertedTxsMtx.Unlock()
+
+	require.False(t, hasTx1, "oldest gossip history should be evicted")
+	require.True(t, hasTx2)
+	require.True(t, hasTx3)
+	require.LessOrEqual(t, historyLen, config.Mempool.CacheSize)
 }
 
 func TestEventTxInserted_DoesNotGossip(t *testing.T) {
