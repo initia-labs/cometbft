@@ -209,8 +209,8 @@ func (memR *Reactor) appEventLoop() {
 				}
 				memR.insertedTxsMtx.Unlock()
 
-				memR.mempool.RemoveTxByKey(ev.TxKey)
 				memR.mempool.AddAdmissionCooldown(ev.TxKey)
+				memR.mempool.RemoveTxByKey(ev.TxKey)
 			}
 
 		case <-memR.Quit():
