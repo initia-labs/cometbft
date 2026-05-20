@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	"github.com/cometbft/cometbft/config"
@@ -11,7 +12,30 @@ import (
 	cmtsync "github.com/cometbft/cometbft/libs/sync"
 	"github.com/cometbft/cometbft/proxy"
 	"github.com/cometbft/cometbft/types"
+	lru "github.com/hashicorp/golang-lru/v2"
 )
+
+const (
+	// admissionCooldownBaseTTL is the first local reject window after the app
+	// mempool removes a tx. It should be long enough to absorb immediate peer
+	// regossip, but short enough that a tx which later becomes valid is not
+	// hidden from this node for long.
+	admissionCooldownBaseTTL = 5 * time.Second
+
+	// admissionCooldownMaxTTL caps the adaptive reject window for a single tx
+	// hash. Repeated removals can extend the cooldown up to this bound.
+	admissionCooldownMaxTTL = 5 * time.Minute
+
+	// admissionCooldownMaxRemovals bounds the left shift used for exponential
+	// TTL growth even though admissionCooldownMaxTTL is the effective duration
+	// cap. Keeping both caps avoids overflow if this constant changes later.
+	admissionCooldownMaxRemovals = 16
+)
+
+type admissionCooldownEntry struct {
+	removals int
+	expiry   time.Time
+}
 
 // ProxyMempool implements the Mempool interface as a thin passthrough.
 // By using this ProxyMempool the CometBFT becomes a gossip layer while the application owns the real mempool.
@@ -42,6 +66,15 @@ type ProxyMempool struct {
 	// LRU cache of committed tx hashes, populated during Update so that gossip of committed txs is rejected locally
 	includedTxCache *LRUTxCache
 
+	// admissionCooldown rejects exact tx hashes that were recently removed from
+	// the application mempool. This prevents an evict-readmit loop where peers
+	// immediately regossip the same bytes after the app has decided to remove
+	// them. It is deliberately separate from includedTxCache: includedTxCache is
+	// for committed txs, while admissionCooldown is a short local backoff for
+	// txs the app mempool just dropped.
+	admissionCooldownMtx sync.Mutex
+	admissionCooldown    *lru.Cache[types.TxKey, *admissionCooldownEntry]
+
 	logger  log.Logger
 	metrics *Metrics
 }
@@ -68,6 +101,7 @@ func NewProxyMempool(
 		logger:          log.NewNopLogger(),
 		metrics:         NopMetrics(),
 	}
+	mp.admissionCooldown = newAdmissionCooldown(cacheSize)
 	mp.height.Store(height)
 
 	// no-op callback so the local client doesn't panic
@@ -78,6 +112,17 @@ func NewProxyMempool(
 	}
 
 	return mp
+}
+
+func newAdmissionCooldown(cacheSize int) *lru.Cache[types.TxKey, *admissionCooldownEntry] {
+	if cacheSize <= 0 {
+		cacheSize = 10000
+	}
+	cache, err := lru.New[types.TxKey, *admissionCooldownEntry](cacheSize)
+	if err != nil {
+		panic(err)
+	}
+	return cache
 }
 
 // WithProxyMempoolMetrics sets the metrics on the ProxyMempool.
@@ -119,6 +164,14 @@ func (mp *ProxyMempool) CheckTx(
 	}
 
 	if mp.includedTxCache.Has(tx) {
+		return ErrTxInCache
+	}
+
+	// If the app mempool recently removed these exact bytes, do not call
+	// CheckTx again yet. Returning ErrTxInCache keeps peer-originated retries on
+	// the existing quiet duplicate path and prevents a local readmit/regossip
+	// cycle while the cooldown is active.
+	if mp.isAdmissionCoolingDown(txKey) {
 		return ErrTxInCache
 	}
 
@@ -165,6 +218,50 @@ func (mp *ProxyMempool) CheckTx(
 	})
 
 	return nil
+}
+
+// AddAdmissionCooldown records that the application mempool removed this tx
+// hash and asks CheckTx to reject the same bytes locally for a short period.
+//
+// The cooldown is adaptive per hash: one removal gets the base TTL, and
+// repeated removals before the previous cooldown expires extend the TTL
+// exponentially up to a cap. The LRU size bound keeps both active cooldowns and
+// repeated-removal counters bounded by the node's normal tx cache size.
+func (mp *ProxyMempool) AddAdmissionCooldown(txKey types.TxKey) {
+	now := time.Now()
+
+	mp.admissionCooldownMtx.Lock()
+	defer mp.admissionCooldownMtx.Unlock()
+
+	entry, ok := mp.admissionCooldown.Get(txKey)
+	if !ok {
+		entry = &admissionCooldownEntry{}
+	} else if !entry.expiry.After(now) {
+		entry.removals = 0
+	}
+
+	entry.removals++
+
+	attempts := min(entry.removals-1, admissionCooldownMaxRemovals)
+	ttl := min(admissionCooldownBaseTTL<<attempts, admissionCooldownMaxTTL)
+	entry.expiry = now.Add(ttl)
+	mp.admissionCooldown.Add(txKey, entry)
+}
+
+func (mp *ProxyMempool) isAdmissionCoolingDown(txKey types.TxKey) bool {
+	mp.admissionCooldownMtx.Lock()
+	defer mp.admissionCooldownMtx.Unlock()
+
+	entry, ok := mp.admissionCooldown.Get(txKey)
+	if !ok {
+		return false
+	}
+	if entry.expiry.After(time.Now()) {
+		return true
+	}
+
+	mp.admissionCooldown.Remove(txKey)
+	return false
 }
 
 // RemoveTxByKey removes a transaction from the knownTxs cache.
@@ -250,6 +347,9 @@ func (mp *ProxyMempool) Flush() {
 		mp.inCheckTxs.Delete(key)
 		return true
 	})
+	mp.admissionCooldownMtx.Lock()
+	mp.admissionCooldown.Purge()
+	mp.admissionCooldownMtx.Unlock()
 }
 
 // TxsAvailable returns a channel that fires once per height when transactions are available in the mempool.

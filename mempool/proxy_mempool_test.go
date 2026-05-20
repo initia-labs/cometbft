@@ -149,6 +149,104 @@ func TestProxyMempool_CheckTx_IncludedTxCache(t *testing.T) {
 	require.ErrorIs(t, err, ErrTxInCache)
 }
 
+func TestProxyMempool_CheckTx_AdmissionCooldown(t *testing.T) {
+	t.Run("cooldown rejects before app CheckTx", func(t *testing.T) {
+		conn := newMockAppConn(t)
+		mp := NewProxyMempool(newTestConfig(), conn, 0)
+		mp.SetLogger(log.NewNopLogger())
+
+		tx := types.Tx("cooldown-tx")
+		mp.AddAdmissionCooldown(tx.Key())
+
+		err := mp.CheckTx(tx, nil, TxInfo{})
+		require.ErrorIs(t, err, ErrTxInCache)
+	})
+
+	t.Run("expired cooldown lets CheckTx proceed", func(t *testing.T) {
+		conn := newMockAppConn(t)
+		setupCheckTxAsyncOK(conn)
+
+		mp := NewProxyMempool(newTestConfig(), conn, 0)
+		mp.SetLogger(log.NewNopLogger())
+
+		tx := types.Tx("expired-cooldown-tx")
+		txKey := tx.Key()
+		mp.admissionCooldownMtx.Lock()
+		mp.admissionCooldown.Add(txKey, &admissionCooldownEntry{
+			removals: 1,
+			expiry:   time.Now().Add(-time.Second),
+		})
+		mp.admissionCooldownMtx.Unlock()
+
+		err := mp.CheckTx(tx, nil, TxInfo{})
+		require.NoError(t, err)
+	})
+}
+
+func TestProxyMempool_AddAdmissionCooldown_ExtendsRepeatedRemovals(t *testing.T) {
+	conn := newMockAppConn(t)
+	mp := NewProxyMempool(newTestConfig(), conn, 0)
+	mp.SetLogger(log.NewNopLogger())
+
+	txKey := types.Tx("repeated-removal-tx").Key()
+
+	mp.AddAdmissionCooldown(txKey)
+	mp.admissionCooldownMtx.Lock()
+	firstEntry, firstOK := mp.admissionCooldown.Get(txKey)
+	firstExpiry := time.Time{}
+	firstRemovals := 0
+	if firstOK {
+		firstExpiry = firstEntry.expiry
+		firstRemovals = firstEntry.removals
+	}
+	mp.admissionCooldownMtx.Unlock()
+
+	mp.AddAdmissionCooldown(txKey)
+	mp.admissionCooldownMtx.Lock()
+	secondEntry, secondOK := mp.admissionCooldown.Get(txKey)
+	secondExpiry := time.Time{}
+	secondRemovals := 0
+	if secondOK {
+		secondExpiry = secondEntry.expiry
+		secondRemovals = secondEntry.removals
+	}
+	mp.admissionCooldownMtx.Unlock()
+
+	require.True(t, firstOK)
+	require.True(t, secondOK)
+	require.Equal(t, 1, firstRemovals)
+	require.Equal(t, 2, secondRemovals)
+	require.True(t, secondExpiry.After(firstExpiry), "repeated removals should extend cooldown")
+}
+
+func TestProxyMempool_AddAdmissionCooldown_BoundsCacheByCacheSize(t *testing.T) {
+	conn := newMockAppConn(t)
+	cfg := newTestConfig()
+	cfg.CacheSize = 2
+	mp := NewProxyMempool(cfg, conn, 0)
+	mp.SetLogger(log.NewNopLogger())
+
+	tx1 := types.Tx("cooldown-1").Key()
+	tx2 := types.Tx("cooldown-2").Key()
+	tx3 := types.Tx("cooldown-3").Key()
+
+	mp.AddAdmissionCooldown(tx1)
+	mp.AddAdmissionCooldown(tx2)
+	mp.AddAdmissionCooldown(tx3)
+
+	mp.admissionCooldownMtx.Lock()
+	_, hasTx1Cooldown := mp.admissionCooldown.Get(tx1)
+	_, hasTx2Cooldown := mp.admissionCooldown.Get(tx2)
+	_, hasTx3Cooldown := mp.admissionCooldown.Get(tx3)
+	cacheLen := mp.admissionCooldown.Len()
+	mp.admissionCooldownMtx.Unlock()
+
+	require.False(t, hasTx1Cooldown, "oldest cooldown should be evicted")
+	require.True(t, hasTx2Cooldown)
+	require.True(t, hasTx3Cooldown)
+	require.LessOrEqual(t, cacheLen, cfg.CacheSize)
+}
+
 func TestProxyMempool_CheckTx_EventTxQueued(t *testing.T) {
 	conn := newMockAppConn(t)
 	setupCheckTxAsyncOK(conn)

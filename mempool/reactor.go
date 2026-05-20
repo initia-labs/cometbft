@@ -12,6 +12,7 @@ import (
 	"github.com/cometbft/cometbft/p2p"
 	protomem "github.com/cometbft/cometbft/proto/tendermint/mempool"
 	"github.com/cometbft/cometbft/types"
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 const (
@@ -26,15 +27,9 @@ const (
 	gossipHistoryTTL = 5 * time.Minute
 )
 
-// regossipEntry tracks tx in the regossip set. Per-tx outbound gossip
-// state (attempts, last time/height) lives in gossipHistory, so it survives
-// evict-readmit cycles and continues to grow exponential backoff.
-type regossipEntry struct {
-	tx types.Tx
-}
-
 // gossipHistoryEntry records outbound gossip state for a tx hash, independent
-// of whether the tx is currently in the active mempool. Cleared by TTL.
+// of whether the tx is currently in the active mempool. The LRU bounds memory
+// growth while expiry resets backoff for txs that have been quiet long enough.
 type gossipHistoryEntry struct {
 	lastGossipTime   time.Time
 	lastGossipHeight int64
@@ -52,25 +47,36 @@ type Reactor struct {
 
 	// insertedTxs is the regossip set of txs currently in the active mempool.
 	insertedTxsMtx cmtsync.Mutex
-	insertedTxs    map[types.TxKey]*regossipEntry
+	insertedTxs    map[types.TxKey]types.Tx
 
 	// gossipHistory persists per-hash outbound gossip state across evict-readmit
 	// cycles, so exponential backoff continues to grow regardless of admission.
-	gossipHistory map[types.TxKey]*gossipHistoryEntry
+	gossipHistory *lru.Cache[types.TxKey, *gossipHistoryEntry]
 }
 
 // NewReactor returns a new Reactor with the given config and mempool.
 func NewReactor(config *cfg.MempoolConfig, mempool *ProxyMempool) *Reactor {
 	memR := &Reactor{
-		config:        config,
-		mempool:       mempool,
-		ids:           newMempoolIDs(),
-		insertedTxs:   make(map[types.TxKey]*regossipEntry),
-		gossipHistory: make(map[types.TxKey]*gossipHistoryEntry),
+		config:      config,
+		mempool:     mempool,
+		ids:         newMempoolIDs(),
+		insertedTxs: make(map[types.TxKey]types.Tx),
 	}
+	memR.gossipHistory = newGossipHistory(config.CacheSize)
 	memR.BaseReactor = *p2p.NewBaseReactor("Mempool", memR)
 
 	return memR
+}
+
+func newGossipHistory(cacheSize int) *lru.Cache[types.TxKey, *gossipHistoryEntry] {
+	if cacheSize <= 0 {
+		cacheSize = 10000
+	}
+	cache, err := lru.New[types.TxKey, *gossipHistoryEntry](cacheSize)
+	if err != nil {
+		panic(err)
+	}
+	return cache
 }
 
 // InitPeer implements Reactor by creating a state for the peer.
@@ -190,7 +196,7 @@ func (memR *Reactor) appEventLoop() {
 
 			case EventTxInserted:
 				memR.insertedTxsMtx.Lock()
-				memR.insertedTxs[ev.TxKey] = &regossipEntry{tx: ev.Tx}
+				memR.insertedTxs[ev.TxKey] = ev.Tx
 				memR.mempool.SetHasValidTxs(true)
 				memR.mempool.NotifyTxsAvailable()
 				memR.insertedTxsMtx.Unlock()
@@ -204,6 +210,7 @@ func (memR *Reactor) appEventLoop() {
 				memR.insertedTxsMtx.Unlock()
 
 				memR.mempool.RemoveTxByKey(ev.TxKey)
+				memR.mempool.AddAdmissionCooldown(ev.TxKey)
 			}
 
 		case <-memR.Quit():
@@ -230,19 +237,13 @@ func (memR *Reactor) regossipLoop() {
 			var toGossip []types.Tx
 
 			memR.insertedTxsMtx.Lock()
-			// sweep expired gossipHistory entries
-			for k, entry := range memR.gossipHistory {
-				if !entry.expiry.After(now) {
-					delete(memR.gossipHistory, k)
-				}
-			}
-			for k, entry := range memR.insertedTxs {
-				if memR.mempool.IsIncludedTx(entry.tx) {
+			for k, tx := range memR.insertedTxs {
+				if memR.mempool.IsIncludedTx(tx) {
 					delete(memR.insertedTxs, k)
 					continue
 				}
 				if memR.shouldGossipNowLocked(k, now, curHeight) {
-					toGossip = append(toGossip, entry.tx)
+					toGossip = append(toGossip, tx)
 					memR.recordGossipLocked(k, now, curHeight)
 				}
 			}
@@ -262,8 +263,12 @@ func (memR *Reactor) regossipLoop() {
 // the last gossip of this tx to fire another broadcast under exponential backoff.
 // Caller must hold insertedTxsMtx.
 func (memR *Reactor) shouldGossipNowLocked(key types.TxKey, now time.Time, curHeight int64) bool {
-	entry, ok := memR.gossipHistory[key]
+	entry, ok := memR.gossipHistory.Get(key)
 	if !ok {
+		return true
+	}
+	if !entry.expiry.After(now) {
+		memR.gossipHistory.Remove(key)
 		return true
 	}
 
@@ -284,16 +289,16 @@ func (memR *Reactor) shouldGossipNowLocked(key types.TxKey, now time.Time, curHe
 // recordGossipLocked updates gossip history after a successful broadcast.
 // Caller must hold insertedTxsMtx.
 func (memR *Reactor) recordGossipLocked(key types.TxKey, now time.Time, curHeight int64) {
-	entry, ok := memR.gossipHistory[key]
+	entry, ok := memR.gossipHistory.Get(key)
 	if !ok {
 		entry = &gossipHistoryEntry{}
-		memR.gossipHistory[key] = entry
 	}
 
 	entry.lastGossipTime = now
 	entry.lastGossipHeight = curHeight
 	entry.attempts++
 	entry.expiry = now.Add(gossipHistoryTTL)
+	memR.gossipHistory.Add(key, entry)
 }
 
 // gossipTxToPeers sends a tx to all connected peers, skipping the excluding peer.
