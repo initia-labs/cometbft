@@ -224,7 +224,7 @@ func (mp *ProxyMempool) CheckTx(
 // hash and asks CheckTx to reject the same bytes locally for a short period.
 //
 // The cooldown is adaptive per hash: one removal gets the base TTL, and
-// repeated removals before the previous cooldown expires extend the TTL
+// repeated removals while the tx remains in the LRU extend the TTL
 // exponentially up to a cap. The LRU size bound keeps both active cooldowns and
 // repeated-removal counters bounded by the node's normal tx cache size.
 func (mp *ProxyMempool) AddAdmissionCooldown(txKey types.TxKey) {
@@ -236,8 +236,6 @@ func (mp *ProxyMempool) AddAdmissionCooldown(txKey types.TxKey) {
 	entry, ok := mp.admissionCooldown.Get(txKey)
 	if !ok {
 		entry = &admissionCooldownEntry{}
-	} else if !entry.expiry.After(now) {
-		entry.removals = 0
 	}
 
 	entry.removals++
@@ -260,7 +258,6 @@ func (mp *ProxyMempool) isAdmissionCoolingDown(txKey types.TxKey) bool {
 		return true
 	}
 
-	mp.admissionCooldown.Remove(txKey)
 	return false
 }
 

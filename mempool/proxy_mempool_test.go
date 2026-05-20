@@ -219,6 +219,36 @@ func TestProxyMempool_AddAdmissionCooldown_ExtendsRepeatedRemovals(t *testing.T)
 	require.True(t, secondExpiry.After(firstExpiry), "repeated removals should extend cooldown")
 }
 
+func TestProxyMempool_AddAdmissionCooldown_ExtendsAfterExpiredCooldown(t *testing.T) {
+	conn := newMockAppConn(t)
+	mp := NewProxyMempool(newTestConfig(), conn, 0)
+	mp.SetLogger(log.NewNopLogger())
+
+	txKey := types.Tx("expired-repeated-removal-tx").Key()
+
+	mp.admissionCooldownMtx.Lock()
+	mp.admissionCooldown.Add(txKey, &admissionCooldownEntry{
+		removals: 1,
+		expiry:   time.Now().Add(-time.Second),
+	})
+	mp.admissionCooldownMtx.Unlock()
+
+	require.False(t, mp.isAdmissionCoolingDown(txKey))
+
+	mp.AddAdmissionCooldown(txKey)
+
+	mp.admissionCooldownMtx.Lock()
+	entry, ok := mp.admissionCooldown.Get(txKey)
+	removals := 0
+	if ok {
+		removals = entry.removals
+	}
+	mp.admissionCooldownMtx.Unlock()
+
+	require.True(t, ok)
+	require.Equal(t, 2, removals)
+}
+
 func TestProxyMempool_AddAdmissionCooldown_BoundsCacheByCacheSize(t *testing.T) {
 	conn := newMockAppConn(t)
 	cfg := newTestConfig()
