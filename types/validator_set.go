@@ -355,6 +355,9 @@ func (vals *ValidatorSet) GetProposer() (proposer *Validator) {
 	if vals.Proposer == nil {
 		vals.Proposer = vals.findProposer()
 	}
+	if vals.Proposer == nil {
+		panic("validator set has no sequencer proposer")
+	}
 	return vals.Proposer.Copy()
 }
 

@@ -23,7 +23,8 @@ func TestStoreLoadValidators(t *testing.T) {
 	stateStore := sm.NewStore(stateDB, sm.StoreOptions{
 		DiscardABCIResponses: false,
 	})
-	val, _ := types.RandValidator(true, 10)
+	pubKey := ed25519.GenPrivKey().PubKey()
+	val := types.NewValidator(pubKey, types.SequencerVotingPower)
 	vals := types.NewValidatorSet([]*types.Validator{val})
 
 	// 1) LoadValidators loads validators using a height where they were last changed
@@ -125,7 +126,7 @@ func TestPruneStates(t *testing.T) {
 
 			// Generate a bunch of state data. Validators change for heights ending with 3, and
 			// parameters when ending with 5.
-			validator := &types.Validator{Address: pk.Address(), VotingPower: 100, PubKey: pk}
+			validator := &types.Validator{Address: pk.Address(), VotingPower: types.SequencerVotingPower, PubKey: pk}
 			validatorSet := &types.ValidatorSet{
 				Validators: []*types.Validator{validator},
 				Proposer:   validator,
